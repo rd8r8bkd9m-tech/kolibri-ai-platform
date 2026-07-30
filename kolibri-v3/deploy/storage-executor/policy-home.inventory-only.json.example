@@ -1,0 +1,97 @@
+{
+  "policy": {
+    "policyVersion": "home-inventory-2026-07-30",
+    "protocolVersion": "v1",
+    "nodeId": "home",
+    "executeEnabled": false,
+    "previewTtlSeconds": 900,
+    "quarantineRetentionSeconds": 604800,
+    "limits": {
+      "maxCandidates": 100,
+      "maxBytesPerOperation": 10737418240,
+      "maxScanEntries": 100000,
+      "maxScanDepth": 32,
+      "maxRequestBytes": 65536
+    },
+    "capacityTopology": {
+      "lvmBackupPath": "/etc/lvm/backup/ubuntu-vg",
+      "rootLvName": "ubuntu-lv",
+      "rootDisplayName": "Корневой LV",
+      "reserveDisplayName": "Нераспределённый резерв VG"
+    },
+    "roots": [
+      {
+        "rootId": "executor-build-staging",
+        "kind": "build",
+        "path": "/var/cache/kolibri-storage-executor/build",
+        "minimumAgeSeconds": 86400
+      },
+      {
+        "rootId": "executor-package-cache",
+        "kind": "cache",
+        "path": "/var/cache/kolibri-storage-executor/cache",
+        "minimumAgeSeconds": 86400
+      },
+      {
+        "rootId": "executor-log-archive",
+        "kind": "log",
+        "path": "/var/log/kolibri-storage-executor/archive",
+        "minimumAgeSeconds": 604800
+      },
+      {
+        "rootId": "signed-project-candidates",
+        "kind": "project-source",
+        "path": "/var/lib/kolibri-storage-executor/project-candidates",
+        "minimumAgeSeconds": 604800
+      },
+      {
+        "rootId": "project-quarantine",
+        "kind": "project-quarantine",
+        "path": "/var/lib/kolibri-storage-executor/quarantine",
+        "minimumAgeSeconds": 0
+      }
+    ],
+    "guards": [
+      {
+        "scope": "active-release",
+        "paths": [
+          "/opt/kolibri-v3/current",
+          "/opt/kolibri-v3/releases",
+          "/opt/kolibri-ai/current"
+        ]
+      },
+      {
+        "scope": "current-symlink",
+        "paths": [
+          "/opt/kolibri-v3/current",
+          "/opt/kolibri-ai/current",
+          "/opt/kolibri-ai/canary-r9"
+        ]
+      },
+      {
+        "scope": "primary-database",
+        "paths": [
+          "/opt/kolibri-v3/var",
+          "/etc/kolibri-v3"
+        ]
+      },
+      {
+        "scope": "durable-volumes",
+        "paths": [
+          "/var/lib/docker/volumes",
+          "/home/ladik/src/kolibri-ai-platform",
+          "/srv/kolibri/repo"
+        ]
+      },
+      {
+        "scope": "agent-runtime-state",
+        "paths": [
+          "/home/ladik/.kolibri-agent/artifacts",
+          "/home/ladik/qwen-kolibri-rust-gateway",
+          "/home/ladik/kolibri-fabrika"
+        ]
+      }
+    ]
+  },
+  "signatureHex": "SIGN_OFFLINE_AND_REPLACE_THIS_VALUE"
+}

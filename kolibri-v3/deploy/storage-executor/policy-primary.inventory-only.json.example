@@ -1,0 +1,89 @@
+{
+  "policy": {
+    "policyVersion": "primary-inventory-2026-07-30",
+    "protocolVersion": "v1",
+    "nodeId": "primary",
+    "executeEnabled": false,
+    "previewTtlSeconds": 900,
+    "quarantineRetentionSeconds": 604800,
+    "limits": {
+      "maxCandidates": 50,
+      "maxBytesPerOperation": 5368709120,
+      "maxScanEntries": 50000,
+      "maxScanDepth": 32,
+      "maxRequestBytes": 65536
+    },
+    "capacityTopology": null,
+    "roots": [
+      {
+        "rootId": "executor-build-staging",
+        "kind": "build",
+        "path": "/var/cache/kolibri-storage-executor/build",
+        "minimumAgeSeconds": 86400
+      },
+      {
+        "rootId": "executor-package-cache",
+        "kind": "cache",
+        "path": "/var/cache/kolibri-storage-executor/cache",
+        "minimumAgeSeconds": 86400
+      },
+      {
+        "rootId": "executor-log-archive",
+        "kind": "log",
+        "path": "/var/log/kolibri-storage-executor/archive",
+        "minimumAgeSeconds": 604800
+      },
+      {
+        "rootId": "signed-project-candidates",
+        "kind": "project-source",
+        "path": "/var/lib/kolibri-storage-executor/project-candidates",
+        "minimumAgeSeconds": 604800
+      },
+      {
+        "rootId": "project-quarantine",
+        "kind": "project-quarantine",
+        "path": "/var/lib/kolibri-storage-executor/quarantine",
+        "minimumAgeSeconds": 0
+      }
+    ],
+    "guards": [
+      {
+        "scope": "active-release",
+        "paths": [
+          "/opt/kolibri-ai-platform",
+          "/srv/kolibri"
+        ]
+      },
+      {
+        "scope": "current-symlink",
+        "paths": [
+          "/opt/kolibri-ai-platform/current",
+          "/srv/kolibri/current"
+        ]
+      },
+      {
+        "scope": "primary-database",
+        "paths": [
+          "/srv/kolibri",
+          "/var/lib/kolibri-agent"
+        ]
+      },
+      {
+        "scope": "durable-volumes",
+        "paths": [
+          "/var/lib/docker/volumes",
+          "/opt/actions-runner"
+        ]
+      },
+      {
+        "scope": "agent-runtime-state",
+        "paths": [
+          "/var/lib/kolibri-agent",
+          "/home/runner/actions-runner",
+          "/opt/actions-runner"
+        ]
+      }
+    ]
+  },
+  "signatureHex": "SIGN_OFFLINE_AND_REPLACE_THIS_VALUE"
+}

@@ -1,0 +1,6 @@
+{
+  "schema_id": "kolibri.product.thread_update_request",
+  "schema_version": "1.0",
+  "expected_thread_version": 1,
+  "title": "Основной диалог проекта"
+}

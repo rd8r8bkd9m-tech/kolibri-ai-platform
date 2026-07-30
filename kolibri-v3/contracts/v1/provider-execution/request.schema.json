@@ -1,0 +1,66 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://schemas.kolibriai.ru/v1/provider-execution/request.schema.json",
+  "title": "Kolibri provider execution request v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id",
+    "schema_version",
+    "effect_key",
+    "task",
+    "attempt",
+    "agent_assignment",
+    "requester_assignment",
+    "a2a_request",
+    "developer_dispatch",
+    "source_command",
+    "lease_source"
+  ],
+  "properties": {
+    "schema_id": { "const": "kolibri.provider_execution.request" },
+    "schema_version": { "const": "1.0" },
+    "effect_key": {
+      "type": "string",
+      "pattern": "^effect_[0-9a-f]{40}$"
+    },
+    "task": {
+      "$ref": "https://schemas.kolibriai.ru/v1/tasks/task.schema.json"
+    },
+    "attempt": {
+      "$ref": "https://schemas.kolibriai.ru/v1/tasks/attempt.schema.json"
+    },
+    "agent_assignment": {
+      "$ref": "https://schemas.kolibriai.ru/v1/agents/assignment.schema.json"
+    },
+    "requester_assignment": {
+      "$ref": "https://schemas.kolibriai.ru/v1/agents/assignment.schema.json"
+    },
+    "a2a_request": {
+      "$ref": "https://schemas.kolibriai.ru/v1/a2a/message.schema.json"
+    },
+    "developer_dispatch": {
+      "oneOf": [
+        {
+          "$ref": "https://schemas.kolibriai.ru/v1/product/developer-dispatch.schema.json"
+        },
+        {
+          "$ref": "https://schemas.kolibriai.ru/v1/product/developer-dispatch-v1.1.schema.json"
+        }
+      ]
+    },
+    "source_command": {
+      "$ref": "https://schemas.kolibriai.ru/v1/common/command-envelope.schema.json"
+    },
+    "lease_source": {
+      "oneOf": [
+        {
+          "$ref": "https://schemas.kolibriai.ru/v1/product/developer-lease-source.schema.json"
+        },
+        {
+          "$ref": "https://schemas.kolibriai.ru/v1/product/developer-lease-source-v1.1.schema.json"
+        }
+      ]
+    }
+  }
+}

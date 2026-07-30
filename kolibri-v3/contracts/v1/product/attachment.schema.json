@@ -1,0 +1,57 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://schemas.kolibriai.ru/v1/product/attachment.schema.json",
+  "title": "Kolibri Product Attachment v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id",
+    "schema_version",
+    "tenant_id",
+    "user_id",
+    "project_id",
+    "attachment_id",
+    "artifact_id",
+    "artifact_version",
+    "content_hash",
+    "filename",
+    "mime_type",
+    "size_bytes",
+    "content_path",
+    "status",
+    "created_by",
+    "created_at"
+  ],
+  "properties": {
+    "schema_id": { "const": "kolibri.product.attachment" },
+    "schema_version": { "const": "1.0" },
+    "tenant_id": { "$ref": "#/definitions/opaque_id" },
+    "user_id": { "$ref": "#/definitions/opaque_id" },
+    "project_id": { "$ref": "#/definitions/opaque_id" },
+    "attachment_id": { "$ref": "#/definitions/opaque_id" },
+    "artifact_id": { "$ref": "#/definitions/opaque_id" },
+    "artifact_version": { "type": "integer", "minimum": 1 },
+    "content_hash": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "filename": { "type": "string", "minLength": 1, "maxLength": 512 },
+    "mime_type": { "type": "string", "minLength": 3, "maxLength": 160 },
+    "size_bytes": { "type": "integer", "minimum": 1, "maximum": 52428800 },
+    "content_path": {
+      "type": "string",
+      "pattern": "^/api/product/v1/attachments/attachment_[A-Za-z0-9][A-Za-z0-9._~-]{5,127}/content$"
+    },
+    "status": { "const": "available" },
+    "created_by": { "$ref": "#/definitions/opaque_id" },
+    "created_at": { "type": "string", "format": "date-time" }
+  },
+  "definitions": {
+    "opaque_id": {
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 160,
+      "pattern": "^[a-z][a-z0-9_]{1,31}_[A-Za-z0-9][A-Za-z0-9._~-]{5,127}$"
+    }
+  }
+}

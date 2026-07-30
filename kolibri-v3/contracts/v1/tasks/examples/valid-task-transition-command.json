@@ -1,0 +1,62 @@
+{
+  "schema_id": "kolibri.command",
+  "schema_version": "1.0",
+  "message_id": "cmd_01JZTASKTRANS001",
+  "command_name": "task.transition",
+  "payload_schema_id": "kolibri.task.transition.command",
+  "payload_schema_version": "1.0",
+  "issued_at": "2026-07-24T00:40:00+03:00",
+  "deadline_at": "2026-07-24T00:41:00+03:00",
+  "target_owner": "logical_home_control_plane",
+  "identity": {
+    "tenant_id": "ten_01JZTENANT0001",
+    "user_id": null,
+    "actor": {
+      "actor_id": "worker_01JZPRIMARY001",
+      "actor_type": "system"
+    },
+    "authority": {
+      "authority_id": "auth_01JZLHCP000001",
+      "authority_role": "logical_home_control_plane",
+      "authority_epoch": 7,
+      "authority_placement_id": "placement_home_01",
+      "authorization_decision_id": "decision_01JZTASKAUTH1",
+      "capabilities": [
+        "task.transition"
+      ]
+    },
+    "subject_refs": {
+      "goal_id": "goal_01JZGOAL000001",
+      "case_id": "case_01JZCASE000001",
+      "task_id": "task_01JZESTIMATE001"
+    }
+  },
+  "trace": {
+    "trace_id": "4123456789abcdef0123456789abcdef",
+    "span_id": "4123456789abcdef",
+    "parent_span_id": "3123456789abcdef",
+    "correlation_id": "corr_01JZESTWORKFLOW",
+    "causation_id": "evt_01JZWORKDONE001"
+  },
+  "idempotency": {
+    "key": "task.transition:01JZTASKTRANS1",
+    "scope": "task",
+    "scope_id": "task_01JZESTIMATE001",
+    "canonical_request_hash": "sha256:67af6297ca2d51a27172893543a7b538cbe69268ce3e6dcd36431ba0e9b12c65"
+  },
+  "payload": {
+    "schema_id": "kolibri.task.transition.command",
+    "schema_version": "1.0",
+    "task_id": "task_01JZESTIMATE001",
+    "expected_version": 5,
+    "next_version": 6,
+    "from_status": "running",
+    "to_status": "submitted",
+    "attempt_id": "attempt_01JZESTIMATE01",
+    "assignment_id": "assignment_01JZEST01",
+    "lease_id": "lease_01JZESTIMATE001",
+    "fencing_token": 11,
+    "reason": "Смета и evidence manifest переданы на проверку.",
+    "requested_at": "2026-07-24T00:40:00+03:00"
+  }
+}

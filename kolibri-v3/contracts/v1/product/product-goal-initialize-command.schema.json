@@ -1,0 +1,66 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://schemas.kolibriai.ru/v1/product/product-goal-initialize-command.schema.json",
+  "title": "Kolibri Product goal initialization command payload v1",
+  "description": "Product/Data Authority request for Logical Home to initialize one canonical Goal and its deterministic ProjectCase.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id",
+    "schema_version",
+    "tenant_id",
+    "project_id",
+    "thread_id",
+    "run_id",
+    "input_message_id",
+    "goal_id",
+    "prompt",
+    "prompt_hash"
+  ],
+  "properties": {
+    "schema_id": {
+      "const": "kolibri.product.goal.initialize.command"
+    },
+    "schema_version": {
+      "const": "1.0"
+    },
+    "tenant_id": {
+      "$ref": "#/definitions/opaque_id"
+    },
+    "project_id": {
+      "$ref": "#/definitions/opaque_id"
+    },
+    "thread_id": {
+      "$ref": "#/definitions/opaque_id"
+    },
+    "run_id": {
+      "$ref": "#/definitions/opaque_id"
+    },
+    "input_message_id": {
+      "$ref": "#/definitions/opaque_id"
+    },
+    "goal_id": {
+      "$ref": "#/definitions/opaque_id"
+    },
+    "prompt": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 20000
+    },
+    "prompt_hash": {
+      "$ref": "#/definitions/sha256"
+    }
+  },
+  "definitions": {
+    "opaque_id": {
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 160,
+      "pattern": "^[a-z][a-z0-9_]{1,31}_[A-Za-z0-9][A-Za-z0-9._~-]{5,127}$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    }
+  }
+}

@@ -1,0 +1,551 @@
+{
+  "suite_id": "kolibri.contract_compatibility.v1",
+  "suite_version": "1.0",
+  "cases": [
+    {
+      "name": "valid_goal_v1",
+      "source": "contracts/v1/goals/examples/valid-goal.json",
+      "mutation": null,
+      "expected": {
+        "ok": true,
+        "code": null
+      }
+    },
+    {
+      "name": "old_goal_v0_9",
+      "source": "contracts/v1/goals/examples/valid-goal.json",
+      "mutation": {
+        "operation": "replace",
+        "path": "/schema_version",
+        "value": "0.9"
+      },
+      "expected": {
+        "ok": false,
+        "code": "unsupported_schema"
+      }
+    },
+    {
+      "name": "future_minor_goal_v1_1",
+      "source": "contracts/v1/goals/examples/valid-goal.json",
+      "mutation": {
+        "operation": "replace",
+        "path": "/schema_version",
+        "value": "1.1"
+      },
+      "expected": {
+        "ok": false,
+        "code": "unsupported_schema"
+      }
+    },
+    {
+      "name": "future_major_goal_v2",
+      "source": "contracts/v1/goals/examples/valid-goal.json",
+      "mutation": {
+        "operation": "replace",
+        "path": "/schema_version",
+        "value": "2.0"
+      },
+      "expected": {
+        "ok": false,
+        "code": "unsupported_schema"
+      }
+    },
+    {
+      "name": "valid_goal_create_v1",
+      "source": "contracts/v1/goals/examples/valid-goal-create.json",
+      "mutation": null,
+      "expected": {
+        "ok": true,
+        "code": null
+      }
+    },
+    {
+      "name": "old_goal_create_v0_9",
+      "source": "contracts/v1/goals/examples/valid-goal-create.json",
+      "mutation": {
+        "operation": "replace",
+        "path": "/schema_version",
+        "value": "0.9"
+      },
+      "expected": {
+        "ok": false,
+        "code": "unsupported_schema"
+      }
+    },
+    {
+      "name": "future_goal_create_v2",
+      "source": "contracts/v1/goals/examples/valid-goal-create.json",
+      "mutation": {
+        "operation": "replace",
+        "path": "/schema_version",
+        "value": "2.0"
+      },
+      "expected": {
+        "ok": false,
+        "code": "unsupported_schema"
+      }
+    },
+    {
+      "name": "valid_goal_update_v1",
+      "source": "contracts/v1/goals/examples/valid-goal-update.json",
+      "mutation": null,
+      "expected": {
+        "ok": true,
+        "code": null
+      }
+    },
+    {
+      "name": "old_goal_update_v0_9",
+      "source": "contracts/v1/goals/examples/valid-goal-update.json",
+      "mutation": {
+        "operation": "replace",
+        "path": "/schema_version",
+        "value": "0.9"
+      },
+      "expected": {
+        "ok": false,
+        "code": "unsupported_schema"
+      }
+    },
+    {
+      "name": "future_goal_update_v2",
+      "source": "contracts/v1/goals/examples/valid-goal-update.json",
+      "mutation": {
+        "operation": "replace",
+        "path": "/schema_version",
+        "value": "2.0"
+      },
+      "expected": {
+        "ok": false,
+        "code": "unsupported_schema"
+      }
+    },
+    {
+      "name": "valid_goal_changed_event_v1",
+      "source": "contracts/v1/goals/examples/valid-goal-change-event.json",
+      "mutation": null,
+      "expected": {
+        "ok": true,
+        "code": null
+      }
+    },
+    {
+      "name": "old_goal_changed_event_v0_9",
+      "source": "contracts/v1/goals/examples/valid-goal-change-event.json",
+      "mutation": {
+        "operation": "replace",
+        "path": "/schema_version",
+        "value": "0.9"
+      },
+      "expected": {
+        "ok": false,
+        "code": "unsupported_schema"
+      }
+    },
+    {
+      "name": "future_goal_changed_event_v2",
+      "source": "contracts/v1/goals/examples/valid-goal-change-event.json",
+      "mutation": {
+        "operation": "replace",
+        "path": "/schema_version",
+        "value": "2.0"
+      },
+      "expected": {
+        "ok": false,
+        "code": "unsupported_schema"
+      }
+    },
+    {
+      "name": "valid_task_graph_v1",
+      "source": "contracts/v1/tasks/examples/valid-task-graph.json",
+      "mutation": null,
+      "expected": {
+        "ok": true,
+        "code": null
+      }
+    },
+    {
+      "name": "old_task_graph_v0_9",
+      "source": "contracts/v1/tasks/examples/valid-task-graph.json",
+      "mutation": {
+        "operation": "replace",
+        "path": "/schema_version",
+        "value": "0.9"
+      },
+      "expected": {
+        "ok": false,
+        "code": "unsupported_schema"
+      }
+    },
+    {
+      "name": "future_task_graph_v2",
+      "source": "contracts/v1/tasks/examples/valid-task-graph.json",
+      "mutation": {
+        "operation": "replace",
+        "path": "/schema_version",
+        "value": "2.0"
+      },
+      "expected": {
+        "ok": false,
+        "code": "unsupported_schema"
+      }
+    },
+    {
+      "name": "valid_task_graph_apply_v1",
+      "source": "contracts/v1/tasks/examples/valid-task-graph-apply.json",
+      "mutation": null,
+      "expected": {
+        "ok": true,
+        "code": null
+      }
+    },
+    {
+      "name": "valid_task_graph_changed_event_v1",
+      "source": "contracts/v1/tasks/examples/valid-task-graph-change-event.json",
+      "mutation": null,
+      "expected": {
+        "ok": true,
+        "code": null
+      }
+    },
+    {
+      "name": "unknown_schema_id",
+      "source": "contracts/v1/goals/examples/valid-goal.json",
+      "mutation": {
+        "operation": "replace",
+        "path": "/schema_id",
+        "value": "kolibri.unknown"
+      },
+      "expected": {
+        "ok": false,
+        "code": "unsupported_schema"
+      }
+    },
+    {
+      "name": "unknown_field_fails_closed",
+      "source": "contracts/v1/goals/examples/valid-goal.json",
+      "mutation": {
+        "operation": "add",
+        "path": "/unexpected",
+        "value": true
+      },
+      "expected": {
+        "ok": false,
+        "code": "invalid_contract"
+      }
+    },
+    {
+      "name": "missing_required_field",
+      "source": "contracts/v1/goals/examples/valid-goal.json",
+      "mutation": {
+        "operation": "remove",
+        "path": "/goal_id"
+      },
+      "expected": {
+        "ok": false,
+        "code": "invalid_contract"
+      }
+    },
+    {
+      "name": "malformed_non_object",
+      "value": [],
+      "mutation": null,
+      "expected": {
+        "ok": false,
+        "code": "invalid_contract"
+      }
+    },
+    {
+      "name": "nested_map_value_fails_closed",
+      "source": "contracts/v1/a2a/examples/valid-delivery-cursor.json",
+      "mutation": {
+        "operation": "add",
+        "path": "/deduplication_index/bad-entry",
+        "value": {
+          "message_id": "not-an-a2a-id",
+          "content_hash": "not-a-sha256",
+          "unexpected": true
+        }
+      },
+      "expected": {
+        "ok": false,
+        "code": "invalid_contract"
+      }
+    },
+    {
+      "name": "unsafe_integer_fails_closed",
+      "source": "contracts/v1/tasks/examples/valid-owner-state.json",
+      "mutation": {
+        "operation": "replace",
+        "path": "/fencing_token",
+        "value": 9007199254740992
+      },
+      "expected": {
+        "ok": false,
+        "code": "invalid_contract"
+      }
+    },
+    {
+      "name": "non_rfc3339_date_fails_closed",
+      "source": "contracts/v1/goals/examples/valid-goal.json",
+      "mutation": {
+        "operation": "replace",
+        "path": "/created_at",
+        "value": "2026-07-24 00:30:00+03:00"
+      },
+      "expected": {
+        "ok": false,
+        "code": "invalid_contract"
+      }
+    },
+    {
+      "name": "impossible_calendar_date_fails_closed",
+      "source": "contracts/v1/goals/examples/valid-goal.json",
+      "mutation": {
+        "operation": "replace",
+        "path": "/created_at",
+        "value": "2026-02-30T00:00:00Z"
+      },
+      "expected": {
+        "ok": false,
+        "code": "invalid_contract"
+      }
+    },
+    {
+      "name": "valid_product_run_execute_v1_0",
+      "source": "contracts/v1/product/examples/valid-run-execute-command.json",
+      "mutation": null,
+      "expected": {
+        "ok": true,
+        "code": null
+      }
+    },
+    {
+      "name": "valid_product_run_execute_v1_1",
+      "source": "contracts/v1/product/examples/valid-run-execute-command-v1.1.json",
+      "mutation": null,
+      "expected": {
+        "ok": true,
+        "code": null
+      }
+    },
+    {
+      "name": "product_run_execute_v1_1_partial_default_rejected",
+      "source": "contracts/v1/product/examples/valid-run-execute-command-v1.1.json",
+      "mutation": {
+        "operation": "replace",
+        "path": "/preferred_model",
+        "value": null
+      },
+      "expected": {
+        "ok": false,
+        "code": "invalid_contract"
+      }
+    },
+    {
+      "name": "future_product_run_execute_v1_2",
+      "source": "contracts/v1/product/examples/valid-run-execute-command-v1.1.json",
+      "mutation": {
+        "operation": "replace",
+        "path": "/schema_version",
+        "value": "1.2"
+      },
+      "expected": {
+        "ok": false,
+        "code": "unsupported_schema"
+      }
+    },
+    {
+      "name": "malformed_product_run_execute_model",
+      "source": "contracts/v1/product/examples/valid-run-execute-command-v1.1.json",
+      "mutation": {
+        "operation": "replace",
+        "path": "/preferred_model",
+        "value": "provider/model"
+      },
+      "expected": {
+        "ok": false,
+        "code": "invalid_contract"
+      }
+    },
+    {
+      "name": "valid_provider_execution_request_v1",
+      "source": "contracts/v1/provider-execution/examples/valid-request.json",
+      "mutation": null,
+      "expected": {
+        "ok": true,
+        "code": null
+      }
+    },
+    {
+      "name": "old_provider_execution_request_v0_9",
+      "source": "contracts/v1/provider-execution/examples/valid-request.json",
+      "mutation": {
+        "operation": "replace",
+        "path": "/schema_version",
+        "value": "0.9"
+      },
+      "expected": {
+        "ok": false,
+        "code": "unsupported_schema"
+      }
+    },
+    {
+      "name": "malformed_provider_execution_request",
+      "source": "contracts/v1/provider-execution/examples/valid-request.json",
+      "mutation": {
+        "operation": "remove",
+        "path": "/effect_key"
+      },
+      "expected": {
+        "ok": false,
+        "code": "invalid_contract"
+      }
+    },
+    {
+      "name": "provider_execution_attempt_lease_missing_fencing_token",
+      "source": "contracts/v1/provider-execution/examples/valid-request.json",
+      "mutation": {
+        "operation": "remove",
+        "path": "/attempt/lease/fencing_token"
+      },
+      "expected": {
+        "ok": false,
+        "code": "invalid_contract"
+      }
+    },
+    {
+      "name": "provider_execution_task_schema_id_invalid",
+      "source": "contracts/v1/provider-execution/examples/valid-request.json",
+      "mutation": {
+        "operation": "replace",
+        "path": "/task/schema_id",
+        "value": "kolibri.task.invalid"
+      },
+      "expected": {
+        "ok": false,
+        "code": "invalid_contract"
+      }
+    },
+    {
+      "name": "provider_execution_lease_source_rejects_nested_source_command",
+      "source": "contracts/v1/provider-execution/examples/valid-request.json",
+      "mutation": {
+        "operation": "add",
+        "path": "/lease_source/source_command",
+        "value": {
+          "schema_id": "kolibri.command"
+        }
+      },
+      "expected": {
+        "ok": false,
+        "code": "invalid_contract"
+      }
+    },
+    {
+      "name": "valid_provider_execution_catalog_v1",
+      "source": "contracts/v1/provider-execution/examples/valid-catalog.json",
+      "mutation": null,
+      "expected": {
+        "ok": true,
+        "code": null
+      }
+    },
+    {
+      "name": "old_provider_execution_catalog_v0_9",
+      "source": "contracts/v1/provider-execution/examples/valid-catalog.json",
+      "mutation": {
+        "operation": "replace",
+        "path": "/schema_version",
+        "value": "0.9"
+      },
+      "expected": {
+        "ok": false,
+        "code": "unsupported_schema"
+      }
+    },
+    {
+      "name": "malformed_provider_execution_catalog",
+      "source": "contracts/v1/provider-execution/examples/valid-catalog.json",
+      "mutation": {
+        "operation": "add",
+        "path": "/unexpected",
+        "value": true
+      },
+      "expected": {
+        "ok": false,
+        "code": "invalid_contract"
+      }
+    },
+    {
+      "name": "valid_provider_execution_result_v1",
+      "source": "contracts/v1/provider-execution/examples/valid-result.json",
+      "mutation": null,
+      "expected": {
+        "ok": true,
+        "code": null
+      }
+    },
+    {
+      "name": "old_provider_execution_result_v0_9",
+      "source": "contracts/v1/provider-execution/examples/valid-result.json",
+      "mutation": {
+        "operation": "replace",
+        "path": "/schema_version",
+        "value": "0.9"
+      },
+      "expected": {
+        "ok": false,
+        "code": "unsupported_schema"
+      }
+    },
+    {
+      "name": "malformed_provider_execution_result",
+      "source": "contracts/v1/provider-execution/examples/valid-result.json",
+      "mutation": {
+        "operation": "replace",
+        "path": "/status",
+        "value": "unknown"
+      },
+      "expected": {
+        "ok": false,
+        "code": "invalid_contract"
+      }
+    },
+    {
+      "name": "valid_agent_assignment_status_changed_event_v1",
+      "source": "contracts/v1/agents/examples/valid-assignment-status-changed-event.json",
+      "mutation": null,
+      "expected": {
+        "ok": true,
+        "code": null
+      }
+    },
+    {
+      "name": "old_agent_assignment_status_changed_event_v0_9",
+      "source": "contracts/v1/agents/examples/valid-assignment-status-changed-event.json",
+      "mutation": {
+        "operation": "replace",
+        "path": "/schema_version",
+        "value": "0.9"
+      },
+      "expected": {
+        "ok": false,
+        "code": "unsupported_schema"
+      }
+    },
+    {
+      "name": "malformed_agent_assignment_status_changed_event",
+      "source": "contracts/v1/agents/examples/valid-assignment-status-changed-event.json",
+      "mutation": {
+        "operation": "replace",
+        "path": "/new_status",
+        "value": "failed"
+      },
+      "expected": {
+        "ok": false,
+        "code": "invalid_contract"
+      }
+    }
+  ]
+}

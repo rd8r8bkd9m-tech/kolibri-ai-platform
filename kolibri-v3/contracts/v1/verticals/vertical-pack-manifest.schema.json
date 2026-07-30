@@ -1,0 +1,235 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kolibriai.ru/contracts/v1/verticals/vertical-pack-manifest.schema.json",
+  "title": "Kolibri vertical pack manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "verticalId",
+    "packageVersion",
+    "displayName",
+    "capabilities",
+    "artifactKinds",
+    "agentCapabilities",
+    "policies"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "1.0"
+    },
+    "verticalId": {
+      "$ref": "#/$defs/capabilityId"
+    },
+    "packageVersion": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+    },
+    "displayName": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ru"
+      ],
+      "properties": {
+        "ru": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "en": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        }
+      }
+    },
+    "capabilities": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 128,
+      "items": {
+        "$ref": "#/$defs/capability"
+      }
+    },
+    "artifactKinds": {
+      "type": "array",
+      "maxItems": 64,
+      "items": {
+        "$ref": "#/$defs/artifactKind"
+      }
+    },
+    "agentCapabilities": {
+      "type": "array",
+      "maxItems": 128,
+      "items": {
+        "$ref": "#/$defs/agentCapability"
+      }
+    },
+    "policies": {
+      "$ref": "#/$defs/policies"
+    }
+  },
+  "$defs": {
+    "capabilityId": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 160,
+      "pattern": "^[a-z][a-z0-9]*(\\.[a-z][a-z0-9_-]*)+$"
+    },
+    "contractId": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 240,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:/-]*$"
+    },
+    "entitlement": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 160,
+      "pattern": "^[a-z][a-z0-9]*(\\.[a-z][a-z0-9_-]*)+$"
+    },
+    "clientSurfaces": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "web",
+          "ios",
+          "android",
+          "desktop"
+        ]
+      }
+    },
+    "capability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kind",
+        "contractId",
+        "clientSurfaces",
+        "requiredEntitlement"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/capabilityId"
+        },
+        "kind": {
+          "enum": [
+            "navigation",
+            "workflow",
+            "calculation",
+            "source",
+            "export",
+            "integration"
+          ]
+        },
+        "contractId": {
+          "$ref": "#/$defs/contractId"
+        },
+        "clientSurfaces": {
+          "$ref": "#/$defs/clientSurfaces"
+        },
+        "requiredEntitlement": {
+          "$ref": "#/$defs/entitlement"
+        }
+      }
+    },
+    "artifactKind": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "contractId",
+        "rendererKey",
+        "editorKey",
+        "exportFormats"
+      ],
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/capabilityId"
+        },
+        "contractId": {
+          "$ref": "#/$defs/contractId"
+        },
+        "rendererKey": {
+          "$ref": "#/$defs/contractId"
+        },
+        "editorKey": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/contractId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "exportFormats": {
+          "type": "array",
+          "uniqueItems": true,
+          "maxItems": 32,
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9._-]{0,31}$"
+          }
+        }
+      }
+    },
+    "agentCapability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "inputContractId",
+        "outputContractId",
+        "humanApprovalRequired"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/capabilityId"
+        },
+        "inputContractId": {
+          "$ref": "#/$defs/contractId"
+        },
+        "outputContractId": {
+          "$ref": "#/$defs/contractId"
+        },
+        "humanApprovalRequired": {
+          "type": "boolean"
+        }
+      }
+    },
+    "policies": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "dataClassification",
+        "sourcePolicyId",
+        "approvalPolicyId",
+        "crossTenantSharingAllowed"
+      ],
+      "properties": {
+        "dataClassification": {
+          "enum": [
+            "business",
+            "sensitive",
+            "regulated"
+          ]
+        },
+        "sourcePolicyId": {
+          "$ref": "#/$defs/contractId"
+        },
+        "approvalPolicyId": {
+          "$ref": "#/$defs/contractId"
+        },
+        "crossTenantSharingAllowed": {
+          "const": false
+        }
+      }
+    }
+  }
+}
+

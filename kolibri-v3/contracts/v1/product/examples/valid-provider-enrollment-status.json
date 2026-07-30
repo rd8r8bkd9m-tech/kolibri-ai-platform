@@ -1,0 +1,13 @@
+{
+  "schema_id": "kolibri.product.provider.enrollment_status",
+  "schema_version": "1.0",
+  "tenant_id": "tenant_00000001",
+  "intent_id": "intent_00000001",
+  "provider_id": "codex-cli",
+  "status": "connected",
+  "observed_at": "2026-07-28T12:00:00Z",
+  "auth_flow_supported": false,
+  "last_verified_at": "2026-07-28T12:00:00Z",
+  "evidence_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "error": null
+}

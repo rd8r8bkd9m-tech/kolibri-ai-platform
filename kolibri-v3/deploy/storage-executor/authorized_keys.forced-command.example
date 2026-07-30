@@ -1,0 +1,1 @@
+restrict,command="/usr/local/libexec/kolibri-storage-executor --transport stdio --policy /etc/kolibri-storage-executor/policy.json --public-key-hex REPLACE_WITH_PUBLIC_KEY_HEX --state-db /var/lib/kolibri-storage-executor/executor.db" ssh-ed25519 REPLACE_WITH_RECOVERY_TRANSPORT_PUBLIC_KEY kolibri-storage-recovery

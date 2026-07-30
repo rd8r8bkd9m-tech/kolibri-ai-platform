@@ -1,0 +1,186 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://schemas.kolibriai.ru/v1/product/message-part.schema.json",
+  "title": "Kolibri Product Message Part v1",
+  "oneOf": [
+    { "$ref": "#/definitions/text" },
+    { "$ref": "#/definitions/attachment_ref" },
+    { "$ref": "#/definitions/tool_call_ref" },
+    { "$ref": "#/definitions/tool_result_ref" },
+    { "$ref": "#/definitions/artifact_ref" },
+    { "$ref": "#/definitions/citation_ref" },
+    { "$ref": "#/definitions/interrupt_ref" }
+  ],
+  "definitions": {
+    "opaque_id": {
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 160,
+      "pattern": "^[a-z][a-z0-9_]{1,31}_[A-Za-z0-9][A-Za-z0-9._~-]{5,127}$"
+    },
+    "hash": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "base": {
+      "type": "object",
+      "required": ["part_id", "type"],
+      "properties": {
+        "part_id": { "$ref": "#/definitions/opaque_id" },
+        "type": { "type": "string" }
+      }
+    },
+    "text": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["part_id", "type", "format", "text"],
+      "properties": {
+        "part_id": { "$ref": "#/definitions/opaque_id" },
+        "type": { "const": "text" },
+        "format": { "type": "string", "enum": ["plain", "markdown"] },
+        "text": { "type": "string", "minLength": 1, "maxLength": 200000 }
+      }
+    },
+    "attachment_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "part_id",
+        "type",
+        "tenant_id",
+        "artifact_id",
+        "artifact_version",
+        "content_hash",
+        "filename",
+        "mime_type",
+        "size_bytes"
+      ],
+      "properties": {
+        "part_id": { "$ref": "#/definitions/opaque_id" },
+        "type": { "const": "attachment_ref" },
+        "tenant_id": { "$ref": "#/definitions/opaque_id" },
+        "artifact_id": { "$ref": "#/definitions/opaque_id" },
+        "artifact_version": { "type": "integer", "minimum": 1 },
+        "content_hash": { "$ref": "#/definitions/hash" },
+        "filename": { "type": "string", "minLength": 1, "maxLength": 512 },
+        "mime_type": { "type": "string", "minLength": 3, "maxLength": 160 },
+        "size_bytes": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "tool_call_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "part_id",
+        "type",
+        "tool_call_id",
+        "tool_name",
+        "input_schema_id",
+        "input_schema_version",
+        "input_hash"
+      ],
+      "properties": {
+        "part_id": { "$ref": "#/definitions/opaque_id" },
+        "type": { "const": "tool_call_ref" },
+        "tool_call_id": { "$ref": "#/definitions/opaque_id" },
+        "tool_name": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_.:-]{2,127}$"
+        },
+        "input_schema_id": {
+          "type": "string",
+          "pattern": "^kolibri\\.[a-z][a-z0-9_.:-]{2,127}$"
+        },
+        "input_schema_version": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]*\\.[0-9]+$"
+        },
+        "input_hash": { "$ref": "#/definitions/hash" }
+      }
+    },
+    "tool_result_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "part_id",
+        "type",
+        "tool_call_id",
+        "result_schema_id",
+        "result_schema_version",
+        "result_hash"
+      ],
+      "properties": {
+        "part_id": { "$ref": "#/definitions/opaque_id" },
+        "type": { "const": "tool_result_ref" },
+        "tool_call_id": { "$ref": "#/definitions/opaque_id" },
+        "result_schema_id": {
+          "type": "string",
+          "pattern": "^kolibri\\.[a-z][a-z0-9_.:-]{2,127}$"
+        },
+        "result_schema_version": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]*\\.[0-9]+$"
+        },
+        "result_hash": { "$ref": "#/definitions/hash" }
+      }
+    },
+    "artifact_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "part_id",
+        "type",
+        "tenant_id",
+        "artifact_id",
+        "artifact_version",
+        "content_hash",
+        "artifact_kind"
+      ],
+      "properties": {
+        "part_id": { "$ref": "#/definitions/opaque_id" },
+        "type": { "const": "artifact_ref" },
+        "tenant_id": { "$ref": "#/definitions/opaque_id" },
+        "artifact_id": { "$ref": "#/definitions/opaque_id" },
+        "artifact_version": { "type": "integer", "minimum": 1 },
+        "content_hash": { "$ref": "#/definitions/hash" },
+        "artifact_kind": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_.:-]{2,127}$"
+        }
+      }
+    },
+    "citation_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "part_id",
+        "type",
+        "source_id",
+        "source_version",
+        "content_hash",
+        "label",
+        "locator"
+      ],
+      "properties": {
+        "part_id": { "$ref": "#/definitions/opaque_id" },
+        "type": { "const": "citation_ref" },
+        "source_id": { "$ref": "#/definitions/opaque_id" },
+        "source_version": { "type": "integer", "minimum": 1 },
+        "content_hash": { "$ref": "#/definitions/hash" },
+        "label": { "type": "string", "minLength": 1, "maxLength": 500 },
+        "locator": { "type": "string", "minLength": 1, "maxLength": 1000 }
+      }
+    },
+    "interrupt_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["part_id", "type", "interrupt_id", "interrupt_version"],
+      "properties": {
+        "part_id": { "$ref": "#/definitions/opaque_id" },
+        "type": { "const": "interrupt_ref" },
+        "interrupt_id": { "$ref": "#/definitions/opaque_id" },
+        "interrupt_version": { "type": "integer", "minimum": 1 }
+      }
+    }
+  }
+}

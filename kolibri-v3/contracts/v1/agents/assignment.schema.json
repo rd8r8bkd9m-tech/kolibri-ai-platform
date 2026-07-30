@@ -1,0 +1,152 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://schemas.kolibriai.ru/v1/agents/assignment.schema.json",
+  "title": "Kolibri AgentAssignment v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id",
+    "schema_version",
+    "assignment_id",
+    "tenant_id",
+    "goal_id",
+    "case_id",
+    "task_id",
+    "task_version",
+    "attempt_id",
+    "assignee_actor_id",
+    "agent_card_id",
+    "agent_card_version",
+    "temporary_role",
+    "purpose",
+    "authority_profile",
+    "context_slice",
+    "budget",
+    "lease_id",
+    "deadline_at",
+    "required_output_ids",
+    "required_evidence_types",
+    "status",
+    "version",
+    "created_at",
+    "updated_at"
+  ],
+  "properties": {
+    "schema_id": { "const": "kolibri.agent_assignment" },
+    "schema_version": { "const": "1.0" },
+    "assignment_id": { "$ref": "#/definitions/opaque_id" },
+    "tenant_id": { "$ref": "#/definitions/opaque_id" },
+    "goal_id": { "$ref": "#/definitions/opaque_id" },
+    "case_id": { "$ref": "#/definitions/opaque_id" },
+    "task_id": { "$ref": "#/definitions/opaque_id" },
+    "task_version": { "type": "integer", "minimum": 1 },
+    "attempt_id": { "$ref": "#/definitions/opaque_id" },
+    "assignee_actor_id": { "$ref": "#/definitions/opaque_id" },
+    "agent_card_id": { "$ref": "#/definitions/opaque_id" },
+    "agent_card_version": { "type": "integer", "minimum": 1 },
+    "temporary_role": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_.:-]{2,127}$"
+    },
+    "purpose": { "type": "string", "minLength": 1, "maxLength": 2000 },
+    "authority_profile": {
+      "$ref": "https://schemas.kolibriai.ru/v1/agents/authority-profile.schema.json"
+    },
+    "context_slice": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "case_version",
+        "fact_ids",
+        "assumption_ids",
+        "decision_ids",
+        "artifact_refs",
+        "classification",
+        "max_bytes"
+      ],
+      "properties": {
+        "case_version": { "type": "integer", "minimum": 1 },
+        "fact_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/definitions/opaque_id" }
+        },
+        "assumption_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/definitions/opaque_id" }
+        },
+        "decision_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/definitions/opaque_id" }
+        },
+        "artifact_refs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/definitions/opaque_id" }
+        },
+        "classification": {
+          "type": "string",
+          "enum": ["public", "internal", "confidential", "restricted"]
+        },
+        "max_bytes": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "budget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "compute_units_limit",
+        "tool_calls_limit",
+        "external_spend_limit_minor",
+        "currency"
+      ],
+      "properties": {
+        "compute_units_limit": { "type": "integer", "minimum": 0 },
+        "tool_calls_limit": { "type": "integer", "minimum": 0 },
+        "external_spend_limit_minor": { "type": "integer", "minimum": 0 },
+        "currency": { "type": "string", "pattern": "^[A-Z]{3}$" }
+      }
+    },
+    "lease_id": { "$ref": "#/definitions/opaque_id" },
+    "deadline_at": { "type": "string", "format": "date-time" },
+    "required_output_ids": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "#/definitions/opaque_id" }
+    },
+    "required_evidence_types": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9_.:-]{2,127}$"
+      }
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "active",
+        "suspended",
+        "completed",
+        "revoked",
+        "expired",
+        "superseded"
+      ]
+    },
+    "version": { "type": "integer", "minimum": 1 },
+    "created_at": { "type": "string", "format": "date-time" },
+    "updated_at": { "type": "string", "format": "date-time" }
+  },
+  "definitions": {
+    "opaque_id": {
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 160,
+      "pattern": "^[a-z][a-z0-9_]{1,31}_[A-Za-z0-9][A-Za-z0-9._~-]{5,127}$"
+    }
+  }
+}

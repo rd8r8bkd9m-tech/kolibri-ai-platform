@@ -1,0 +1,95 @@
+{
+  "schemaVersion": "1.0",
+  "verticalId": "construction.estimates",
+  "packageVersion": "1.0.0",
+  "displayName": {
+    "ru": "Строительные сметы",
+    "en": "Construction Estimates"
+  },
+  "capabilities": [
+    {
+      "id": "construction.estimates.workspace",
+      "kind": "navigation",
+      "contractId": "kolibri.vertical.construction.estimate.workspace/1.0",
+      "clientSurfaces": [
+        "web",
+        "ios",
+        "android",
+        "desktop"
+      ],
+      "requiredEntitlement": "construction.estimates.use"
+    },
+    {
+      "id": "construction.estimates.calculate",
+      "kind": "calculation",
+      "contractId": "contracts/v1/estimates/calculation-request.schema.json",
+      "clientSurfaces": [
+        "web",
+        "ios",
+        "android",
+        "desktop"
+      ],
+      "requiredEntitlement": "construction.estimates.calculate"
+    },
+    {
+      "id": "construction.estimates.price_source",
+      "kind": "source",
+      "contractId": "kolibri.vertical.construction.price-source/1.0",
+      "clientSurfaces": [
+        "web",
+        "ios",
+        "android",
+        "desktop"
+      ],
+      "requiredEntitlement": "construction.estimates.sources"
+    },
+    {
+      "id": "construction.estimates.export",
+      "kind": "export",
+      "contractId": "kolibri.vertical.construction.estimate-export/1.0",
+      "clientSurfaces": [
+        "web",
+        "ios",
+        "android",
+        "desktop"
+      ],
+      "requiredEntitlement": "construction.estimates.export"
+    }
+  ],
+  "artifactKinds": [
+    {
+      "kind": "construction.estimate",
+      "contractId": "kolibri.vertical.construction.estimate/1.0",
+      "rendererKey": "construction.estimate.renderer.v1",
+      "editorKey": "construction.estimate.editor.v1",
+      "exportFormats": [
+        "pdf",
+        "xlsx",
+        "docx",
+        "csv",
+        "zip"
+      ]
+    }
+  ],
+  "agentCapabilities": [
+    {
+      "id": "construction.estimate.intake",
+      "inputContractId": "kolibri.vertical.construction.estimate-intake/1.0",
+      "outputContractId": "kolibri.vertical.construction.estimate-proposal/1.0",
+      "humanApprovalRequired": false
+    },
+    {
+      "id": "construction.estimate.verify",
+      "inputContractId": "kolibri.vertical.construction.estimate/1.0",
+      "outputContractId": "kolibri.vertical.construction.estimate-review/1.0",
+      "humanApprovalRequired": true
+    }
+  ],
+  "policies": {
+    "dataClassification": "business",
+    "sourcePolicyId": "construction.estimate.sources/1.0",
+    "approvalPolicyId": "construction.estimate.approval/1.0",
+    "crossTenantSharingAllowed": false
+  }
+}
+

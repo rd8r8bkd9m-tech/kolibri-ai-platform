@@ -1,0 +1,16 @@
+{
+  "schema_id": "kolibri.product.run.execute.v1_1.command",
+  "schema_version": "1.1",
+  "tenant_id": "tenant_01J00000000000000000000000",
+  "project_id": "project_01J0000000000000000000000",
+  "thread_id": "thread_01J00000000000000000000000",
+  "run_id": "run_01J000000000000000000000000",
+  "input_message_id": "message_01J000000000000000000000",
+  "case_id": "case_01J00000000000000000000000",
+  "goal_id": "goal_01J00000000000000000000000",
+  "prompt": "Подготовь краткий план проекта.",
+  "prompt_hash": "sha256:cef0ddbf791e483c0381ed31d4d81c35391e8c6316f8b4a6cb27dc874e5068d3",
+  "preferred_agent_profile": "codex-cli",
+  "preferred_model": "gpt-5.6-sol",
+  "preferred_reasoning_effort": "high"
+}

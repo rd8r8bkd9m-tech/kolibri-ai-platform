@@ -1,0 +1,185 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://schemas.kolibriai.ru/v1/product/run-execute-command-v1.3.schema.json",
+  "title": "Kolibri trusted developer run execute command payload v1.3",
+  "description": "Server-frozen developer AgentRuntime request bound to the exact trusted-agent profile and workspace authority epochs.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id",
+    "schema_version",
+    "tenant_id",
+    "project_id",
+    "thread_id",
+    "run_id",
+    "input_message_id",
+    "case_id",
+    "goal_id",
+    "prompt",
+    "prompt_hash",
+    "execution_mode",
+    "runtime_profile",
+    "model",
+    "reasoning_effort",
+    "service_tier",
+    "workspace_ref",
+    "access_mode",
+    "sandbox",
+    "approval_policy",
+    "reviewer",
+    "requester_role",
+    "trusted_agent_profile_id",
+    "trusted_agent_profile_epoch",
+    "trusted_agent_workspace_binding_id",
+    "trusted_agent_workspace_binding_epoch"
+  ],
+  "properties": {
+    "schema_id": {
+      "const": "kolibri.product.run.execute.v1_3.command"
+    },
+    "schema_version": {
+      "const": "1.3"
+    },
+    "tenant_id": {
+      "$ref": "#/definitions/opaque_id"
+    },
+    "project_id": {
+      "$ref": "#/definitions/opaque_id"
+    },
+    "thread_id": {
+      "$ref": "#/definitions/opaque_id"
+    },
+    "run_id": {
+      "$ref": "#/definitions/opaque_id"
+    },
+    "input_message_id": {
+      "$ref": "#/definitions/opaque_id"
+    },
+    "case_id": {
+      "$ref": "#/definitions/opaque_id"
+    },
+    "goal_id": {
+      "$ref": "#/definitions/opaque_id"
+    },
+    "prompt": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200000
+    },
+    "prompt_hash": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "execution_mode": {
+      "const": "developer"
+    },
+    "runtime_profile": {
+      "type": "string",
+      "minLength": 2,
+      "maxLength": 96,
+      "pattern": "^(?!auto$)[a-z0-9][a-z0-9._-]{1,95}$"
+    },
+    "model": {
+      "oneOf": [
+        {
+          "$ref": "#/definitions/model_selection"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "reasoning_effort": {
+      "oneOf": [
+        {
+          "$ref": "#/definitions/execution_option"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "service_tier": {
+      "oneOf": [
+        {
+          "$ref": "#/definitions/execution_option"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "workspace_ref": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$"
+    },
+    "access_mode": {
+      "const": "full"
+    },
+    "sandbox": {
+      "const": "danger-full-access"
+    },
+    "approval_policy": {
+      "const": "never"
+    },
+    "reviewer": {
+      "type": "null"
+    },
+    "requester_role": {
+      "const": "owner"
+    },
+    "trusted_agent_profile_id": {
+      "$ref": "#/definitions/trusted_profile_id"
+    },
+    "trusted_agent_profile_epoch": {
+      "$ref": "#/definitions/epoch"
+    },
+    "trusted_agent_workspace_binding_id": {
+      "$ref": "#/definitions/trusted_workspace_binding_id"
+    },
+    "trusted_agent_workspace_binding_epoch": {
+      "$ref": "#/definitions/epoch"
+    }
+  },
+  "definitions": {
+    "opaque_id": {
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 160,
+      "pattern": "^[a-z][a-z0-9_]{1,31}_[A-Za-z0-9][A-Za-z0-9._~-]{5,127}$"
+    },
+    "runtime_profile": {
+      "type": "string",
+      "minLength": 2,
+      "maxLength": 96,
+      "pattern": "^[a-z0-9][a-z0-9._-]{1,95}$"
+    },
+    "model_selection": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 120,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,119}$"
+    },
+    "execution_option": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 32,
+      "pattern": "^[a-z0-9][a-z0-9_-]{0,31}$"
+    },
+    "trusted_profile_id": {
+      "type": "string",
+      "pattern": "^tap_[0-9a-f]{32}$"
+    },
+    "trusted_workspace_binding_id": {
+      "type": "string",
+      "pattern": "^wsb_[0-9a-f]{32}$"
+    },
+    "epoch": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991
+    }
+  }
+}

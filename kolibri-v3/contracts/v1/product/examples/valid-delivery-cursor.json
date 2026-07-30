@@ -1,0 +1,13 @@
+{
+  "schema_id": "kolibri.product.delivery_cursor",
+  "schema_version": "1.0",
+  "tenant_id": "tenant_01JZPRODUCT01",
+  "user_id": "user_01JZPRODUCT0001",
+  "project_id": "project_01JZPRODUCT001",
+  "thread_id": "thread_01JZPRODUCT001",
+  "run_id": "run_01JZPRODUCT000001",
+  "last_sequence": 1,
+  "last_event_id": "event_01JZPRODUCT001",
+  "ledger_version": 1,
+  "issued_at": "2026-07-26T12:00:01.150+03:00"
+}

@@ -1,0 +1,15 @@
+{
+  "schema_id": "kolibri.product.project",
+  "schema_version": "1.0",
+  "tenant_id": "tenant_01JZPRODUCT01",
+  "project_id": "project_01JZPRODUCT001",
+  "case_id": "case_01JZPRODUCT0001",
+  "goal_id": "goal_01JZPRODUCT0001",
+  "name": "Реконструкция административного здания",
+  "status": "active",
+  "default_thread_id": "thread_01JZPRODUCT001",
+  "version": 1,
+  "created_by": "user_01JZPRODUCT0001",
+  "created_at": "2026-07-26T12:00:00.000+03:00",
+  "updated_at": "2026-07-26T12:00:00.000+03:00"
+}

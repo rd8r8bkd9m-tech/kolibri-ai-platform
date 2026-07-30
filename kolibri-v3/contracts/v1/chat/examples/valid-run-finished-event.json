@@ -1,0 +1,11 @@
+{
+  "type": "RUN_FINISHED",
+  "threadId": "thread_01KOLIBRIV3CHAT",
+  "runId": "run_01KOLIBRIV3CHAT01",
+  "outcome": {
+    "type": "success"
+  },
+  "eventId": "event_01KOLIBRIV3FINISH",
+  "sequence": 5,
+  "recordedAt": "2026-07-28T09:00:00Z"
+}

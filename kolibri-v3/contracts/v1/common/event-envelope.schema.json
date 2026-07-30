@@ -1,0 +1,107 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://schemas.kolibriai.ru/v1/common/event-envelope.schema.json",
+  "title": "Kolibri event envelope v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id",
+    "schema_version",
+    "message_id",
+    "event_name",
+    "payload_schema_id",
+    "payload_schema_version",
+    "occurred_at",
+    "recorded_at",
+    "producer_owner",
+    "identity",
+    "trace",
+    "aggregate",
+    "source_command_id",
+    "deduplication_key",
+    "payload"
+  ],
+  "properties": {
+    "schema_id": {"const": "kolibri.event"},
+    "schema_version": {"const": "1.0"},
+    "message_id": {
+      "type": "string",
+      "pattern": "^evt_[A-Za-z0-9][A-Za-z0-9._~-]{7,127}$"
+    },
+    "event_name": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$",
+      "maxLength": 160
+    },
+    "payload_schema_id": {
+      "type": "string",
+      "pattern": "^kolibri\\.[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+\\.event$",
+      "maxLength": 200
+    },
+    "payload_schema_version": {
+      "type": "string",
+      "pattern": "^[1-9][0-9]*\\.[0-9]+$",
+      "maxLength": 20
+    },
+    "occurred_at": {"type": "string", "format": "date-time"},
+    "recorded_at": {"type": "string", "format": "date-time"},
+    "producer_owner": {
+      "type": "string",
+      "enum": [
+        "logical_home_control_plane",
+        "product_data_authority",
+        "provider_execution_authority"
+      ]
+    },
+    "identity": {
+      "$ref": "https://schemas.kolibriai.ru/v1/common/identity.schema.json"
+    },
+    "trace": {
+      "$ref": "https://schemas.kolibriai.ru/v1/common/trace.schema.json"
+    },
+    "aggregate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["aggregate_type", "aggregate_id", "aggregate_version"],
+      "properties": {
+        "aggregate_type": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]{1,63}$"
+        },
+        "aggregate_id": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 160
+        },
+        "aggregate_version": {"type": "integer", "minimum": 1}
+      }
+    },
+    "source_command_id": {
+      "oneOf": [
+        {"type": "string", "pattern": "^cmd_[A-Za-z0-9][A-Za-z0-9._~-]{7,127}$"},
+        {"type": "null"}
+      ]
+    },
+    "deduplication_key": {
+      "type": "string",
+      "minLength": 16,
+      "maxLength": 200
+    },
+    "payload": {"type": "object"}
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {"source_command_id": {"type": "string"}},
+        "required": ["source_command_id"]
+      },
+      "then": {
+        "properties": {
+          "trace": {
+            "properties": {"causation_id": {"type": "string"}}
+          }
+        }
+      }
+    }
+  ]
+}

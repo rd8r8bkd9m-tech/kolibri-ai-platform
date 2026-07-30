@@ -1,0 +1,131 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://schemas.kolibriai.ru/v1/quality/quality-manifest.schema.json",
+  "title": "Kolibri Artifact quality manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id",
+    "schema_version",
+    "manifest_id",
+    "manifest_version",
+    "tenant_id",
+    "goal_id",
+    "case_id",
+    "artifact_ref",
+    "artifact_state_version",
+    "artifact_status",
+    "evidence_refs",
+    "review_refs",
+    "signoff_refs",
+    "eligibility",
+    "blockers",
+    "generated_at",
+    "generated_by"
+  ],
+  "properties": {
+    "schema_id": { "const": "kolibri.artifact_quality_manifest" },
+    "schema_version": { "const": "1.0" },
+    "manifest_id": { "$ref": "#/definitions/opaque_id" },
+    "manifest_version": { "type": "integer", "minimum": 1 },
+    "tenant_id": { "$ref": "#/definitions/opaque_id" },
+    "goal_id": { "$ref": "#/definitions/opaque_id" },
+    "case_id": { "$ref": "#/definitions/opaque_id" },
+    "artifact_ref": { "$ref": "#/definitions/artifact_ref" },
+    "artifact_state_version": { "type": "integer", "minimum": 1 },
+    "artifact_status": {
+      "type": "string",
+      "enum": ["draft", "in_review", "approved_internal", "released", "stale", "revoked", "superseded"]
+    },
+    "evidence_refs": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "#/definitions/versioned_ref" }
+    },
+    "review_refs": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "#/definitions/versioned_ref" }
+    },
+    "signoff_refs": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "#/definitions/versioned_ref" }
+    },
+    "eligibility": {
+      "type": "string",
+      "enum": ["eligible_internal", "eligible_release", "ineligible"]
+    },
+    "blockers": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "enum": [
+          "artifact_not_approved",
+          "artifact_stale",
+          "artifact_revoked",
+          "evidence_missing_or_invalid",
+          "review_incomplete",
+          "blocking_finding",
+          "signoff_missing",
+          "signoff_stale_or_revoked",
+          "policy_denied"
+        ]
+      }
+    },
+    "generated_at": { "type": "string", "format": "date-time" },
+    "generated_by": { "$ref": "#/definitions/opaque_id" }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "eligibility": { "const": "ineligible" } },
+        "required": ["eligibility"]
+      },
+      "then": { "properties": { "blockers": { "minItems": 1 } } }
+    },
+    {
+      "if": {
+        "properties": {
+          "artifact_status": { "enum": ["stale", "revoked", "superseded"] }
+        },
+        "required": ["artifact_status"]
+      },
+      "then": { "properties": { "eligibility": { "const": "ineligible" } } }
+    }
+  ],
+  "definitions": {
+    "opaque_id": {
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 160,
+      "pattern": "^[a-z][a-z0-9_]{1,31}_[A-Za-z0-9][A-Za-z0-9._~-]{5,127}$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "versioned_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ref_id", "version"],
+      "properties": {
+        "ref_id": { "$ref": "#/definitions/opaque_id" },
+        "version": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "artifact_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["artifact_id", "artifact_version", "content_hash"],
+      "properties": {
+        "artifact_id": { "$ref": "#/definitions/opaque_id" },
+        "artifact_version": { "type": "integer", "minimum": 1 },
+        "content_hash": { "$ref": "#/definitions/sha256" }
+      }
+    }
+  }
+}

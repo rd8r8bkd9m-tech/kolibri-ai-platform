@@ -1,0 +1,37 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://schemas.kolibriai.ru/v1/tasks/lease.schema.json",
+  "title": "Kolibri TaskLease v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "lease_id",
+    "authority_id",
+    "authority_epoch",
+    "fencing_token",
+    "worker_id",
+    "agent_card_id",
+    "acquired_at",
+    "heartbeat_at",
+    "expires_at"
+  ],
+  "properties": {
+    "lease_id": { "$ref": "#/definitions/opaque_id" },
+    "authority_id": { "$ref": "#/definitions/opaque_id" },
+    "authority_epoch": { "type": "integer", "minimum": 1 },
+    "fencing_token": { "type": "integer", "minimum": 1 },
+    "worker_id": { "$ref": "#/definitions/opaque_id" },
+    "agent_card_id": { "$ref": "#/definitions/opaque_id" },
+    "acquired_at": { "type": "string", "format": "date-time" },
+    "heartbeat_at": { "type": "string", "format": "date-time" },
+    "expires_at": { "type": "string", "format": "date-time" }
+  },
+  "definitions": {
+    "opaque_id": {
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 160,
+      "pattern": "^[a-z][a-z0-9_]{1,31}_[A-Za-z0-9][A-Za-z0-9._~-]{5,127}$"
+    }
+  }
+}

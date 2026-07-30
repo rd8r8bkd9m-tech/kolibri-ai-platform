@@ -1,0 +1,98 @@
+{
+  "schema_id": "kolibri.product.developer_source_command",
+  "schema_version": "1.0",
+  "source_command_ref": "sourcecmd_c3465130bc7a4417c7b76f04aa5234f924356ad2",
+  "tenant_id": "tenant_01JZPRODUCT01",
+  "goal_id": "goal_01JZPRODUCT0001",
+  "case_id": "case_01JZPRODUCT0001",
+  "run_id": "run_01JZPRODUCTPROVIDERFIXTURE1",
+  "task_id": "task_c3465130bc7a4417c7b76f04aa5234f924356ad2",
+  "graph_id": "task_graph_c3465130bc7a4417c7b76f04aa5234f924356ad2",
+  "request_hash": "sha256:272cd16409cb26a4beb56862d934e6d04f5759bf1b0c61afe0c094dba2ced072",
+  "command_hash": "sha256:0e490e5ac9c44fb10323031c430aaa94bbd4ff7083080eaca1c3363800981513",
+  "requested_runtime_profile": "third-agent.runtime-01",
+  "runtime_profile": "third-agent.runtime-01",
+  "runtime_capability": "developer.runtime.execute.02592e7dfeeb50c9eabffb2658ddd742",
+  "access_policy": {
+    "policy_id": "developer.full_owner_approved",
+    "tool_ids": [
+      "tool.filesystem.full",
+      "tool.network.full",
+      "tool.shell.full"
+    ],
+    "compute_units_limit": 1000000,
+    "tool_calls_limit": 20000
+  },
+  "state": "ready",
+  "source_command": {
+    "schema_id": "kolibri.command",
+    "schema_version": "1.0",
+    "message_id": "cmd_01JZPRODUCTPROVIDERFIXTURE1",
+    "command_name": "product.run.execute",
+    "payload_schema_id": "kolibri.product.run.execute.v1_2.command",
+    "payload_schema_version": "1.2",
+    "issued_at": "2026-07-26T11:59:00+03:00",
+    "deadline_at": "2026-07-26T12:15:00+03:00",
+    "target_owner": "logical_home_control_plane",
+    "identity": {
+      "tenant_id": "tenant_01JZPRODUCT01",
+      "user_id": "user_01JZPRODUCT001",
+      "actor": {
+        "actor_id": "actor_01JZPRODUCT01",
+        "actor_type": "user"
+      },
+      "authority": {
+        "authority_id": "authority_product_data_v1",
+        "authority_role": "product_data_authority",
+        "authority_epoch": 3,
+        "authority_placement_id": "placement_product_backend",
+        "authorization_decision_id": "decision_01JZPRODUCTAUTH1",
+        "capabilities": [
+          "product.developer.run.execute.request"
+        ]
+      },
+      "subject_refs": {
+        "goal_id": "goal_01JZPRODUCT0001",
+        "case_id": "case_01JZPRODUCT0001",
+        "task_id": null
+      }
+    },
+    "trace": {
+      "trace_id": "0123456789abcdef0123456789abcdef",
+      "span_id": "0123456789abcdef",
+      "parent_span_id": null,
+      "correlation_id": "run_01JZPRODUCTPROVIDERFIXTURE1",
+      "causation_id": "message_01JZPRODUCTPROVIDERFIXTURE1"
+    },
+    "idempotency": {
+      "key": "product.run.execute:run_01JZPRODUCTPROVIDERFIXTURE1",
+      "scope": "aggregate",
+      "scope_id": "run_01JZPRODUCTPROVIDERFIXTURE1",
+      "canonical_request_hash": "sha256:272cd16409cb26a4beb56862d934e6d04f5759bf1b0c61afe0c094dba2ced072"
+    },
+    "payload": {
+      "schema_id": "kolibri.product.run.execute.v1_2.command",
+      "schema_version": "1.2",
+      "tenant_id": "tenant_01JZPRODUCT01",
+      "project_id": "project_01JZPRODUCT001",
+      "thread_id": "thread_01JZPRODUCT001",
+      "run_id": "run_01JZPRODUCTPROVIDERFIXTURE1",
+      "input_message_id": "message_01JZPRODUCTPROVIDERFIXTURE1",
+      "case_id": "case_01JZPRODUCT0001",
+      "goal_id": "goal_01JZPRODUCT0001",
+      "prompt": "Исправь ошибку и выполни тесты.",
+      "prompt_hash": "sha256:950f88b6734cfa321afb587b3e7cf3d2f219368a3daca9e899940a675de474c6",
+      "execution_mode": "developer",
+      "runtime_profile": "third-agent.runtime-01",
+      "model": "generic-model-01",
+      "reasoning_effort": "high",
+      "service_tier": "priority",
+      "workspace_ref": "repository.workspace-01",
+      "access_mode": "full",
+      "sandbox": "danger-full-access",
+      "approval_policy": "never",
+      "reviewer": null,
+      "requester_role": "owner"
+    }
+  }
+}

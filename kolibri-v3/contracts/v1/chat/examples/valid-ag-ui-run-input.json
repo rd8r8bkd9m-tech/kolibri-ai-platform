@@ -1,0 +1,19 @@
+{
+  "threadId": "thread_01KOLIBRIV3CHAT",
+  "runId": "run_01KOLIBRIV3CHAT01",
+  "state": null,
+  "messages": [
+    {
+      "id": "message_01KOLIBRIV3USER",
+      "role": "user",
+      "content": "Нужно оценить ремонт помещения. Данных об объекте пока нет."
+    }
+  ],
+  "tools": [],
+  "context": [],
+  "forwardedProps": {
+    "agentProfile": "auto",
+    "executionMode": "standard",
+    "accessMode": "standard"
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "schema_id": "kolibri.workflow.query",
+  "schema_version": "1.0",
+  "workflow_id": "workflow_01JZWFLOWEXAMPLE1",
+  "query_id": "query_01K0QUERY002",
+  "query_type": "artifact_state",
+  "query_scope": "workflow_projection",
+  "requested_at": "2026-07-24T03:20:12+03:00",
+  "response_contract_id": "kolibri.task_graph"
+}

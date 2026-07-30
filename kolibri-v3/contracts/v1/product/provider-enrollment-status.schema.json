@@ -1,0 +1,96 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://schemas.kolibriai.ru/v1/product/provider-enrollment-status.schema.json",
+  "title": "Kolibri Provider Execution Authority enrollment status v1",
+  "description": "A sanitized provider-enrollment status. It never contains credentials, provider responses, filesystem paths, or authorization URLs.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id",
+    "schema_version",
+    "tenant_id",
+    "intent_id",
+    "provider_id",
+    "status",
+    "observed_at",
+    "auth_flow_supported",
+    "last_verified_at",
+    "evidence_hash",
+    "error"
+  ],
+  "properties": {
+    "schema_id": {
+      "const": "kolibri.product.provider.enrollment_status"
+    },
+    "schema_version": {
+      "const": "1.0"
+    },
+    "tenant_id": {
+      "$ref": "#/definitions/opaque_id"
+    },
+    "intent_id": {
+      "$ref": "#/definitions/opaque_id"
+    },
+    "provider_id": {
+      "type": "string",
+      "enum": [
+        "mimo-code",
+        "codex-cli"
+      ]
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "connected",
+        "failed"
+      ]
+    },
+    "observed_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "auth_flow_supported": {
+      "type": "boolean"
+    },
+    "last_verified_at": {
+      "oneOf": [
+        {
+          "type": "string",
+          "format": "date-time"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "evidence_hash": {
+      "oneOf": [
+        {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "error": {
+      "oneOf": [
+        {
+          "$ref": "https://schemas.kolibriai.ru/v1/common/error-envelope.schema.json"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "definitions": {
+    "opaque_id": {
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 160,
+      "pattern": "^[a-z][a-z0-9_]{1,31}_[A-Za-z0-9][A-Za-z0-9._~-]{5,127}$"
+    }
+  }
+}

@@ -1,0 +1,190 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://schemas.kolibriai.ru/v1/quality/signoff.schema.json",
+  "title": "Kolibri SignOff v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id",
+    "schema_version",
+    "signoff_id",
+    "signoff_version",
+    "tenant_id",
+    "goal_id",
+    "case_id",
+    "artifact_ref",
+    "signoff_type",
+    "signer",
+    "authority_basis_ref",
+    "policy_decision",
+    "review_refs",
+    "signature_ref",
+    "status",
+    "granted_at",
+    "revocation",
+    "supersedes"
+  ],
+  "properties": {
+    "schema_id": { "const": "kolibri.signoff" },
+    "schema_version": { "const": "1.0" },
+    "signoff_id": { "$ref": "#/definitions/opaque_id" },
+    "signoff_version": { "type": "integer", "minimum": 1 },
+    "tenant_id": { "$ref": "#/definitions/opaque_id" },
+    "goal_id": { "$ref": "#/definitions/opaque_id" },
+    "case_id": { "$ref": "#/definitions/opaque_id" },
+    "artifact_ref": { "$ref": "#/definitions/artifact_ref" },
+    "signoff_type": {
+      "type": "string",
+      "enum": [
+        "internal_approval",
+        "corporate_release_authorization",
+        "qualified_human_signoff",
+        "client_acceptance"
+      ]
+    },
+    "signer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["actor_id", "actor_type", "credential_ref"],
+      "properties": {
+        "actor_id": { "$ref": "#/definitions/opaque_id" },
+        "actor_type": {
+          "type": "string",
+          "enum": ["human", "agent", "service"]
+        },
+        "credential_ref": {
+          "oneOf": [
+            { "$ref": "#/definitions/opaque_id" },
+            { "type": "null" }
+          ]
+        }
+      }
+    },
+    "authority_basis_ref": { "$ref": "#/definitions/opaque_id" },
+    "policy_decision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["decision_id", "policy_version", "effect"],
+      "properties": {
+        "decision_id": { "$ref": "#/definitions/opaque_id" },
+        "policy_version": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}$"
+        },
+        "effect": { "const": "allow" }
+      }
+    },
+    "review_refs": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "#/definitions/versioned_ref" }
+    },
+    "signature_ref": {
+      "oneOf": [
+        { "$ref": "#/definitions/opaque_id" },
+        { "type": "null" }
+      ]
+    },
+    "status": {
+      "type": "string",
+      "enum": ["granted", "revoked", "stale", "superseded"]
+    },
+    "granted_at": { "type": "string", "format": "date-time" },
+    "revocation": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["reason", "revoked_by", "revoked_at"],
+          "properties": {
+            "reason": { "type": "string", "minLength": 1, "maxLength": 1000 },
+            "revoked_by": { "$ref": "#/definitions/opaque_id" },
+            "revoked_at": { "type": "string", "format": "date-time" }
+          }
+        },
+        { "type": "null" }
+      ]
+    },
+    "supersedes": {
+      "oneOf": [
+        { "$ref": "#/definitions/versioned_ref" },
+        { "type": "null" }
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "signoff_type": { "const": "internal_approval" } },
+        "required": ["signoff_type"]
+      },
+      "then": {
+        "properties": {
+          "signer": {
+            "properties": {
+              "actor_type": { "enum": ["agent", "service"] },
+              "credential_ref": { "type": "null" }
+            }
+          },
+          "signature_ref": { "type": "null" }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "signoff_type": { "const": "qualified_human_signoff" } },
+        "required": ["signoff_type"]
+      },
+      "then": {
+        "properties": {
+          "signer": {
+            "properties": {
+              "actor_type": { "const": "human" },
+              "credential_ref": { "type": "string" }
+            }
+          },
+          "signature_ref": { "type": "string" }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "status": { "const": "revoked" } },
+        "required": ["status"]
+      },
+      "then": { "properties": { "revocation": { "type": "object" } } }
+    }
+  ],
+  "definitions": {
+    "opaque_id": {
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 160,
+      "pattern": "^[a-z][a-z0-9_]{1,31}_[A-Za-z0-9][A-Za-z0-9._~-]{5,127}$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "versioned_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ref_id", "version"],
+      "properties": {
+        "ref_id": { "$ref": "#/definitions/opaque_id" },
+        "version": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "artifact_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["artifact_id", "artifact_version", "content_hash"],
+      "properties": {
+        "artifact_id": { "$ref": "#/definitions/opaque_id" },
+        "artifact_version": { "type": "integer", "minimum": 1 },
+        "content_hash": { "$ref": "#/definitions/sha256" }
+      }
+    }
+  }
+}

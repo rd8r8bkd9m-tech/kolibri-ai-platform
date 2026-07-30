@@ -1,0 +1,142 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://schemas.kolibriai.ru/v1/product/developer-source-command.schema.json",
+  "title": "Kolibri Product durable developer source command v1",
+  "description": "The Home-owned durable provenance record for one admitted Product developer command.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id",
+    "schema_version",
+    "source_command_ref",
+    "tenant_id",
+    "goal_id",
+    "case_id",
+    "run_id",
+    "task_id",
+    "graph_id",
+    "request_hash",
+    "command_hash",
+    "requested_runtime_profile",
+    "runtime_profile",
+    "runtime_capability",
+    "access_policy",
+    "state",
+    "source_command"
+  ],
+  "properties": {
+    "schema_id": {
+      "const": "kolibri.product.developer_source_command"
+    },
+    "schema_version": {
+      "const": "1.0"
+    },
+    "source_command_ref": {
+      "$ref": "#/definitions/source_command_ref"
+    },
+    "tenant_id": {
+      "$ref": "#/definitions/opaque_id"
+    },
+    "goal_id": {
+      "$ref": "#/definitions/opaque_id"
+    },
+    "case_id": {
+      "$ref": "#/definitions/opaque_id"
+    },
+    "run_id": {
+      "$ref": "#/definitions/opaque_id"
+    },
+    "task_id": {
+      "$ref": "#/definitions/opaque_id"
+    },
+    "graph_id": {
+      "$ref": "#/definitions/opaque_id"
+    },
+    "request_hash": {
+      "$ref": "#/definitions/sha256"
+    },
+    "command_hash": {
+      "$ref": "#/definitions/sha256"
+    },
+    "requested_runtime_profile": {
+      "$ref": "#/definitions/runtime_profile"
+    },
+    "runtime_profile": {
+      "$ref": "#/definitions/runtime_profile"
+    },
+    "runtime_capability": {
+      "type": "string",
+      "pattern": "^developer\\.runtime\\.execute\\.[0-9a-f]{32}$"
+    },
+    "access_policy": {
+      "$ref": "#/definitions/access_policy"
+    },
+    "state": {
+      "type": "string",
+      "enum": [
+        "reserved",
+        "ready"
+      ]
+    },
+    "source_command": {
+      "$ref": "https://schemas.kolibriai.ru/v1/common/command-envelope.schema.json"
+    }
+  },
+  "definitions": {
+    "opaque_id": {
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 160,
+      "pattern": "^[a-z][a-z0-9_]{1,31}_[A-Za-z0-9][A-Za-z0-9._~-]{5,127}$"
+    },
+    "source_command_ref": {
+      "type": "string",
+      "pattern": "^sourcecmd_[0-9a-f]{40}$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "runtime_profile": {
+      "type": "string",
+      "minLength": 2,
+      "maxLength": 96,
+      "pattern": "^[a-z0-9][a-z0-9._-]{1,95}$"
+    },
+    "access_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "policy_id",
+        "tool_ids",
+        "compute_units_limit",
+        "tool_calls_limit"
+      ],
+      "properties": {
+        "policy_id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_.:-]{2,127}$"
+        },
+        "tool_ids": {
+          "type": "array",
+          "maxItems": 64,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_.:-]{2,127}$"
+          }
+        },
+        "compute_units_limit": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "tool_calls_limit": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      }
+    }
+  }
+}

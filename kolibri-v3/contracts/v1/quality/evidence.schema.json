@@ -1,0 +1,226 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://schemas.kolibriai.ru/v1/quality/evidence.schema.json",
+  "title": "Kolibri Evidence v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id",
+    "schema_version",
+    "evidence_id",
+    "evidence_version",
+    "tenant_id",
+    "goal_id",
+    "case_id",
+    "task_id",
+    "claim",
+    "source",
+    "method",
+    "confidence",
+    "applicability",
+    "verifier",
+    "status",
+    "supersedes",
+    "revocation",
+    "created_by",
+    "created_at"
+  ],
+  "properties": {
+    "schema_id": { "const": "kolibri.evidence" },
+    "schema_version": { "const": "1.0" },
+    "evidence_id": { "$ref": "#/definitions/opaque_id" },
+    "evidence_version": { "type": "integer", "minimum": 1 },
+    "tenant_id": { "$ref": "#/definitions/opaque_id" },
+    "goal_id": { "$ref": "#/definitions/opaque_id" },
+    "case_id": { "$ref": "#/definitions/opaque_id" },
+    "task_id": {
+      "oneOf": [
+        { "$ref": "#/definitions/opaque_id" },
+        { "type": "null" }
+      ]
+    },
+    "claim": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["claim_id", "statement", "target"],
+      "properties": {
+        "claim_id": { "$ref": "#/definitions/opaque_id" },
+        "statement": { "type": "string", "minLength": 1, "maxLength": 4000 },
+        "target": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["ref_id", "ref_version", "locator"],
+          "properties": {
+            "ref_id": { "$ref": "#/definitions/opaque_id" },
+            "ref_version": { "type": "integer", "minimum": 1 },
+            "locator": { "type": "string", "minLength": 1, "maxLength": 1000 }
+          }
+        }
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_type",
+        "locator",
+        "publisher_or_author",
+        "retrieved_at",
+        "effective_from",
+        "effective_to",
+        "jurisdiction",
+        "region",
+        "content_hash"
+      ],
+      "properties": {
+        "source_type": {
+          "type": "string",
+          "enum": [
+            "user_input",
+            "document",
+            "normative_source",
+            "market_quote",
+            "measurement",
+            "calculation",
+            "tool_result",
+            "artifact",
+            "test_result"
+          ]
+        },
+        "locator": { "type": "string", "minLength": 1, "maxLength": 2000 },
+        "publisher_or_author": { "type": "string", "minLength": 1, "maxLength": 500 },
+        "retrieved_at": { "type": "string", "format": "date-time" },
+        "effective_from": {
+          "oneOf": [
+            { "type": "string", "format": "date-time" },
+            { "type": "null" }
+          ]
+        },
+        "effective_to": {
+          "oneOf": [
+            { "type": "string", "format": "date-time" },
+            { "type": "null" }
+          ]
+        },
+        "jurisdiction": {
+          "oneOf": [
+            { "type": "string", "minLength": 1, "maxLength": 160 },
+            { "type": "null" }
+          ]
+        },
+        "region": {
+          "oneOf": [
+            { "type": "string", "minLength": 1, "maxLength": 160 },
+            { "type": "null" }
+          ]
+        },
+        "content_hash": { "$ref": "#/definitions/sha256" }
+      }
+    },
+    "method": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["method_type", "method_ref", "method_version"],
+      "properties": {
+        "method_type": {
+          "type": "string",
+          "enum": ["direct", "calculation", "retrieval", "inspection", "test", "human_attestation"]
+        },
+        "method_ref": { "$ref": "#/definitions/opaque_id" },
+        "method_version": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}$"
+        }
+      }
+    },
+    "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+    "applicability": {
+      "type": "string",
+      "enum": ["applicable", "partially_applicable", "not_applicable", "unknown"]
+    },
+    "verifier": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "verified_by", "verified_at", "check_refs"],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": ["unverified", "passed", "failed", "inconclusive"]
+        },
+        "verified_by": {
+          "oneOf": [
+            { "$ref": "#/definitions/opaque_id" },
+            { "type": "null" }
+          ]
+        },
+        "verified_at": {
+          "oneOf": [
+            { "type": "string", "format": "date-time" },
+            { "type": "null" }
+          ]
+        },
+        "check_refs": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/definitions/opaque_id" }
+        }
+      }
+    },
+    "status": {
+      "type": "string",
+      "enum": ["active", "superseded", "withdrawn", "stale", "revoked"]
+    },
+    "supersedes": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["evidence_id", "evidence_version"],
+          "properties": {
+            "evidence_id": { "$ref": "#/definitions/opaque_id" },
+            "evidence_version": { "type": "integer", "minimum": 1 }
+          }
+        },
+        { "type": "null" }
+      ]
+    },
+    "revocation": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["reason", "revoked_by", "revoked_at"],
+          "properties": {
+            "reason": { "type": "string", "minLength": 1, "maxLength": 1000 },
+            "revoked_by": { "$ref": "#/definitions/opaque_id" },
+            "revoked_at": { "type": "string", "format": "date-time" }
+          }
+        },
+        { "type": "null" }
+      ]
+    },
+    "created_by": { "$ref": "#/definitions/opaque_id" },
+    "created_at": { "type": "string", "format": "date-time" }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "status": { "enum": ["withdrawn", "revoked"] } },
+        "required": ["status"]
+      },
+      "then": { "properties": { "revocation": { "type": "object" } } }
+    }
+  ],
+  "definitions": {
+    "opaque_id": {
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 160,
+      "pattern": "^[a-z][a-z0-9_]{1,31}_[A-Za-z0-9][A-Za-z0-9._~-]{5,127}$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    }
+  }
+}

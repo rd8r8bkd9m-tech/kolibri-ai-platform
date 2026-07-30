@@ -1,0 +1,21 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://schemas.kolibriai.ru/v1/goals/goal-create.schema.json",
+  "title": "Kolibri Goal create command payload v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id",
+    "schema_version",
+    "goal",
+    "requested_at"
+  ],
+  "properties": {
+    "schema_id": { "const": "kolibri.goal.create.command" },
+    "schema_version": { "const": "1.0" },
+    "goal": {
+      "$ref": "https://schemas.kolibriai.ru/v1/goals/goal.schema.json"
+    },
+    "requested_at": { "type": "string", "format": "date-time" }
+  }
+}

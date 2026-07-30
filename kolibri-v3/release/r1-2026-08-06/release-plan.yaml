@@ -1,0 +1,343 @@
+schema_version: "1.0"
+release:
+  id: "kolibri-v3-r1-2026-08-06"
+  status: "active"
+  created_at: "2026-07-30T00:00:00+03:00"
+  target_go_live_at: "2026-08-06T18:00:00+03:00"
+  public_url: "https://kolibriai.ru/app"
+  release_kind: "atomic_upgrade_of_existing_production"
+  owner_gate: "explicit_go_required"
+  source_document: "kolibri-v3/docs/PRODUCTION_ROADMAP_2026-08-06.md"
+  control_board: "release/r1-2026-08-06/STATUS.md"
+
+control_snapshot:
+  updated_at: "2026-07-30T18:59:00+03:00"
+  canonical_root: "kolibri-v3"
+  active_p0:
+    - "single_product_backend_release_lane"
+    - "clean_v3_ci_candidate"
+    - "immutable_candidate_user_journey"
+  active_p1:
+    - "mobile_web_reference_parity"
+    - "expo_native_vertical"
+    - "functional_mobile_pet"
+    - "owner_storage_control_plane_guard_completion"
+  blocked_gates:
+    - "clean_release_candidate"
+    - "physical_ios_android_acceptance"
+    - "production_canary"
+    - "storage_mutation_exhaustive_guard_evidence"
+    - "primary_storage_executor_mtls"
+
+scope:
+  required:
+    - "browser_identity"
+    - "durable_product_chat"
+    - "ag_ui_stream_resume_cancel"
+    - "a2a_provider_execution"
+    - "mobile_safari_and_android_chrome"
+    - "desktop_regression"
+    - "weather_tool"
+    - "image_artifact"
+    - "attachments"
+    - "estimate_create_edit_version"
+    - "estimate_pdf_xlsx_docx"
+    - "rust_estimate_contract_and_golden_kernel"
+    - "universal_core_vertical_pack_contract"
+    - "device_capability_contract"
+    - "backup_restore_rollback"
+    - "production_observability"
+  deferred:
+    - "public_app_store_release"
+    - "public_google_play_release"
+    - "tauri_edge_shell_release"
+    - "rust_engine_production_cutover"
+    - "realtime_voice"
+    - "full_normative_database_distribution"
+    - "government_expertise_xml_guarantee"
+    - "full_1c_grand_smeta_format_parity"
+    - "billing"
+
+architecture:
+  product_identity: "universal_agent_platform"
+  active_commercial_vertical: "construction.estimates"
+  vertical_manifest: "contracts/v1/verticals/examples/construction-estimates.json"
+  arbitrary_runtime_plugin_code_allowed: false
+  product_data_authority: "kolibri-v3/backend"
+  browser_client: "kolibri-v3"
+  native_truth_spike: "apps/kolibri-mobile"
+  device_surface_strategy: "protocol_first_multi_shell"
+  device_contract: "contracts/v1/devices/device-capability-manifest.schema.json"
+  tauri_role: "edge_shell_candidate"
+  headless_role: "rust_device_sdk_candidate"
+  public_stream: "AG-UI"
+  internal_agent_transport: "A2A"
+  estimate_authority: "server"
+  estimate_contract: "contracts/v1/estimates"
+  rust_kernel: "packages/estimate-kernel-rs"
+  rust_mode_at_r1: "shadow_conformance_only"
+  legacy_product_backend_fallback_allowed: false
+
+baseline:
+  measured_at: "2026-07-30"
+  checks:
+    existing_public_app:
+      status: "passed"
+      evidence: "2026-07-30: /app HTTP 200; / redirects to /app"
+    public_release_identity:
+      status: "blocked"
+      evidence: "public health paths return 404 and current /app response has no X-Kolibri-Product-Release"
+    web_mobile_visual:
+      status: "passed"
+      evidence: "320/375/390 dark/light manual QA"
+    desktop_visual:
+      status: "passed"
+      evidence: "1440 regression QA"
+    web_test:
+      status: "passed"
+      evidence: "128 tests on 2026-07-30"
+    web_typecheck:
+      status: "passed"
+    web_build:
+      status: "passed"
+      evidence: "production build passed; route manifest includes chat resume and storage operation reconcile routes"
+    native_static_candidate:
+      status: "passed"
+      evidence: "typecheck, lint, 5 tests, Expo Doctor 20/20, iOS Hermes 5.7 MB, Android Hermes 5.9 MB"
+    native_runtime_device_gate:
+      status: "blocked"
+      evidence: "no available iOS Simulator, Android AVD or physical test device"
+    backend_non_provider_tests:
+      status: "passed"
+      evidence: "159 tests"
+    provider_execution_tests:
+      status: "passed"
+      evidence: "13 tests; Agent Card is bound to the exact runtime.profile"
+    backend_full_suite:
+      status: "passed"
+      evidence: "280 tests on 2026-07-30 with schema 44, exact local owner preflight, isolated identity import-order coverage, release monitor, release-health identity, runtime-worker readiness and Storage Admin integration"
+    canonical_backend:
+      status: "in_progress"
+      evidence: "local npm run dev is canonical: supervised stack, backend only through scripts/dev-backend.sh, exact var/kolibri-v3.db, migration/preflight before port and launch-bound kolibri-v3 health before web; backend exit fences/restarts web until the gate passes, rejecting a stale process on 8002. V3 AGENTS.md and repository development instructions now preserve the invariant, and npm run dev:web is fail-closed; immutable production package is not yet frozen"
+    local_dev_restart:
+      status: "passed"
+      evidence: "schema=44 users=7 platform_owner=1 with exact montodays@ya.ru owner, active policies and restored pre-override credential; backend crash recovery repeats migration/preflight; /v1/health, /v1/ready, /api/health and /app HTTP 200; real /api/agui response in 7.12 seconds; see evidence/local-dev-runtime-restart-2026-07-30.md and evidence/local-owner-migration-release-identity-2026-07-30.md"
+    storage_admin_control_plane:
+      status: "in_progress"
+      evidence: "owner-only contracts and desktop/390x844 QA pass; mutation is capacity-only/fail-closed pending exhaustive guard evidence, Primary mTLS and true step-up auth; see evidence/local-storage-admin-control-plane-2026-07-30.md"
+    storage_executor_capacity_foundation:
+      status: "passed"
+      evidence: "Rust 1.85 fmt and clippy pass; debug and release tests are 27/27; locked release build passes; independent review found no P0/P1 for the shipped fail-closed capacity-only binary. Linux-only mountinfo CI and every mutation-enablement gate remain pending"
+    v3_ci:
+      status: "in_progress"
+      evidence: "workflow covers consolidated web, full backend, 90 schemas, Rust kernel, Expo tests and iOS/Android exports; web audit is 0, web contracts are 128/128, backend is 280/280, portable tests are 16/16, and an isolated clean schema-44 preview passes the full production smoke through the real Product worker launcher with exact backend/frontend/worker identity. The same fail-closed renderer now supplies monitor/backup units to installer and Linux systemd-analyze. Remote green, external alert delivery, Expo tooling audit, final-candidate smoke and a committed candidate remain; see evidence/local-release-observability-alerts-2026-07-30.md"
+    production_observability:
+      status: "in_progress"
+      evidence: "packaged bounded monitor covers public/backend/frontend/worker readiness, service/backup failures, error rate, p95, queues, stuck runs, disk, backup integrity/freshness and TLS expiry; daily verified backup and minute monitor timers share one CI-verifiable renderer. Local negative contracts and clean package smoke pass; remote Linux systemd-analyze, independent external/cellular monitor and live alert delivery remain; see evidence/local-release-observability-alerts-2026-07-30.md"
+    exact_release_identity:
+      status: "passed"
+      evidence: "production backend publishes exact release ID/commit or 503; frontend rejects mismatched provenance; installer gates backend then frontend; the real Product worker launcher validates and heartbeats the same managed values; schema-44 packaged smoke passed; see evidence/local-owner-migration-release-identity-2026-07-30.md"
+    repository_release_lane_audit:
+      status: "passed"
+      evidence: "builder and CI audit the complete commit; committed parent-level V3 Home/Primary/bare-metal helpers and any changed retired coordinator are rejected before archive creation; see evidence/local-release-lane-audit-2026-07-30.md"
+    immutable_candidate:
+      status: "blocked"
+      evidence: "uncommitted release-scope changes"
+    database_backup_restore_rehearsal:
+      status: "passed"
+      evidence: "canonical local database: online backup, exact SHA-256 restore, integrity/FK checks and rolled-back write probe passed; packaged installer uses the same helper for an activation backup and a daily verified-backup timer; see evidence/local-database-backup-restore-rehearsal-2026-07-30.md and evidence/local-release-observability-alerts-2026-07-30.md"
+    restore_rehearsal:
+      status: "in_progress"
+      evidence: "database backup/restore is proven locally; immutable-RC activation rollback and canary rollback remain"
+    production_canary:
+      status: "pending"
+    rust_kernel_foundation:
+      status: "passed"
+      evidence: "Rust 1.85 fmt, 5 unit tests, one golden test and clippy -D warnings passed"
+    universal_vertical_contract:
+      status: "in_progress"
+      evidence: "manifest schema, construction example and architecture baseline added"
+    device_capability_contract:
+      status: "passed"
+      evidence: "Draft 2020-12 schema plus Tauri kiosk and headless gateway examples validate"
+
+tasks:
+  - id: "R1-001"
+    priority: "P0"
+    day: "D1"
+    status: "in_progress"
+    title: "Converge on one Product/Data backend"
+    exit:
+      - "ADR accepted"
+      - "release manifest packages kolibri-v3/backend"
+      - "no browser route or worker writes a second Product history"
+      - "Universal Core and construction.estimates boundary accepted"
+      - "construction vertical manifest validates"
+
+  - id: "R1-002"
+    priority: "P0"
+    day: "D1"
+    status: "completed"
+    title: "Repair Agent Card selection and provider execution suite"
+    exit:
+      - "all test_provider_execution.py tests pass"
+      - "exact runtime binding proven"
+      - "no silent provider fallback"
+
+  - id: "R1-003"
+    priority: "P0"
+    day: "D1"
+    status: "in_progress"
+    title: "Add clean-checkout V3 CI"
+    exit:
+      - "backend suite passes"
+      - "web typecheck/tests/build pass"
+      - "migration and release-script tests pass"
+
+  - id: "R1-004"
+    priority: "P0"
+    day: "D1"
+    status: "completed"
+    title: "Establish the Rust-ready estimate contract boundary"
+    exit:
+      - "versioned request/result schemas exist"
+      - "side-effect-free Rust crate passes fmt, clippy and tests"
+      - "shared golden fixture passes"
+      - "production authority remains Python until parity gate"
+
+  - id: "R1-005"
+    priority: "P0"
+    day: "D2"
+    status: "completed"
+    title: "Integrate browser and native authentication contracts"
+    exit:
+      - "cookie+CSRF browser flow passes"
+      - "bearer AG-UI flow passes"
+      - "refresh replay revokes device family"
+      - "cross-tenant tests pass"
+
+  - id: "R1-006"
+    priority: "P0"
+    day: "D2"
+    status: "in_progress"
+    title: "Prove persistent runtime, durable stream and latency"
+    exit:
+      - "no new runtime process per message"
+      - "resume/cancel/restart pass"
+      - "real provider timings saved"
+
+  - id: "R1-007"
+    priority: "P1"
+    day: "D2"
+    status: "in_progress"
+    title: "Complete Expo/assistant-ui truth spike"
+    release_blocking: false
+    blocked_by: "physical iOS and Android runtime evidence"
+    exit:
+      - "typecheck and expo-doctor pass"
+      - "iOS launch passes"
+      - "Android launch passes"
+      - "no WebView"
+
+  - id: "R1-008"
+    priority: "P0"
+    day: "D3"
+    status: "in_progress"
+    title: "Pass the complete R1 user journey"
+    exit:
+      - "weather passes"
+      - "image artifact passes or action is absent"
+      - "attachment states pass"
+      - "estimate version/edit/conflict passes"
+      - "PDF/XLSX/DOCX match one snapshot"
+
+  - id: "R1-009"
+    priority: "P0"
+    day: "D4"
+    status: "in_progress"
+    title: "Build immutable production package and observability"
+    exit:
+      - "one release ID across all processes"
+      - "public no-secret release identity and readiness are observable"
+      - "clean local production smoke passes"
+      - "health/readiness/liveness and alerts pass"
+      - "archive secret scan passes"
+
+  - id: "R1-010"
+    priority: "P0"
+    day: "D5"
+    status: "pending"
+    title: "Pass Home/Primary canary and physical-device QA"
+    exit:
+      - "real provider end-to-end passes"
+      - "iPhone cellular test passes"
+      - "Android cellular test passes"
+      - "desktop regression passes"
+      - "concurrency smoke passes"
+
+  - id: "R1-011"
+    priority: "P0"
+    day: "D6"
+    status: "in_progress"
+    title: "Pass security, migration, restore and rollback"
+    exit:
+      - "critical/high findings equal zero"
+      - "backup restore passes"
+      - "rollback completes within 10 minutes"
+      - "existing data remains readable"
+
+  - id: "R1-012"
+    priority: "P0"
+    day: "D7"
+    status: "pending"
+    title: "Freeze exact RC and obtain owner decision"
+    exit:
+      - "CI green on RC commit"
+      - "canary checksum equals candidate checksum"
+      - "P0 and P1 equal zero"
+      - "owner decision recorded as GO"
+
+  - id: "R1-013"
+    priority: "P0"
+    day: "GO_LIVE"
+    status: "pending"
+    title: "Switch production and observe"
+    exit:
+      - "public mandatory journey passes"
+      - "cellular smoke passes"
+      - "four-hour observation passes"
+      - "release evidence finalized"
+
+gates:
+  G1_architecture:
+    status: "blocked"
+    requires: ["R1-001", "R1-004"]
+  G2_agent_runtime:
+    status: "blocked"
+    requires: ["R1-002", "R1-006"]
+  G3_clean_ci:
+    status: "blocked"
+    requires: ["R1-003", "R1-005"]
+  G4_product_journey:
+    status: "pending"
+    requires: ["R1-008"]
+  G5_immutable_package:
+    status: "pending"
+    requires: ["R1-009"]
+  G6_canary:
+    status: "pending"
+    requires: ["R1-010"]
+  G7_recovery_security:
+    status: "pending"
+    requires: ["R1-011"]
+  G8_owner_go:
+    status: "pending"
+    requires: ["R1-012"]
+
+release_policy:
+  p0_allowed_at_go_live: 0
+  p1_allowed_at_go_live: 0
+  rebuild_after_owner_approval: false
+  same_archive_for_canary_and_production: true
+  production_mutation_requires_owner_approval: true
+  failed_gate_may_be_silently_waived: false

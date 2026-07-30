@@ -1,0 +1,168 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://schemas.kolibriai.ru/v1/quality/review.schema.json",
+  "title": "Kolibri Artifact Review v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id",
+    "schema_version",
+    "review_id",
+    "review_version",
+    "tenant_id",
+    "goal_id",
+    "case_id",
+    "task_id",
+    "artifact_ref",
+    "author_actor_id",
+    "reviewer_actor_id",
+    "reviewer_assignment_id",
+    "scope",
+    "criteria",
+    "evidence_refs",
+    "findings",
+    "disposition",
+    "status",
+    "requested_at",
+    "completed_at",
+    "supersedes"
+  ],
+  "properties": {
+    "schema_id": { "const": "kolibri.review" },
+    "schema_version": { "const": "1.0" },
+    "review_id": { "$ref": "#/definitions/opaque_id" },
+    "review_version": { "type": "integer", "minimum": 1 },
+    "tenant_id": { "$ref": "#/definitions/opaque_id" },
+    "goal_id": { "$ref": "#/definitions/opaque_id" },
+    "case_id": { "$ref": "#/definitions/opaque_id" },
+    "task_id": { "$ref": "#/definitions/opaque_id" },
+    "artifact_ref": { "$ref": "#/definitions/artifact_ref" },
+    "author_actor_id": { "$ref": "#/definitions/opaque_id" },
+    "reviewer_actor_id": { "$ref": "#/definitions/opaque_id" },
+    "reviewer_assignment_id": { "$ref": "#/definitions/opaque_id" },
+    "scope": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "enum": ["technical", "commercial", "legal", "quality", "security", "release"]
+      }
+    },
+    "criteria": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["criterion_id", "result", "evidence_refs"],
+        "properties": {
+          "criterion_id": { "$ref": "#/definitions/opaque_id" },
+          "result": {
+            "type": "string",
+            "enum": ["passed", "failed", "not_applicable", "inconclusive"]
+          },
+          "evidence_refs": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": { "$ref": "#/definitions/versioned_ref" }
+          }
+        }
+      }
+    },
+    "evidence_refs": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "#/definitions/versioned_ref" }
+    },
+    "findings": {
+      "type": "array",
+      "maxItems": 1000,
+      "items": {
+        "$ref": "https://schemas.kolibriai.ru/v1/quality/finding.schema.json"
+      }
+    },
+    "disposition": {
+      "type": "string",
+      "enum": ["pending", "changes_requested", "rejected", "accepted_with_conditions", "approved_internal"]
+    },
+    "status": {
+      "type": "string",
+      "enum": ["open", "completed", "superseded", "stale", "revoked"]
+    },
+    "requested_at": { "type": "string", "format": "date-time" },
+    "completed_at": {
+      "oneOf": [
+        { "type": "string", "format": "date-time" },
+        { "type": "null" }
+      ]
+    },
+    "supersedes": {
+      "oneOf": [
+        { "$ref": "#/definitions/versioned_ref" },
+        { "type": "null" }
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "status": { "const": "completed" } },
+        "required": ["status"]
+      },
+      "then": {
+        "properties": {
+          "completed_at": { "type": "string" },
+          "disposition": {
+            "enum": ["changes_requested", "rejected", "accepted_with_conditions", "approved_internal"]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "status": { "const": "open" } },
+        "required": ["status"]
+      },
+      "then": {
+        "properties": {
+          "completed_at": { "type": "null" },
+          "disposition": { "const": "pending" }
+        }
+      }
+    }
+  ],
+  "definitions": {
+    "opaque_id": {
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 160,
+      "pattern": "^[a-z][a-z0-9_]{1,31}_[A-Za-z0-9][A-Za-z0-9._~-]{5,127}$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "versioned_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ref_id", "version"],
+      "properties": {
+        "ref_id": { "$ref": "#/definitions/opaque_id" },
+        "version": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "artifact_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["artifact_id", "artifact_version", "content_hash"],
+      "properties": {
+        "artifact_id": { "$ref": "#/definitions/opaque_id" },
+        "artifact_version": { "type": "integer", "minimum": 1 },
+        "content_hash": { "$ref": "#/definitions/sha256" }
+      }
+    }
+  }
+}

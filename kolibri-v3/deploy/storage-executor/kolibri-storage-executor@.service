@@ -1,0 +1,55 @@
+[Unit]
+Description=Kolibri Storage Executor request
+Documentation=file:/usr/share/doc/kolibri-storage-executor/README.md
+After=local-fs.target
+
+[Service]
+Type=exec
+User=root
+Group=kolibri-storage
+EnvironmentFile=/etc/kolibri-storage-executor/executor.env
+ExecStart=/usr/local/libexec/kolibri-storage-executor \
+  --transport stdio \
+  --policy /etc/kolibri-storage-executor/policy.json \
+  --public-key-hex ${KOLIBRI_STORAGE_POLICY_PUBLIC_KEY_HEX} \
+  --state-db /var/lib/kolibri-storage-executor/executor.db
+StandardInput=socket
+StandardOutput=socket
+StandardError=journal
+StateDirectory=kolibri-storage-executor
+StateDirectoryMode=0700
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+# Full /proc visibility is required for fail-closed cwd/exe/fd guard checks.
+# Do not set ProtectProc=invisible or ProcSubset=pid for this service.
+RestrictAddressFamilies=AF_UNIX
+RestrictNamespaces=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RemoveIPC=yes
+CapabilityBoundingSet=CAP_DAC_OVERRIDE CAP_DAC_READ_SEARCH CAP_FOWNER
+AmbientCapabilities=CAP_DAC_OVERRIDE CAP_DAC_READ_SEARCH CAP_FOWNER
+ReadWritePaths=/var/lib/kolibri-storage-executor
+ReadOnlyPaths=/etc/kolibri-storage-executor
+# Optional signed evidence policies may parse digest-bound files below these
+# read-only trees, but current enumerated evidence is non-authorizing.
+ReadOnlyPaths=-/etc/systemd/system -/usr/lib/systemd/system -/lib/systemd/system
+ReadOnlyPaths=-/etc/nginx -/etc/cron.d -/etc/crontab
+SystemCallArchitectures=native
+TimeoutStartSec=45s
+MemoryMax=256M
+TasksMax=32
+
+# Mutation is non-authorizing in every current build. Do not add execution
+# ReadWritePaths. Any future staged rollout requires a separately reviewed
+# binary and exact paths; never use ReadWritePaths=/, /home or /var.

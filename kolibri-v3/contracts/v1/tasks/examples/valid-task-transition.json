@@ -1,0 +1,15 @@
+{
+  "schema_id": "kolibri.task.transition.command",
+  "schema_version": "1.0",
+  "task_id": "task_01JZESTIMATE001",
+  "expected_version": 5,
+  "next_version": 6,
+  "from_status": "running",
+  "to_status": "submitted",
+  "attempt_id": "attempt_01JZESTIMATE01",
+  "assignment_id": "assignment_01JZEST01",
+  "lease_id": "lease_01JZESTIMATE001",
+  "fencing_token": 11,
+  "reason": "Смета и evidence manifest переданы на проверку.",
+  "requested_at": "2026-07-24T00:40:00+03:00"
+}

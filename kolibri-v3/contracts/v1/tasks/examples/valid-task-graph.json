@@ -1,0 +1,128 @@
+{
+  "schema_id": "kolibri.task_graph",
+  "schema_version": "1.0",
+  "graph_id": "task_graph_01K0CASEGRAPH01",
+  "tenant_id": "ten_01K0TENANT00001",
+  "goal_id": "goal_01K0GOALGRAPH001",
+  "case_id": "case_01K0CASEGRAPH001",
+  "graph_version": 1,
+  "tasks": [
+    {
+      "schema_id": "kolibri.task",
+      "schema_version": "1.0",
+      "task_id": "task_01K0GRAPH000001",
+      "tenant_id": "ten_01K0TENANT00001",
+      "goal_id": "goal_01K0GOALGRAPH001",
+      "case_id": "case_01K0CASEGRAPH001",
+      "title": "Подготовить исходные данные",
+      "objective": "Собрать подтверждённые исходные данные для расчёта.",
+      "kind": "project.intake",
+      "parent_task_id": null,
+      "dependency_task_ids": [],
+      "required_capabilities": ["project.intake"],
+      "acceptance_criteria": [
+        {
+          "criterion_id": "criterion_01K0GRAPH0001",
+          "statement": "Исходные данные сохранены.",
+          "verification_method": "Проверка ProjectCase.",
+          "required": true
+        }
+      ],
+      "expected_outputs": [
+        {
+          "output_id": "output_01K0GRAPH00001",
+          "artifact_type": "project_facts",
+          "schema_id": "kolibri.project_facts",
+          "evidence_required": true
+        }
+      ],
+      "budget": {
+        "compute_units_limit": 100,
+        "tool_calls_limit": 5,
+        "external_spend_limit_minor": 0,
+        "currency": "RUB"
+      },
+      "deadline_at": null,
+      "risk_class": "medium",
+      "state": "completed",
+      "graph_version": 1,
+      "version": 1,
+      "current_attempt_id": null,
+      "current_assignment_id": null,
+      "created_at": "2026-07-24T03:40:00+03:00",
+      "updated_at": "2026-07-24T03:40:00+03:00"
+    },
+    {
+      "schema_id": "kolibri.task",
+      "schema_version": "1.0",
+      "task_id": "task_01K0GRAPH000002",
+      "tenant_id": "ten_01K0TENANT00001",
+      "goal_id": "goal_01K0GOALGRAPH001",
+      "case_id": "case_01K0CASEGRAPH001",
+      "title": "Рассчитать смету",
+      "objective": "Рассчитать смету по подтверждённым исходным данным.",
+      "kind": "estimate.calculate",
+      "parent_task_id": "task_01K0GRAPH000001",
+      "dependency_task_ids": ["task_01K0GRAPH000001"],
+      "required_capabilities": ["estimate.calculate"],
+      "acceptance_criteria": [
+        {
+          "criterion_id": "criterion_01K0GRAPH0002",
+          "statement": "Итоги сметы сходятся.",
+          "verification_method": "Детерминированный арифметический тест.",
+          "required": true
+        }
+      ],
+      "expected_outputs": [
+        {
+          "output_id": "output_01K0GRAPH00002",
+          "artifact_type": "estimate",
+          "schema_id": "kolibri.estimate",
+          "evidence_required": true
+        }
+      ],
+      "budget": {
+        "compute_units_limit": 1000,
+        "tool_calls_limit": 20,
+        "external_spend_limit_minor": 0,
+        "currency": "RUB"
+      },
+      "deadline_at": null,
+      "risk_class": "high",
+      "state": "ready",
+      "graph_version": 1,
+      "version": 1,
+      "current_attempt_id": null,
+      "current_assignment_id": null,
+      "created_at": "2026-07-24T03:40:01+03:00",
+      "updated_at": "2026-07-24T03:40:01+03:00"
+    }
+  ],
+  "relations": [
+    {
+      "task_id": "task_01K0GRAPH000001",
+      "parent_task_id": null,
+      "child_task_ids": ["task_01K0GRAPH000002"],
+      "dependency_task_ids": [],
+      "dependent_task_ids": ["task_01K0GRAPH000002"],
+      "blocked_by_task_ids": [],
+      "runnable": false
+    },
+    {
+      "task_id": "task_01K0GRAPH000002",
+      "parent_task_id": "task_01K0GRAPH000001",
+      "child_task_ids": [],
+      "dependency_task_ids": ["task_01K0GRAPH000001"],
+      "dependent_task_ids": [],
+      "blocked_by_task_ids": [],
+      "runnable": true
+    }
+  ],
+  "topological_task_ids": [
+    "task_01K0GRAPH000001",
+    "task_01K0GRAPH000002"
+  ],
+  "runnable_task_ids": ["task_01K0GRAPH000002"],
+  "created_at": "2026-07-24T03:40:02+03:00",
+  "updated_at": "2026-07-24T03:40:02+03:00"
+}

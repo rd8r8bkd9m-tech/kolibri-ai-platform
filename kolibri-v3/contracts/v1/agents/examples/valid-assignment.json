@@ -1,0 +1,70 @@
+{
+  "schema_id": "kolibri.agent_assignment",
+  "schema_version": "1.0",
+  "assignment_id": "assignment_01JZEST01",
+  "tenant_id": "ten_01JZTENANT0001",
+  "goal_id": "goal_01JZGOAL000001",
+  "case_id": "case_01JZCASE000001",
+  "task_id": "task_01JZESTIMATE001",
+  "task_version": 5,
+  "attempt_id": "attempt_01JZESTIMATE01",
+  "assignee_actor_id": "agent_01JZESTIMATOR01",
+  "agent_card_id": "agentcard_01JZEST001",
+  "agent_card_version": 4,
+  "temporary_role": "estimate.author",
+  "purpose": "Подготовить проверяемый черновик сметы.",
+  "authority_profile": {
+    "authority_id": "auth_01JZLHCP000001",
+    "authority_role": "logical_home_control_plane",
+    "authority_epoch": 7,
+    "authorization_decision_id": "decision_01JZASSIGNAUTH",
+    "capabilities": [
+      "a2a.message.append",
+      "estimate.calculate",
+      "pricing.read"
+    ],
+    "allowed_tool_ids": [
+      "tool.pricing.read"
+    ],
+    "allowed_resource_refs": [
+      "case_01JZCASE000001",
+      "task_01JZESTIMATE001"
+    ],
+    "expires_at": "2026-07-24T01:05:00+03:00"
+  },
+  "context_slice": {
+    "case_version": 3,
+    "fact_ids": [
+      "fact_01JZAREA000001",
+      "fact_01JZREGION0001"
+    ],
+    "assumption_ids": [
+      "assumption_01JZLAYER01"
+    ],
+    "decision_ids": [
+      "decision_01JZMATERIAL1"
+    ],
+    "artifact_refs": [],
+    "classification": "confidential",
+    "max_bytes": 1048576
+  },
+  "budget": {
+    "compute_units_limit": 12000,
+    "tool_calls_limit": 40,
+    "external_spend_limit_minor": 0,
+    "currency": "RUB"
+  },
+  "lease_id": "lease_01JZESTIMATE001",
+  "deadline_at": "2026-07-24T01:00:00+03:00",
+  "required_output_ids": [
+    "output_01JZESTIMATE01"
+  ],
+  "required_evidence_types": [
+    "price_source",
+    "calculation"
+  ],
+  "status": "active",
+  "version": 1,
+  "created_at": "2026-07-24T00:34:00+03:00",
+  "updated_at": "2026-07-24T00:35:00+03:00"
+}

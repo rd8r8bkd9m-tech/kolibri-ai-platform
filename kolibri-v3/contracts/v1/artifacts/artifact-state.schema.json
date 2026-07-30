@@ -1,0 +1,100 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://schemas.kolibriai.ru/v1/artifacts/artifact-state.schema.json",
+  "title": "Kolibri Artifact lifecycle projection v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id",
+    "schema_version",
+    "artifact_id",
+    "artifact_version",
+    "content_hash",
+    "tenant_id",
+    "status",
+    "state_version",
+    "changed_at",
+    "reason",
+    "invalidated_by"
+  ],
+  "properties": {
+    "schema_id": { "const": "kolibri.artifact_state" },
+    "schema_version": { "const": "1.0" },
+    "artifact_id": { "$ref": "#/definitions/opaque_id" },
+    "artifact_version": { "type": "integer", "minimum": 1 },
+    "content_hash": { "$ref": "#/definitions/sha256" },
+    "tenant_id": { "$ref": "#/definitions/opaque_id" },
+    "status": { "$ref": "#/definitions/status" },
+    "state_version": { "type": "integer", "minimum": 1 },
+    "changed_at": { "type": "string", "format": "date-time" },
+    "reason": {
+      "oneOf": [
+        { "type": "string", "minLength": 1, "maxLength": 1000 },
+        { "type": "null" }
+      ]
+    },
+    "invalidated_by": {
+      "type": "array",
+      "maxItems": 10000,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["ref_id", "ref_version", "content_hash"],
+        "properties": {
+          "ref_id": { "$ref": "#/definitions/opaque_id" },
+          "ref_version": { "type": "integer", "minimum": 1 },
+          "content_hash": { "$ref": "#/definitions/sha256" }
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "status": { "enum": ["stale", "revoked"] }
+        },
+        "required": ["status"]
+      },
+      "then": {
+        "properties": {
+          "reason": { "type": "string" }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "status": { "const": "stale" } },
+        "required": ["status"]
+      },
+      "then": {
+        "properties": { "invalidated_by": { "minItems": 1 } }
+      }
+    }
+  ],
+  "definitions": {
+    "opaque_id": {
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 160,
+      "pattern": "^[a-z][a-z0-9_]{1,31}_[A-Za-z0-9][A-Za-z0-9._~-]{5,127}$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "draft",
+        "in_review",
+        "approved_internal",
+        "released",
+        "stale",
+        "revoked",
+        "superseded"
+      ]
+    }
+  }
+}

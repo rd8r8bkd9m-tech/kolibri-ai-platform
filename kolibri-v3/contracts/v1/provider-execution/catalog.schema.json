@@ -1,0 +1,24 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://schemas.kolibriai.ru/v1/provider-execution/catalog.schema.json",
+  "title": "Kolibri provider execution catalog v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id",
+    "schema_version",
+    "agent_cards"
+  ],
+  "properties": {
+    "schema_id": { "const": "kolibri.provider_execution.catalog" },
+    "schema_version": { "const": "1.0" },
+    "agent_cards": {
+      "type": "array",
+      "maxItems": 64,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "https://schemas.kolibriai.ru/v1/agents/agent-card.schema.json"
+      }
+    }
+  }
+}

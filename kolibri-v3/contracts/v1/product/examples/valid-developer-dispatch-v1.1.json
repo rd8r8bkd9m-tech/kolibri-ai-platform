@@ -1,0 +1,23 @@
+{
+  "schema_id": "kolibri.product.developer_dispatch.v1_1",
+  "schema_version": "1.1",
+  "source_command_ref": "sourcecmd_c3465130bc7a4417c7b76f04aa5234f924356ad2",
+  "run_id": "run_01JZPRODUCTPROVIDERFIXTURE1",
+  "project_id": "project_01JZPRODUCT001",
+  "thread_id": "thread_01JZPRODUCT001",
+  "input_message_id": "message_01JZPRODUCTPROVIDERFIXTURE1",
+  "runtime_profile": "third-agent.runtime-01",
+  "runtime_capability": "developer.runtime.execute.02592e7dfeeb50c9eabffb2658ddd742",
+  "model": "generic-model-01",
+  "reasoning_effort": "high",
+  "service_tier": "priority",
+  "workspace_ref": "repository.workspace-01",
+  "access_mode": "full",
+  "sandbox": "danger-full-access",
+  "approval_policy": "never",
+  "reviewer": null,
+  "trusted_agent_profile_id": "tap_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "trusted_agent_profile_epoch": 7,
+  "trusted_agent_workspace_binding_id": "wsb_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "trusted_agent_workspace_binding_epoch": 11
+}

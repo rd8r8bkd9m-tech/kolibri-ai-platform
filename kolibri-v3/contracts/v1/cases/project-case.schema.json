@@ -1,0 +1,162 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://schemas.kolibriai.ru/v1/cases/project-case.schema.json",
+  "title": "Kolibri ProjectCase aggregate v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id",
+    "schema_version",
+    "case_id",
+    "goal_id",
+    "goal_version",
+    "tenant_id",
+    "status",
+    "version",
+    "event_sequence",
+    "intent_snapshot",
+    "acceptance_criterion_ids",
+    "facts",
+    "assumptions",
+    "proposals",
+    "decisions",
+    "open_questions",
+    "requirements",
+    "constraints",
+    "domain_refs",
+    "created_at",
+    "updated_at"
+  ],
+  "properties": {
+    "schema_id": {"const": "kolibri.project_case"},
+    "schema_version": {"const": "1.0"},
+    "case_id": {"$ref": "#/definitions/opaque_id"},
+    "goal_id": {"$ref": "#/definitions/opaque_id"},
+    "goal_version": {"type": "integer", "minimum": 1},
+    "tenant_id": {"$ref": "#/definitions/opaque_id"},
+    "status": {"$ref": "#/definitions/status"},
+    "version": {"type": "integer", "minimum": 1},
+    "event_sequence": {"type": "integer", "minimum": 0},
+    "intent_snapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["goal_version", "normalized_objective"],
+      "properties": {
+        "goal_version": {"type": "integer", "minimum": 1},
+        "normalized_objective": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4000
+        }
+      }
+    },
+    "acceptance_criterion_ids": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 100,
+      "uniqueItems": true,
+      "items": {"$ref": "#/definitions/opaque_id"}
+    },
+    "facts": {
+      "type": "array",
+      "maxItems": 5000,
+      "items": {
+        "$ref": "https://schemas.kolibriai.ru/v1/cases/fact.schema.json"
+      }
+    },
+    "assumptions": {
+      "type": "array",
+      "maxItems": 2000,
+      "items": {
+        "$ref": "https://schemas.kolibriai.ru/v1/cases/assumption.schema.json"
+      }
+    },
+    "proposals": {
+      "type": "array",
+      "maxItems": 2000,
+      "items": {
+        "$ref": "https://schemas.kolibriai.ru/v1/cases/proposal.schema.json"
+      }
+    },
+    "decisions": {
+      "type": "array",
+      "maxItems": 2000,
+      "items": {
+        "$ref": "https://schemas.kolibriai.ru/v1/cases/decision.schema.json"
+      }
+    },
+    "open_questions": {
+      "type": "array",
+      "maxItems": 500,
+      "items": {
+        "$ref": "https://schemas.kolibriai.ru/v1/cases/open-question.schema.json"
+      }
+    },
+    "requirements": {
+      "type": "array",
+      "maxItems": 1000,
+      "items": {"$ref": "#/definitions/statement_item"}
+    },
+    "constraints": {
+      "type": "array",
+      "maxItems": 1000,
+      "items": {"$ref": "#/definitions/statement_item"}
+    },
+    "domain_refs": {
+      "type": "array",
+      "maxItems": 5000,
+      "items": {"$ref": "#/definitions/versioned_ref"}
+    },
+    "created_at": {"type": "string", "format": "date-time"},
+    "updated_at": {"type": "string", "format": "date-time"}
+  },
+  "definitions": {
+    "opaque_id": {
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 160,
+      "pattern": "^[a-z][a-z0-9_]{1,31}_[A-Za-z0-9][A-Za-z0-9._~-]{5,127}$"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "draft",
+        "intake",
+        "working",
+        "blocked",
+        "review",
+        "approved_internal",
+        "released",
+        "superseded",
+        "closed"
+      ]
+    },
+    "statement_item": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["item_id", "statement", "source_ref", "status"],
+      "properties": {
+        "item_id": {"$ref": "#/definitions/opaque_id"},
+        "statement": {"type": "string", "minLength": 1, "maxLength": 2000},
+        "source_ref": {"$ref": "#/definitions/opaque_id"},
+        "status": {
+          "type": "string",
+          "enum": ["active", "satisfied", "violated", "superseded"]
+        }
+      }
+    },
+    "versioned_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ref_type", "ref_id", "version"],
+      "properties": {
+        "ref_type": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_.-]{1,127}$"
+        },
+        "ref_id": {"$ref": "#/definitions/opaque_id"},
+        "version": {"type": "integer", "minimum": 1}
+      }
+    }
+  }
+}

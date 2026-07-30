@@ -1,0 +1,12 @@
+{
+  "schema_id": "kolibri.task_graph.changed.event",
+  "schema_version": "1.0",
+  "graph_id": "task_graph_01K0CASEGRAPH01",
+  "tenant_id": "ten_01K0TENANT00001",
+  "goal_id": "goal_01K0GOALGRAPH001",
+  "case_id": "case_01K0CASEGRAPH001",
+  "previous_graph_version": null,
+  "new_graph_version": 1,
+  "task_count": 2,
+  "runnable_task_ids": ["task_01K0GRAPH000002"]
+}

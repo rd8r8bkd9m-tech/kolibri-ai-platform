@@ -1,0 +1,10 @@
+{
+  "schema_id": "kolibri.workflow.signal",
+  "schema_version": "1.0",
+  "workflow_id": "workflow_01JZWFLOWEXAMPLE1",
+  "signal_id": "signal_01K0SIGNAL002",
+  "signal_type": "approval",
+  "source": "director",
+  "payload_hash": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+  "requested_at": "2026-07-24T03:20:11+03:00"
+}

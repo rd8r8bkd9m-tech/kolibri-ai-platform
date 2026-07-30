@@ -1,0 +1,134 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://schemas.kolibriai.ru/v1/product/run-execution-status.schema.json",
+  "title": "Kolibri Product run execution status v1",
+  "description": "Internal Logical Home to Product/Data execution status. It reports a resolved execution profile without exposing provider routing or credentials.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id",
+    "schema_version",
+    "run_id",
+    "status",
+    "profile",
+    "execution_id",
+    "verification_status",
+    "result_text",
+    "result_hash",
+    "evidence",
+    "error"
+  ],
+  "properties": {
+    "schema_id": {
+      "const": "kolibri.product.run.execution_status"
+    },
+    "schema_version": {
+      "const": "1.0"
+    },
+    "run_id": {
+      "$ref": "#/definitions/opaque_id"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "accepted",
+        "running",
+        "succeeded",
+        "failed"
+      ]
+    },
+    "profile": {
+      "type": "string",
+      "enum": [
+        "mimo-code",
+        "codex-cli"
+      ]
+    },
+    "execution_id": {
+      "$ref": "#/definitions/opaque_id"
+    },
+    "verification_status": {
+      "type": "string",
+      "enum": [
+        "not_applicable",
+        "unverified",
+        "verified"
+      ]
+    },
+    "result_text": {
+      "oneOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200000
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "result_hash": {
+      "oneOf": [
+        {
+          "$ref": "#/definitions/sha256"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "evidence": {
+      "oneOf": [
+        {
+          "$ref": "#/definitions/evidence_ref"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "error": {
+      "oneOf": [
+        {
+          "$ref": "https://schemas.kolibriai.ru/v1/common/error-envelope.schema.json"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "definitions": {
+    "opaque_id": {
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 160,
+      "pattern": "^[a-z][a-z0-9_]{1,31}_[A-Za-z0-9][A-Za-z0-9._~-]{5,127}$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "evidence_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "evidence_id",
+        "evidence_version",
+        "content_hash"
+      ],
+      "properties": {
+        "evidence_id": {
+          "$ref": "#/definitions/opaque_id"
+        },
+        "evidence_version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "content_hash": {
+          "$ref": "#/definitions/sha256"
+        }
+      }
+    }
+  }
+}

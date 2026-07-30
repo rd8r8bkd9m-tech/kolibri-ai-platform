@@ -1,0 +1,77 @@
+{
+  "schema_id": "kolibri.artifact",
+  "schema_version": "1.0",
+  "artifact_id": "artifact_01JZESTIMATE01",
+  "artifact_version": 3,
+  "tenant_id": "ten_01JZTENANT0001",
+  "goal_id": "goal_01JZGOAL00001",
+  "case_id": "case_01JZCASE00001",
+  "task_id": "task_01JZESTIMATE01",
+  "artifact_type": "estimate.workbook",
+  "domain_output": {
+    "aggregate_type": "estimate",
+    "aggregate_id": "estimate_01JZESTIMATE1",
+    "aggregate_version": 12
+  },
+  "content": {
+    "storage_ref": "cas://sha256/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "media_type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "size_bytes": 48192,
+    "content_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "filename": "estimate-v12.xlsx"
+  },
+  "contract": {
+    "schema_id": "kolibri.estimate_workbook",
+    "schema_version": "1.0",
+    "renderer_id": "xlsx.estimate",
+    "renderer_version": "3.4.1"
+  },
+  "generator": {
+    "generator_id": "product_data.estimate_export",
+    "generator_version": "2026.07.24",
+    "execution_ref": "attempt_01JZATTEMPT001"
+  },
+  "inputs": [
+    {
+      "input_id": "input_01JZDECISION01",
+      "input_kind": "decision",
+      "ref_id": "decision_01JZTAXMODE01",
+      "ref_version": 2,
+      "content_hash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "role": "tax regime"
+    },
+    {
+      "input_id": "input_01JZDOMAIN001",
+      "input_kind": "domain_aggregate",
+      "ref_id": "estimate_01JZESTIMATE1",
+      "ref_version": 12,
+      "content_hash": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "role": "canonical estimate snapshot"
+    }
+  ],
+  "provenance": [
+    {
+      "provenance_id": "prov_01JZCALC00001",
+      "kind": "calculation",
+      "source_ref": "estimate_01JZESTIMATE1",
+      "recorded_at": "2026-07-24T02:00:00+03:00",
+      "effective_at": "2026-07-24T00:00:00+03:00",
+      "actor_or_tool_ref": "tool_01JZCALCULATOR1"
+    },
+    {
+      "provenance_id": "prov_01JZEXPORT0001",
+      "kind": "tool_execution",
+      "source_ref": "attempt_01JZATTEMPT001",
+      "recorded_at": "2026-07-24T02:00:03+03:00",
+      "effective_at": null,
+      "actor_or_tool_ref": "tool_01JZXLSX00001"
+    }
+  ],
+  "supersedes": {
+    "artifact_id": "artifact_01JZESTIMATE01",
+    "artifact_version": 2,
+    "content_hash": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+  },
+  "created_by": "agent_01JZESTIMATOR1",
+  "created_at": "2026-07-24T02:00:04+03:00"
+}

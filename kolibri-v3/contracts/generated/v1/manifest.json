@@ -1,0 +1,463 @@
+{
+  "contract_count": 70,
+  "generator_version": "1.0",
+  "outputs": [
+    "generated/contracts-v1.ts",
+    "server/contracts_runtime.py"
+  ],
+  "schema_count": 90,
+  "schema_id": "kolibri.generated_contract_package_manifest",
+  "schema_version": "1.0",
+  "schemas": [
+    {
+      "schema_uri": "https://schemas.kolibriai.ru/v1/a2a/delivery-cursor.schema.json",
+      "sha256": "4feb317b754df855af08c8477e9898941dd2e817df42769e0dc6d8089f510d6a",
+      "source_path": "contracts/v1/a2a/delivery-cursor.schema.json"
+    },
+    {
+      "schema_uri": "https://schemas.kolibriai.ru/v1/a2a/message.schema.json",
+      "sha256": "a02287c362396757b40639e46f8fb695d5853780807814dde5c44933d8816b05",
+      "source_path": "contracts/v1/a2a/message.schema.json"
+    },
+    {
+      "schema_uri": "https://schemas.kolibriai.ru/v1/agents/agent-card.schema.json",
+      "sha256": "3a875f1fbcbfbfbe3f934cefa3fe85f365549c1d240deb68ed815a6a3912f1a7",
+      "source_path": "contracts/v1/agents/agent-card.schema.json"
+    },
+    {
+      "schema_uri": "https://schemas.kolibriai.ru/v1/agents/assignment-status-changed-event.schema.json",
+      "sha256": "5c504aa1b7ecd2f614bef6d759f4bd97477873daba9bd47f80729ac235ee501a",
+      "source_path": "contracts/v1/agents/assignment-status-changed-event.schema.json"
+    },
+    {
+      "schema_uri": "https://schemas.kolibriai.ru/v1/agents/assignment.schema.json",
+      "sha256": "b30d222f804921ce6bf63276e670b76c3a089da30d5fd902a74e6fa1c44ff6e1",
+      "source_path": "contracts/v1/agents/assignment.schema.json"
+    },
+    {
+      "schema_uri": "https://schemas.kolibriai.ru/v1/agents/authority-profile.schema.json",
+      "sha256": "dc991ac68069efe2130e08aafb83601899dc602065a8d250249df0da3d9c3b5a",
+      "source_path": "contracts/v1/agents/authority-profile.schema.json"
+    },
+    {
+      "schema_uri": "https://schemas.kolibriai.ru/v1/artifacts/artifact-state-transition.schema.json",
+      "sha256": "cf8432fe869bd8a8d5d45eea7060f01ef0de0950e4968773d2c4da0fc69f6ec1",
+      "source_path": "contracts/v1/artifacts/artifact-state-transition.schema.json"
+    },
+    {
+      "schema_uri": "https://schemas.kolibriai.ru/v1/artifacts/artifact-state.schema.json",
+      "sha256": "caffec6e834ac5be3dfe9939eef810443f6b3d719f408ef456f794768956dc22",
+      "source_path": "contracts/v1/artifacts/artifact-state.schema.json"
+    },
+    {
+      "schema_uri": "https://schemas.kolibriai.ru/v1/artifacts/artifact.schema.json",
+      "sha256": "965e2d319305aa264a7304b8be7f92f17244336e9ea896d71519e6ccce951da5",
+      "source_path": "contracts/v1/artifacts/artifact.schema.json"
+    },
+    {
+      "schema_uri": "https://schemas.kolibriai.ru/v1/cases/assumption.schema.json",
+      "sha256": "15770289d008d61f8b192c940b38229d58cb098e638f92717105836783e28d58",
+      "source_path": "contracts/v1/cases/assumption.schema.json"
+    },
+    {
+      "schema_uri": "https://schemas.kolibriai.ru/v1/cases/decision.schema.json",
+      "sha256": "13b6961f36056513fe6acfd106fd45f7ff64de30f1eb70412d786abb8f94bed0",
+      "source_path": "contracts/v1/cases/decision.schema.json"
+    },
+    {
+      "schema_uri": "https://schemas.kolibriai.ru/v1/cases/fact.schema.json",
+      "sha256": "2e3a7880b37aee31eb94d9d04b953d47f08676ed32084a8c89be4d482096b0fe",
+      "source_path": "contracts/v1/cases/fact.schema.json"
+    },
+    {
+      "schema_uri": "https://schemas.kolibriai.ru/v1/cases/open-question.schema.json",
+      "sha256": "70272fad3f9233ad40e2769e891f965bf1d58bd9001b2d54772d28b45518bb2b",
+      "source_path": "contracts/v1/cases/open-question.schema.json"
+    },
+    {
+      "schema_uri": "https://schemas.kolibriai.ru/v1/cases/project-case-transition.schema.json",
+      "sha256": "8cf86a27db3f69bfe27fdb08a883a4eea5ef49f1adf4ebbd21466f86fb874557",
+      "source_path": "contracts/v1/cases/project-case-transition.schema.json"
+    },
+    {
+      "schema_uri": "https://schemas.kolibriai.ru/v1/cases/project-case.schema.json",
+      "sha256": "449a11052f8dbc55fe89e8224aec42c6bd5eb4ff78debc4ff93524be5808c8b7",
+      "source_path": "contracts/v1/cases/project-case.schema.json"
+    },
+    {
+      "schema_uri": "https://schemas.kolibriai.ru/v1/cases/proposal.schema.json",
+      "sha256": "d2a8f2fcb8a4283b247f59a0785a360127d2f5ae5c9fd1f528f2f272a181712a",
+      "source_path": "contracts/v1/cases/proposal.schema.json"
+    },
+    {
+      "schema_uri": "https://schemas.kolibriai.ru/v3/contracts/v1/chat/ag-ui-event.schema.json",
+      "sha256": "064d7a6b98d6ec9f31654f268f50e09a38e8aaf6d5d5f0550280b87e99cbf157",
+      "source_path": "contracts/v1/chat/ag-ui-event.schema.json"
+    },
+    {
+      "schema_uri": "https://schemas.kolibriai.ru/v3/contracts/v1/chat/ag-ui-run-input.schema.json",
+      "sha256": "eb167834ab6593447924c74f739bf4c72d8efab3e64b9b91c37648b17828e084",
+      "source_path": "contracts/v1/chat/ag-ui-run-input.schema.json"
+    },
+    {
+      "schema_uri": "https://schemas.kolibriai.ru/v3/contracts/v1/chat/message-list-response.schema.json",
+      "sha256": "c0a06d7d4b5f09310dd988de933a684ff992d9122d9b3fb58460b0c29fe4765c",
+      "source_path": "contracts/v1/chat/message-list-response.schema.json"
+    },
+    {
+      "schema_uri": "https://schemas.kolibriai.ru/v3/contracts/v1/chat/thread-list-response.schema.json",
+      "sha256": "e94ad9933674fe607303a69f2a41175d35bf33d6ab283bae8bb9e3650782ec23",
+      "source_path": "contracts/v1/chat/thread-list-response.schema.json"
+    },
+    {
+      "schema_uri": "https://schemas.kolibriai.ru/v1/common/command-envelope.schema.json",
+      "sha256": "a06ea5af36ddb3d7067b58cbc2dc32226698490c9e2156ce1f63c24694309741",
+      "source_path": "contracts/v1/common/command-envelope.schema.json"
+    },
+    {
+      "schema_uri": "https://schemas.kolibriai.ru/v1/common/error-envelope.schema.json",
+      "sha256": "193a3facf4cab43f99c7ae92fbe3c70f13f54b5d8bf51955080ac8cd8703e438",
+      "source_path": "contracts/v1/common/error-envelope.schema.json"
+    },
+    {
+      "schema_uri": "https://schemas.kolibriai.ru/v1/common/event-envelope.schema.json",
+      "sha256": "fd30511005dc71ed2e8b927d1e8c506b25e38fd0bf8172335bcf994479a61566",
+      "source_path": "contracts/v1/common/event-envelope.schema.json"
+    },
+    {
+      "schema_uri": "https://schemas.kolibriai.ru/v1/common/idempotency.schema.json",
+      "sha256": "26a960210bb4630388a8c75550857768919cada579096308f08565a88823d880",
+      "source_path": "contracts/v1/common/idempotency.schema.json"
+    },
+    {
+      "schema_uri": "https://schemas.kolibriai.ru/v1/common/identity.schema.json",
+      "sha256": "0bbb8b2763104dbd976cc3cf07fb0f07ef177b127afd7d5f3d88a47fe86dfd6c",
+      "source_path": "contracts/v1/common/identity.schema.json"
+    },
+    {
+      "schema_uri": "https://schemas.kolibriai.ru/v1/common/trace.schema.json",
+      "sha256": "90e92baa5ec72fbe0bea2486f6971531047feb2b9eabbe9aec9615625e7bd1cf",
+      "source_path": "contracts/v1/common/trace.schema.json"
+    },
+    {
+      "schema_uri": "https://kolibriai.ru/contracts/v1/devices/device-capability-manifest.schema.json",
+      "sha256": "31b25192947ead87f6c094387e9748cd46caea949001596ed1afae2108e513f4",
+      "source_path": "contracts/v1/devices/device-capability-manifest.schema.json"
+    },
+    {
+      "schema_uri": "https://schemas.kolibriai.ru/v1/documents/document-data.schema.json",
+      "sha256": "dce902d1e1d73dff13027b39b668e96885d729b13c843f8cc06c47872e534675",
+      "source_path": "contracts/v1/documents/document-data.schema.json"
+    },
+    {
+      "schema_uri": "https://schemas.kolibriai.ru/v1/documents/document-render-request.schema.json",
+      "sha256": "57e23baaa337ac4f1ab46932c14ce9384fa5efa1e942f6208c892915f87947ca",
+      "source_path": "contracts/v1/documents/document-render-request.schema.json"
+    },
+    {
+      "schema_uri": "https://schemas.kolibriai.ru/v1/documents/document-render-result.schema.json",
+      "sha256": "d99e1de10da8573f694b966c440656a85eab6c106323689211777a6413d6f519",
+      "source_path": "contracts/v1/documents/document-render-result.schema.json"
+    },
+    {
+      "schema_uri": "https://schemas.kolibriai.ru/v1/documents/document-template-registry.schema.json",
+      "sha256": "b26b8740a2fb6d0d20efbe9db64ee51fb2677d2f17e7a6faa93c7026ebe638b1",
+      "source_path": "contracts/v1/documents/document-template-registry.schema.json"
+    },
+    {
+      "schema_uri": "https://schemas.kolibriai.ru/v1/documents/document-template.schema.json",
+      "sha256": "bf5595f6d30f5bdd6d974875a28dec86832f4f7c7a607d28de0bc34cca06d660",
+      "source_path": "contracts/v1/documents/document-template.schema.json"
+    },
+    {
+      "schema_uri": "https://kolibriai.ru/contracts/v1/estimates/calculation-request.schema.json",
+      "sha256": "f331023f478c1f9d1edd0e03a2c407d29ba9cc990d0ca4fd4675f37630165837",
+      "source_path": "contracts/v1/estimates/calculation-request.schema.json"
+    },
+    {
+      "schema_uri": "https://kolibriai.ru/contracts/v1/estimates/calculation-result.schema.json",
+      "sha256": "fcd4585184b23dc1d5957fbe5ea6582988d22db31438c685699ac6d053095b48",
+      "source_path": "contracts/v1/estimates/calculation-result.schema.json"
+    },
+    {
+      "schema_uri": "https://schemas.kolibriai.ru/v1/goals/goal-change-event.schema.json",
+      "sha256": "c07989875bc0633ec855bcfbb7498730905011cee8efb3010912ad15c74bc756",
+      "source_path": "contracts/v1/goals/goal-change-event.schema.json"
+    },
+    {
+      "schema_uri": "https://schemas.kolibriai.ru/v1/goals/goal-create.schema.json",
+      "sha256": "ab4fc9568ae7000dd6ed57e1278ba8961c2c382461a94cdd94a4d559df622ccb",
+      "source_path": "contracts/v1/goals/goal-create.schema.json"
+    },
+    {
+      "schema_uri": "https://schemas.kolibriai.ru/v1/goals/goal-transition.schema.json",
+      "sha256": "09120f8a79117da6408edc3c72a7e7b84dd9b4201ac7d571d2f2c756bbd66464",
+      "source_path": "contracts/v1/goals/goal-transition.schema.json"
+    },
+    {
+      "schema_uri": "https://schemas.kolibriai.ru/v1/goals/goal-update.schema.json",
+      "sha256": "ac259854bb65274e3e7b1d80c004ddecc913ff1a9a3bc4f9307091f940130f07",
+      "source_path": "contracts/v1/goals/goal-update.schema.json"
+    },
+    {
+      "schema_uri": "https://schemas.kolibriai.ru/v1/goals/goal.schema.json",
+      "sha256": "acfec673ee0ec37fc441d4425088f4871c78358d39c18b90636c9e2ed79fa0ff",
+      "source_path": "contracts/v1/goals/goal.schema.json"
+    },
+    {
+      "schema_uri": "https://schemas.kolibriai.ru/v1/product/agui-projection.schema.json",
+      "sha256": "1d7b237a48fbc65f7f427d2c937984e3f3508168e8623cbb28c8f1d57bfb1c8e",
+      "source_path": "contracts/v1/product/agui-projection.schema.json"
+    },
+    {
+      "schema_uri": "https://schemas.kolibriai.ru/v1/product/attachment.schema.json",
+      "sha256": "e7dd544743ceb73a7476a06c9281cd44c43857848210d7422abe3eaa82c07419",
+      "source_path": "contracts/v1/product/attachment.schema.json"
+    },
+    {
+      "schema_uri": "https://schemas.kolibriai.ru/v1/product/delivery-cursor.schema.json",
+      "sha256": "198fab4e6b07d12f65b76dc020bc943fa9ac392d1a2be2bd6d98daf2e9ed1ef8",
+      "source_path": "contracts/v1/product/delivery-cursor.schema.json"
+    },
+    {
+      "schema_uri": "https://schemas.kolibriai.ru/v1/product/developer-dispatch-v1.1.schema.json",
+      "sha256": "c935a23539c42b36996ad94df322481d4095c6afa9343dc3456ff35065c0ccb3",
+      "source_path": "contracts/v1/product/developer-dispatch-v1.1.schema.json"
+    },
+    {
+      "schema_uri": "https://schemas.kolibriai.ru/v1/product/developer-dispatch.schema.json",
+      "sha256": "766a9cf2e13154537ec92dd22c7ea3639825031d1615202c8488cbeffabde4ff",
+      "source_path": "contracts/v1/product/developer-dispatch.schema.json"
+    },
+    {
+      "schema_uri": "https://schemas.kolibriai.ru/v1/product/developer-lease-source-v1.1.schema.json",
+      "sha256": "571ccf65cc51b9f6e7544e7d820b576fd35dee04332c29a551a8f07573ebffc7",
+      "source_path": "contracts/v1/product/developer-lease-source-v1.1.schema.json"
+    },
+    {
+      "schema_uri": "https://schemas.kolibriai.ru/v1/product/developer-lease-source.schema.json",
+      "sha256": "0ea0f077132fb5a99f9d880322847b395876b45878a1840749083c152202523a",
+      "source_path": "contracts/v1/product/developer-lease-source.schema.json"
+    },
+    {
+      "schema_uri": "https://schemas.kolibriai.ru/v1/product/developer-source-command.schema.json",
+      "sha256": "c18e8ac21612c98f215a9013645b0f51560e54c8968ec2cb8a93522f89b91b4c",
+      "source_path": "contracts/v1/product/developer-source-command.schema.json"
+    },
+    {
+      "schema_uri": "https://schemas.kolibriai.ru/v1/product/interrupt.schema.json",
+      "sha256": "5673c116829fc2b7bc5f4b86d369f2aec62014de0570fa8a11122c99127846b5",
+      "source_path": "contracts/v1/product/interrupt.schema.json"
+    },
+    {
+      "schema_uri": "https://schemas.kolibriai.ru/v1/product/message-part.schema.json",
+      "sha256": "94908bb477e0a265725d51389820ce2e98c2897589a6dfb1a8d141dc60cc0c15",
+      "source_path": "contracts/v1/product/message-part.schema.json"
+    },
+    {
+      "schema_uri": "https://schemas.kolibriai.ru/v1/product/message.schema.json",
+      "sha256": "3b2e26cc223b5ba50759391d1486fb7c8462adce80e79551399d6f3ead6a5e6c",
+      "source_path": "contracts/v1/product/message.schema.json"
+    },
+    {
+      "schema_uri": "https://schemas.kolibriai.ru/v1/product/product-goal-initialization-status.schema.json",
+      "sha256": "93bbe2982e00a09038ad62a545f4e2657bdc32732b17fe9844de4f8647e4b202",
+      "source_path": "contracts/v1/product/product-goal-initialization-status.schema.json"
+    },
+    {
+      "schema_uri": "https://schemas.kolibriai.ru/v1/product/product-goal-initialize-command.schema.json",
+      "sha256": "832b1112d50a32b32070a257ea544c2972bc5104fa815ed30c3d393bba97fa89",
+      "source_path": "contracts/v1/product/product-goal-initialize-command.schema.json"
+    },
+    {
+      "schema_uri": "https://schemas.kolibriai.ru/v1/product/project-create-request.schema.json",
+      "sha256": "8bbd8af53557561af5a4f1efe2267deed86e9366438e13552042bc37dd3fb873",
+      "source_path": "contracts/v1/product/project-create-request.schema.json"
+    },
+    {
+      "schema_uri": "https://schemas.kolibriai.ru/v1/product/project.schema.json",
+      "sha256": "a8c73317364b2a76e1b1c328b3b61729f16b6327d3c4aeea432ce76009c46a42",
+      "source_path": "contracts/v1/product/project.schema.json"
+    },
+    {
+      "schema_uri": "https://schemas.kolibriai.ru/v1/product/provider-enrollment-intent-command.schema.json",
+      "sha256": "d75ffb04ee6c5931b8d809591a257e83103e89ae7a848c4bc590ce8cf6cd2562",
+      "source_path": "contracts/v1/product/provider-enrollment-intent-command.schema.json"
+    },
+    {
+      "schema_uri": "https://schemas.kolibriai.ru/v1/product/provider-enrollment-status.schema.json",
+      "sha256": "b7f93470f48acfde9daa613c8aa44e3a64fc01b2d8b1b96b8911de94a637bbaf",
+      "source_path": "contracts/v1/product/provider-enrollment-status.schema.json"
+    },
+    {
+      "schema_uri": "https://schemas.kolibriai.ru/v1/product/run-event.schema.json",
+      "sha256": "ffaa48736e93784839f22c1096ceb9474c9ad35a5b942a2d59e25e9cd4ddb45c",
+      "source_path": "contracts/v1/product/run-event.schema.json"
+    },
+    {
+      "schema_uri": "https://schemas.kolibriai.ru/v1/product/run-execute-command-v1.1.schema.json",
+      "sha256": "ff354dafb4900d95cdaef11d11e7b1a9293974a82746298c3fc7b284cbee09fd",
+      "source_path": "contracts/v1/product/run-execute-command-v1.1.schema.json"
+    },
+    {
+      "schema_uri": "https://schemas.kolibriai.ru/v1/product/run-execute-command-v1.2.schema.json",
+      "sha256": "d41b0b0af730f3d16ad51f263559135933530f468b9bebb80e94f46b4fd56f39",
+      "source_path": "contracts/v1/product/run-execute-command-v1.2.schema.json"
+    },
+    {
+      "schema_uri": "https://schemas.kolibriai.ru/v1/product/run-execute-command-v1.3.schema.json",
+      "sha256": "9f64cf02def966f2ee715da34f58d776ccf6166eefbeb72bdcdc4d92e801be72",
+      "source_path": "contracts/v1/product/run-execute-command-v1.3.schema.json"
+    },
+    {
+      "schema_uri": "https://schemas.kolibriai.ru/v1/product/run-execute-command.schema.json",
+      "sha256": "c10237725e9b5596f47cefa1e65d6a84c0ecfacf0af7ee7ffe9eb0ef8d0d1001",
+      "source_path": "contracts/v1/product/run-execute-command.schema.json"
+    },
+    {
+      "schema_uri": "https://schemas.kolibriai.ru/v1/product/run-execution-status-v1.1.schema.json",
+      "sha256": "663c40bbda2dca5bf32da650a04379a9a6ef802a9e8e17a428ca0d6e9cc0063c",
+      "source_path": "contracts/v1/product/run-execution-status-v1.1.schema.json"
+    },
+    {
+      "schema_uri": "https://schemas.kolibriai.ru/v1/product/run-execution-status.schema.json",
+      "sha256": "8b11f78605c8e4908918728e7688c3a506c243bd293f371068e7a8ae9d58a8ee",
+      "source_path": "contracts/v1/product/run-execution-status.schema.json"
+    },
+    {
+      "schema_uri": "https://schemas.kolibriai.ru/v1/product/run.schema.json",
+      "sha256": "10172580eee2554f25d8589df4b56fed1cfdf6ac6e7858d8386b8a559c6b0e4e",
+      "source_path": "contracts/v1/product/run.schema.json"
+    },
+    {
+      "schema_uri": "https://schemas.kolibriai.ru/v1/product/session.schema.json",
+      "sha256": "9ad267e019880bed65e217af38dee20a036a5426280341a9637277c401852916",
+      "source_path": "contracts/v1/product/session.schema.json"
+    },
+    {
+      "schema_uri": "https://schemas.kolibriai.ru/v1/product/text-run-request.schema.json",
+      "sha256": "b82cf3aaa4ec152250d4c62dbd967e675b1f5a04dcba8915be3069bb82218f95",
+      "source_path": "contracts/v1/product/text-run-request.schema.json"
+    },
+    {
+      "schema_uri": "https://schemas.kolibriai.ru/v1/product/thread-update-request.schema.json",
+      "sha256": "82c3a576e2b7134a8f284daa0d9b77433baf935a3737c12d7911d8587ed38ba8",
+      "source_path": "contracts/v1/product/thread-update-request.schema.json"
+    },
+    {
+      "schema_uri": "https://schemas.kolibriai.ru/v1/product/thread.schema.json",
+      "sha256": "424abeaee0e95a2e670ad9d8d4d35a97f11f657a065c52ace0c3fb5b4e1c8448",
+      "source_path": "contracts/v1/product/thread.schema.json"
+    },
+    {
+      "schema_uri": "https://schemas.kolibriai.ru/v1/provider-execution/catalog.schema.json",
+      "sha256": "53d46f0b7ae7ba092fd4bef01dc55de102abde6306e59e71bbf98e84e97b7d1b",
+      "source_path": "contracts/v1/provider-execution/catalog.schema.json"
+    },
+    {
+      "schema_uri": "https://schemas.kolibriai.ru/v1/provider-execution/request.schema.json",
+      "sha256": "12f88ee1f158284383a18eedda0e59c23b29e08ee673cb34c86d320855cc2f9e",
+      "source_path": "contracts/v1/provider-execution/request.schema.json"
+    },
+    {
+      "schema_uri": "https://schemas.kolibriai.ru/v1/provider-execution/result.schema.json",
+      "sha256": "ff583f915ee16e7d15bc9dcf0232c2f4c33c4681b8e9195745e323ec0cc261a0",
+      "source_path": "contracts/v1/provider-execution/result.schema.json"
+    },
+    {
+      "schema_uri": "https://schemas.kolibriai.ru/v1/quality/evidence.schema.json",
+      "sha256": "cf7df77d4bedf81d5c1d703c29be53b6e894ede76e7bf30000207ad1c6b9a917",
+      "source_path": "contracts/v1/quality/evidence.schema.json"
+    },
+    {
+      "schema_uri": "https://schemas.kolibriai.ru/v1/quality/finding.schema.json",
+      "sha256": "f81ebb54a004e95065da8ac0fcff739beda01eb75be9a28a0e7ce60bb63ed18e",
+      "source_path": "contracts/v1/quality/finding.schema.json"
+    },
+    {
+      "schema_uri": "https://schemas.kolibriai.ru/v1/quality/quality-manifest.schema.json",
+      "sha256": "bcec34322c77a54f36b5262cab5e0d0d9afe06c7c9bb5401785f37f3656ae551",
+      "source_path": "contracts/v1/quality/quality-manifest.schema.json"
+    },
+    {
+      "schema_uri": "https://schemas.kolibriai.ru/v1/quality/review.schema.json",
+      "sha256": "0c1a905110f554e2a90666bb6b7f2d9007f3f9cd9fcfdd46f809d2f244cf5b98",
+      "source_path": "contracts/v1/quality/review.schema.json"
+    },
+    {
+      "schema_uri": "https://schemas.kolibriai.ru/v1/quality/signoff.schema.json",
+      "sha256": "e90a171c9f20a417d80cad08ac62a5a8a3dd9984819ca0029aba776856b4a84f",
+      "source_path": "contracts/v1/quality/signoff.schema.json"
+    },
+    {
+      "schema_uri": "https://schemas.kolibriai.ru/v1/tasks/attempt.schema.json",
+      "sha256": "6a9709ebc31ce32a5d2c2b866c5e58e1949279f8fa81c1ca6588cb01f7aab839",
+      "source_path": "contracts/v1/tasks/attempt.schema.json"
+    },
+    {
+      "schema_uri": "https://schemas.kolibriai.ru/v1/tasks/lease.schema.json",
+      "sha256": "8db850704245dee894bb9d8f8cc8c46ca1a7626d8349c277fe0ed9e7080032da",
+      "source_path": "contracts/v1/tasks/lease.schema.json"
+    },
+    {
+      "schema_uri": "https://schemas.kolibriai.ru/v1/tasks/owner-state.schema.json",
+      "sha256": "9c0f37e78b1314477e537b6c9b019557779cd79abf8acc88a971250609346a0b",
+      "source_path": "contracts/v1/tasks/owner-state.schema.json"
+    },
+    {
+      "schema_uri": "https://schemas.kolibriai.ru/v1/tasks/task-graph-apply.schema.json",
+      "sha256": "f351dfa8cd989652709df70bfe49ea64ee90d556b4d8c6a94b64d6864d5cb75c",
+      "source_path": "contracts/v1/tasks/task-graph-apply.schema.json"
+    },
+    {
+      "schema_uri": "https://schemas.kolibriai.ru/v1/tasks/task-graph-change-event.schema.json",
+      "sha256": "e90ac22c98ba3215bf72355607dd87779d60a01d51f224f768dff9ec2b99e75a",
+      "source_path": "contracts/v1/tasks/task-graph-change-event.schema.json"
+    },
+    {
+      "schema_uri": "https://schemas.kolibriai.ru/v1/tasks/task-graph.schema.json",
+      "sha256": "e5c7fe5bffbfe006e1e4c6b5ac99351b56327504dea45ca098504cacfff1d678",
+      "source_path": "contracts/v1/tasks/task-graph.schema.json"
+    },
+    {
+      "schema_uri": "https://schemas.kolibriai.ru/v1/tasks/task-transition.schema.json",
+      "sha256": "4092a45b979f97043b25d5ba4080db505347bf623679a3df11161f7fa03e8194",
+      "source_path": "contracts/v1/tasks/task-transition.schema.json"
+    },
+    {
+      "schema_uri": "https://schemas.kolibriai.ru/v1/tasks/task.schema.json",
+      "sha256": "5bb3307964aeddd24cd4c32bc18ce8b3b4c637049ea7e785997dd7df1910c6de",
+      "source_path": "contracts/v1/tasks/task.schema.json"
+    },
+    {
+      "schema_uri": "https://kolibriai.ru/contracts/v1/verticals/vertical-pack-manifest.schema.json",
+      "sha256": "3e1878a9c1cfe37fa593d3bebcc136fc606a67da0b13efc8b2152ba14a5357d0",
+      "source_path": "contracts/v1/verticals/vertical-pack-manifest.schema.json"
+    },
+    {
+      "schema_uri": "https://schemas.kolibriai.ru/v1/workflows/project-workflow.schema.json",
+      "sha256": "341e271de7571970d559c517ed97bf33389c311521acd086254b0c98ff8ea8b1",
+      "source_path": "contracts/v1/workflows/project-workflow.schema.json"
+    },
+    {
+      "schema_uri": "https://schemas.kolibriai.ru/v1/workflows/workflow-query.schema.json",
+      "sha256": "20b04af7261fe2fc827bb6c4f5a00492137218a4be96682b83dce94931a97967",
+      "source_path": "contracts/v1/workflows/workflow-query.schema.json"
+    },
+    {
+      "schema_uri": "https://schemas.kolibriai.ru/v1/workflows/workflow-signal.schema.json",
+      "sha256": "8f42e443e69fa807767d2ff112cca7ebedba7afdf63b75d5a5bf01cef32fa301",
+      "source_path": "contracts/v1/workflows/workflow-signal.schema.json"
+    },
+    {
+      "schema_uri": "https://schemas.kolibriai.ru/v1/workflows/workflow-timer.schema.json",
+      "sha256": "dbd2c7381fee5a429e90f810f6569d49d9f76af24bb68cb42f73c661a3a38c5b",
+      "source_path": "contracts/v1/workflows/workflow-timer.schema.json"
+    },
+    {
+      "schema_uri": "https://schemas.kolibriai.ru/v1/workflows/workflow-version.schema.json",
+      "sha256": "d4268dc99777e52718b3562ec00a1435ba0f23dfbc2a2df36a8270fcc40f515e",
+      "source_path": "contracts/v1/workflows/workflow-version.schema.json"
+    }
+  ]
+}

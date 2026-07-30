@@ -1,0 +1,21 @@
+{
+  "schema_id": "kolibri.product.agui.projection",
+  "schema_version": "1.0",
+  "tenant_id": "tenant_01JZPRODUCT01",
+  "thread_id": "thread_01JZPRODUCT001",
+  "run_id": "run_01JZPRODUCT000001",
+  "source_event_id": "event_01JZPRODUCT001",
+  "source_sequence": 1,
+  "protocol": "ag-ui",
+  "protocol_version": "0.0.57",
+  "adapter_package": "@assistant-ui/react-ag-ui",
+  "adapter_version": "0.0.45",
+  "event_type": "RUN_STARTED",
+  "custom_schema_id": null,
+  "custom_schema_version": null,
+  "payload": {
+    "threadId": "thread_01JZPRODUCT001",
+    "runId": "run_01JZPRODUCT000001"
+  },
+  "projected_at": "2026-07-26T12:00:01.125+03:00"
+}

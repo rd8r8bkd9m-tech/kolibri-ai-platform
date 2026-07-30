@@ -1,0 +1,54 @@
+{
+  "schema_id": "kolibri.goal.update.command",
+  "schema_version": "1.0",
+  "goal_id": "goal_01K0CREATE00001",
+  "expected_version": 1,
+  "next_version": 2,
+  "goal": {
+    "schema_id": "kolibri.goal",
+    "schema_version": "1.0",
+    "goal_id": "goal_01K0CREATE00001",
+    "tenant_id": "ten_01K0TENANT00001",
+    "user_id": "usr_01K0USER000001",
+    "intent": {
+      "source_message_id": "message_01K0MESSAGE01",
+      "original_request": "Составь смету на ремонт квартиры площадью 80 м².",
+      "normalized_objective": "Подготовить проверяемую смету ремонта квартиры площадью 80 м².",
+      "locale": "ru-RU"
+    },
+    "acceptance_criteria": [
+      {
+        "criterion_id": "criterion_01K0TOTAL001",
+        "statement": "Смета содержит объёмы, цены и итог.",
+        "verification_method": "Проверка структуры и арифметики.",
+        "required": true,
+        "status": "pending"
+      }
+    ],
+    "budget_policy": {
+      "currency": "RUB",
+      "compute_units_limit": 50000,
+      "tool_calls_limit": 200,
+      "external_spend_limit_minor": 0,
+      "human_services_limit_minor": 0,
+      "approval_required_above_minor": 0
+    },
+    "deadline_policy": {
+      "due_at": null,
+      "timezone": "Europe/Moscow",
+      "late_action": "continue_and_flag"
+    },
+    "status": "new",
+    "blocking_question_ids": [],
+    "case_id": null,
+    "current_case_version": null,
+    "workflow_id": null,
+    "current_workflow_version": null,
+    "version": 2,
+    "supersedes_goal_id": null,
+    "created_at": "2026-07-24T03:00:00+03:00",
+    "updated_at": "2026-07-24T03:01:00+03:00"
+  },
+  "reason": "Пользователь уточнил площадь объекта.",
+  "requested_at": "2026-07-24T03:01:00+03:00"
+}

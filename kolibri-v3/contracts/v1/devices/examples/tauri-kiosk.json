@@ -1,0 +1,47 @@
+{
+  "schemaVersion": "1.0",
+  "deviceId": "device_kiosk_moscow_001",
+  "deviceClass": "kiosk",
+  "runtime": "tauri",
+  "runtimeVersion": "2.x",
+  "platform": {
+    "os": "linux",
+    "osVersion": "managed",
+    "architecture": "aarch64"
+  },
+  "formFactor": "kiosk",
+  "screen": {
+    "width": 1080,
+    "height": 1920,
+    "pixelRatio": 1,
+    "color": true,
+    "touch": true
+  },
+  "inputs": [
+    "touch",
+    "camera",
+    "barcode"
+  ],
+  "outputs": [
+    "display",
+    "audio",
+    "printer"
+  ],
+  "connectivity": [
+    "ethernet",
+    "wifi"
+  ],
+  "security": {
+    "secureStorage": true,
+    "hardwareBackedKey": true,
+    "biometric": false,
+    "attestation": "managed"
+  },
+  "localExecution": {
+    "rust": true,
+    "wasm": true,
+    "offlineQueue": true,
+    "localInference": false
+  }
+}
+

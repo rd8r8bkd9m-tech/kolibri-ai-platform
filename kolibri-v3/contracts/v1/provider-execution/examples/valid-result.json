@@ -1,0 +1,26 @@
+{
+  "schema_id": "kolibri.provider_execution.result",
+  "schema_version": "1.0",
+  "effect_key": "effect_0123456789abcdef0123456789abcdef01234567",
+  "request_hash": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+  "task_id": "task_01JZPROVIDERREQUEST1",
+  "attempt_id": "attempt_01JZPROVIDER001",
+  "assignment_id": "assignment_01JZPROVIDER01",
+  "lease_id": "lease_01JZPROVIDERREQUEST1",
+  "fencing_token": 1,
+  "runtime_profile": "third-agent.runtime-01",
+  "status": "completed",
+  "replayed": false,
+  "output": {
+    "response": "Provider execution completed.",
+    "session_id": "session_01JZPROVIDER01",
+    "tool_call": null
+  },
+  "activity": [
+    {
+      "phase": "repository.verify",
+      "payload": { "status": "passed" }
+    }
+  ],
+  "error": null
+}

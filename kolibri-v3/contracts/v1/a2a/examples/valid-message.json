@@ -1,0 +1,39 @@
+{
+  "schema_id": "kolibri.a2a.message_appended.event",
+  "schema_version": "1.0",
+  "a2a_message_id": "a2amsg_01JZESTREVIEW2",
+  "tenant_id": "ten_01JZTENANT0001",
+  "goal_id": "goal_01JZGOAL000001",
+  "case_id": "case_01JZCASE000001",
+  "task_id": "task_01JZESTIMATE001",
+  "task_version": 5,
+  "channel_id": "channel_01JZESTREVIEW",
+  "sequence": 2,
+  "previous_message_id": "a2amsg_01JZESTREVIEW1",
+  "sender_actor_id": "agent_01JZESTIMATOR01",
+  "sender_assignment_id": "assignment_01JZEST01",
+  "recipient_assignment_ids": [
+    "assignment_01JZREVIEW1"
+  ],
+  "recipient_capability": "estimate.review",
+  "message_type": "review",
+  "purpose": "Передать смету независимому проверяющему.",
+  "response_to_message_id": "a2amsg_01JZESTREVIEW1",
+  "content": {
+    "trust": "untrusted_content",
+    "text": "Черновик готов. Проверьте арифметику и источники цен.",
+    "structured_data": {
+      "requested_checks": [
+        "arithmetic",
+        "price_sources"
+      ]
+    },
+    "reference_ids": [
+      "artifact_01JZESTIMATE01"
+    ]
+  },
+  "content_hash": "sha256:7c49731af5db25aa60e057a4123118194a840c4bc39c85619faf721a82ebdcea",
+  "deduplication_key": "a2a:estimate-review:01JZESTREVIEW2",
+  "sent_at": "2026-07-24T00:40:00+03:00",
+  "expires_at": "2026-07-24T01:40:00+03:00"
+}

@@ -1,0 +1,36 @@
+{
+  "schemaVersion": "1.0",
+  "calculationId": "calc_golden_basic_001",
+  "currency": "RUB",
+  "rulesVersion": "commercial-total/1.0.0",
+  "releaseMode": true,
+  "lines": [
+    {
+      "id": "line_work_001",
+      "category": "work",
+      "title": "Монтажные работы",
+      "unit": "m2",
+      "quantity": "10",
+      "unitPrice": "100.00",
+      "priceStatus": "verified",
+      "sourceId": "source_fixture_2026_07_30"
+    },
+    {
+      "id": "line_material_001",
+      "category": "material",
+      "title": "Материал",
+      "unit": "kg",
+      "quantity": "2.5",
+      "unitPrice": "80.00",
+      "priceStatus": "source_backed",
+      "sourceId": "source_fixture_2026_07_30"
+    }
+  ],
+  "terms": {
+    "overheadPercent": "10",
+    "profitPercent": "15",
+    "discountPercent": "5",
+    "taxPercent": "20"
+  }
+}
+

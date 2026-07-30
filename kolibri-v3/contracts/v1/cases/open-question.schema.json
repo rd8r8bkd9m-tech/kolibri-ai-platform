@@ -1,0 +1,81 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://schemas.kolibriai.ru/v1/cases/open-question.schema.json",
+  "title": "Kolibri ProjectCase open question v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "question_id",
+    "question",
+    "reason",
+    "blocking",
+    "answer_type",
+    "options",
+    "status",
+    "owner_actor_id",
+    "answer_ref",
+    "created_at",
+    "resolved_at"
+  ],
+  "properties": {
+    "question_id": {"$ref": "#/definitions/opaque_id"},
+    "question": {"type": "string", "minLength": 1, "maxLength": 2000},
+    "reason": {"type": "string", "minLength": 1, "maxLength": 2000},
+    "blocking": {"type": "boolean"},
+    "answer_type": {
+      "type": "string",
+      "enum": ["text", "number", "boolean", "single_choice", "multiple_choice", "document"]
+    },
+    "options": {
+      "type": "array",
+      "maxItems": 100,
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1, "maxLength": 500}
+    },
+    "status": {
+      "type": "string",
+      "enum": ["open", "answered", "waived"]
+    },
+    "owner_actor_id": {"$ref": "#/definitions/opaque_id"},
+    "answer_ref": {
+      "oneOf": [
+        {"$ref": "#/definitions/opaque_id"},
+        {"type": "null"}
+      ]
+    },
+    "created_at": {"type": "string", "format": "date-time"},
+    "resolved_at": {
+      "oneOf": [
+        {"type": "string", "format": "date-time"},
+        {"type": "null"}
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {"status": {"const": "open"}},
+        "required": ["status"]
+      },
+      "then": {
+        "properties": {
+          "answer_ref": {"type": "null"},
+          "resolved_at": {"type": "null"}
+        }
+      },
+      "else": {
+        "properties": {
+          "resolved_at": {"type": "string"}
+        }
+      }
+    }
+  ],
+  "definitions": {
+    "opaque_id": {
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 160,
+      "pattern": "^[a-z][a-z0-9_]{1,31}_[A-Za-z0-9][A-Za-z0-9._~-]{5,127}$"
+    }
+  }
+}

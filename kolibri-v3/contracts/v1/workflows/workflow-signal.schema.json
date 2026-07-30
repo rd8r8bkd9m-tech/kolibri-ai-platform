@@ -1,0 +1,50 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://schemas.kolibriai.ru/v1/workflows/workflow-signal.schema.json",
+  "title": "Kolibri Project Workflow signal v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id",
+    "schema_version",
+    "workflow_id",
+    "signal_id",
+    "signal_type",
+    "source",
+    "payload_hash",
+    "requested_at"
+  ],
+  "properties": {
+    "schema_id": { "const": "kolibri.workflow.signal" },
+    "schema_version": { "const": "1.0" },
+    "workflow_id": {
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 160,
+      "pattern": "^[a-z][a-z0-9_]{1,31}_[A-Za-z0-9][A-Za-z0-9._~-]{5,127}$"
+    },
+    "signal_id": {
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 160,
+      "pattern": "^[a-z][a-z0-9_]{1,31}_[A-Za-z0-9][A-Za-z0-9._~-]{5,127}$"
+    },
+    "signal_type": {
+      "type": "string",
+      "enum": ["user_change", "approval", "payment", "policy_change", "cancellation"]
+    },
+    "source": {
+      "type": "string",
+      "minLength": 2,
+      "maxLength": 120
+    },
+    "payload_hash": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "requested_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}

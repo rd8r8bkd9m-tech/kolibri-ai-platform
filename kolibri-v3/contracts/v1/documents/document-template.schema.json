@@ -1,0 +1,147 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://schemas.kolibriai.ru/v1/documents/document-template.schema.json",
+  "title": "Kolibri document template contract v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id",
+    "schema_version",
+    "template_id",
+    "template_version",
+    "document_type",
+    "locale",
+    "jurisdictions",
+    "output_formats",
+    "data_contract",
+    "layout_fingerprint",
+    "required_fields",
+    "prohibited_fields",
+    "reproducible",
+    "created_at",
+    "updated_at"
+  ],
+  "properties": {
+    "schema_id": {
+      "const": "kolibri.document_template"
+    },
+    "schema_version": {
+      "const": "1.0"
+    },
+    "template_id": {
+      "type": "string",
+      "minLength": 5,
+      "maxLength": 120,
+      "pattern": "^[a-z0-9_\\-]+\\.v[0-9]+$"
+    },
+    "template_version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+(?:\\.\\d+)?$"
+    },
+    "document_type": {
+      "type": "string",
+      "enum": [
+        "commercial_offer",
+        "contract",
+        "completion_act",
+        "invoice"
+      ]
+    },
+    "locale": {
+      "type": "string",
+      "pattern": "^[a-z]{2}(?:-[A-Z]{2})?$"
+    },
+    "jurisdictions": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Z]{2}$"
+      }
+    },
+    "output_formats": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "enum": ["pdf", "docx", "xlsx"]
+      }
+    },
+    "data_contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_id", "schema_version"],
+      "properties": {
+        "schema_id": {
+          "type": "string",
+          "const": "kolibri.document_data"
+        },
+        "schema_version": {
+          "type": "string",
+          "const": "1.0"
+        }
+      }
+    },
+    "layout_fingerprint": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "required_fields": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 80
+      }
+    },
+    "prohibited_fields": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 80
+      }
+    },
+    "reproducible": {
+      "type": "boolean"
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "updated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "notes": {
+      "type": "string",
+      "maxLength": 400
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "output_formats": {
+            "contains": {
+              "const": "xlsx"
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "required_fields": {
+            "contains": {
+              "const": "totals"
+            }
+          }
+        },
+        "required": ["required_fields"]
+      }
+    }
+  ]
+}

@@ -1,0 +1,207 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://schemas.kolibriai.ru/v1/tasks/task.schema.json",
+  "title": "Kolibri Task v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id",
+    "schema_version",
+    "task_id",
+    "tenant_id",
+    "goal_id",
+    "case_id",
+    "title",
+    "objective",
+    "kind",
+    "dependency_task_ids",
+    "required_capabilities",
+    "acceptance_criteria",
+    "expected_outputs",
+    "budget",
+    "deadline_at",
+    "risk_class",
+    "state",
+    "graph_version",
+    "version",
+    "current_attempt_id",
+    "current_assignment_id",
+    "created_at",
+    "updated_at"
+  ],
+  "properties": {
+    "schema_id": { "const": "kolibri.task" },
+    "schema_version": { "const": "1.0" },
+    "task_id": { "$ref": "#/definitions/opaque_id" },
+    "tenant_id": { "$ref": "#/definitions/opaque_id" },
+    "goal_id": { "$ref": "#/definitions/opaque_id" },
+    "case_id": { "$ref": "#/definitions/opaque_id" },
+    "title": { "type": "string", "minLength": 1, "maxLength": 240 },
+    "objective": { "type": "string", "minLength": 1, "maxLength": 4000 },
+    "kind": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_.:-]{2,127}$"
+    },
+    "parent_task_id": {
+      "oneOf": [
+        { "$ref": "#/definitions/opaque_id" },
+        { "type": "null" }
+      ]
+    },
+    "dependency_task_ids": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "#/definitions/opaque_id" }
+    },
+    "required_capabilities": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9_.:-]{2,127}$"
+      }
+    },
+    "acceptance_criteria": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "criterion_id",
+          "statement",
+          "verification_method",
+          "required"
+        ],
+        "properties": {
+          "criterion_id": { "$ref": "#/definitions/opaque_id" },
+          "statement": { "type": "string", "minLength": 1, "maxLength": 1000 },
+          "verification_method": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000
+          },
+          "required": { "type": "boolean" }
+        }
+      }
+    },
+    "expected_outputs": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "output_id",
+          "artifact_type",
+          "schema_id",
+          "evidence_required"
+        ],
+        "properties": {
+          "output_id": { "$ref": "#/definitions/opaque_id" },
+          "artifact_type": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_.:-]{2,127}$"
+          },
+          "schema_id": {
+            "type": "string",
+            "pattern": "^kolibri\\.[a-z][a-z0-9_.]+$"
+          },
+          "evidence_required": { "type": "boolean" }
+        }
+      }
+    },
+    "budget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "compute_units_limit",
+        "tool_calls_limit",
+        "external_spend_limit_minor",
+        "currency"
+      ],
+      "properties": {
+        "compute_units_limit": { "type": "integer", "minimum": 0 },
+        "tool_calls_limit": { "type": "integer", "minimum": 0 },
+        "external_spend_limit_minor": { "type": "integer", "minimum": 0 },
+        "currency": {
+          "type": "string",
+          "pattern": "^[A-Z]{3}$"
+        }
+      }
+    },
+    "deadline_at": {
+      "oneOf": [
+        { "type": "string", "format": "date-time" },
+        { "type": "null" }
+      ]
+    },
+    "risk_class": {
+      "type": "string",
+      "enum": ["low", "medium", "high", "critical"]
+    },
+    "state": { "$ref": "#/definitions/status" },
+    "graph_version": { "type": "integer", "minimum": 1 },
+    "version": { "type": "integer", "minimum": 1 },
+    "current_attempt_id": {
+      "oneOf": [
+        { "$ref": "#/definitions/opaque_id" },
+        { "type": "null" }
+      ]
+    },
+    "current_assignment_id": {
+      "oneOf": [
+        { "$ref": "#/definitions/opaque_id" },
+        { "type": "null" }
+      ]
+    },
+    "created_at": { "type": "string", "format": "date-time" },
+    "updated_at": { "type": "string", "format": "date-time" }
+  },
+  "definitions": {
+    "opaque_id": {
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 160,
+      "pattern": "^[a-z][a-z0-9_]{1,31}_[A-Za-z0-9][A-Za-z0-9._~-]{5,127}$"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "proposed",
+        "accepted",
+        "ready",
+        "leased",
+        "running",
+        "submitted",
+        "verifying",
+        "blocked",
+        "revision_requested",
+        "failed_retryable",
+        "completed",
+        "failed_terminal",
+        "cancelled",
+        "superseded"
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "state": {
+            "enum": ["leased", "running", "submitted", "verifying"]
+          }
+        },
+        "required": ["state"]
+      },
+      "then": {
+        "properties": {
+          "current_attempt_id": { "type": "string" },
+          "current_assignment_id": { "type": "string" }
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,55 @@
+{
+  "schema_id": "kolibri.task.transitions",
+  "schema_version": "1.0",
+  "terminal_states": [
+    "completed",
+    "failed_terminal",
+    "cancelled",
+    "superseded"
+  ],
+  "allowed": {
+    "proposed": ["accepted", "cancelled", "superseded"],
+    "accepted": ["ready", "blocked", "cancelled", "superseded"],
+    "ready": ["leased", "blocked", "cancelled", "superseded"],
+    "leased": ["running", "failed_retryable", "cancelled", "superseded"],
+    "running": [
+      "submitted",
+      "blocked",
+      "failed_retryable",
+      "cancelled",
+      "superseded"
+    ],
+    "submitted": [
+      "verifying",
+      "revision_requested",
+      "failed_retryable",
+      "superseded"
+    ],
+    "verifying": [
+      "completed",
+      "revision_requested",
+      "failed_retryable",
+      "failed_terminal",
+      "superseded"
+    ],
+    "blocked": ["ready", "running", "cancelled", "superseded"],
+    "revision_requested": [
+      "ready",
+      "leased",
+      "running",
+      "cancelled",
+      "superseded"
+    ],
+    "failed_retryable": [
+      "ready",
+      "leased",
+      "failed_terminal",
+      "cancelled",
+      "superseded"
+    ],
+    "completed": [],
+    "failed_terminal": [],
+    "cancelled": [],
+    "superseded": []
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "schema_id": "kolibri.project_case.transition.command",
+  "schema_version": "1.0",
+  "case_id": "case_01JZCASE000001",
+  "expected_version": 3,
+  "next_version": 4,
+  "from_status": "working",
+  "to_status": "review",
+  "reason": "Черновик сметы создан и передан на независимую проверку.",
+  "requested_at": "2026-07-24T00:31:00+03:00"
+}

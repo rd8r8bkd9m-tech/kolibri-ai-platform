@@ -1,0 +1,58 @@
+{
+  "schemaVersion": "1.0",
+  "engineVersion": "kolibri-estimate-kernel/0.1.0",
+  "calculationId": "calc_golden_basic_001",
+  "currency": "RUB",
+  "rulesVersion": "commercial-total/1.0.0",
+  "roundingPolicy": {
+    "moneyScale": 2,
+    "quantityScale": 6,
+    "midpoint": "away_from_zero"
+  },
+  "lines": [
+    {
+      "id": "line_work_001",
+      "category": "work",
+      "title": "Монтажные работы",
+      "unit": "m2",
+      "normalizedQuantity": "10",
+      "unitPrice": "100.00",
+      "subtotal": "1000.00",
+      "priceStatus": "verified",
+      "sourceId": "source_fixture_2026_07_30"
+    },
+    {
+      "id": "line_material_001",
+      "category": "material",
+      "title": "Материал",
+      "unit": "kg",
+      "normalizedQuantity": "2.5",
+      "unitPrice": "80.00",
+      "subtotal": "200.00",
+      "priceStatus": "source_backed",
+      "sourceId": "source_fixture_2026_07_30"
+    }
+  ],
+  "totals": {
+    "byCategory": {
+      "work": "1000.00",
+      "material": "200.00",
+      "equipment": "0.00",
+      "service": "0.00",
+      "delivery": "0.00",
+      "other": "0.00"
+    },
+    "directCost": "1200.00",
+    "overhead": "120.00",
+    "profit": "198.00",
+    "discount": "75.90",
+    "tax": "288.42",
+    "total": "1730.52",
+    "complete": true
+  },
+  "validation": {
+    "status": "passed",
+    "missingPriceLineIds": [],
+    "preliminaryPriceLineIds": []
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "schema_id": "kolibri.a2a.delivery_cursor",
+  "schema_version": "1.0",
+  "tenant_id": "ten_01JZTENANT0001",
+  "channel_id": "channel_01JZESTREVIEW",
+  "last_sequence": 1,
+  "last_message_id": "a2amsg_01JZESTREVIEW1",
+  "accepted_messages": {
+    "a2amsg_01JZESTREVIEW1": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "deduplication_index": {
+    "a2a:estimate-review:01JZESTREVIEW1": {
+      "message_id": "a2amsg_01JZESTREVIEW1",
+      "content_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+  }
+}

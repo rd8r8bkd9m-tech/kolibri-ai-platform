@@ -1,0 +1,134 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://schemas.kolibriai.ru/v1/common/identity.schema.json",
+  "title": "Kolibri identity and authority context v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["tenant_id", "user_id", "actor", "authority", "subject_refs"],
+  "properties": {
+    "tenant_id": {"$ref": "#/definitions/opaque_id"},
+    "user_id": {
+      "oneOf": [
+        {"$ref": "#/definitions/opaque_id"},
+        {"type": "null"}
+      ]
+    },
+    "actor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["actor_id", "actor_type"],
+      "properties": {
+        "actor_id": {"$ref": "#/definitions/opaque_id"},
+        "actor_type": {
+          "type": "string",
+          "enum": ["user", "service", "agent", "system"]
+        }
+      }
+    },
+    "authority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "authority_id",
+        "authority_role",
+        "authority_epoch",
+        "authority_placement_id",
+        "authorization_decision_id",
+        "capabilities"
+      ],
+      "properties": {
+        "authority_id": {"$ref": "#/definitions/opaque_id"},
+        "authority_role": {
+          "type": "string",
+          "enum": [
+            "logical_home_control_plane",
+            "product_data_authority",
+            "provider_execution_authority"
+          ]
+        },
+        "authority_epoch": {"type": "integer", "minimum": 1},
+        "authority_placement_id": {"$ref": "#/definitions/opaque_id"},
+        "authorization_decision_id": {"$ref": "#/definitions/opaque_id"},
+        "capabilities": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_.:-]{2,127}$"
+          }
+        }
+      }
+    },
+    "subject_refs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["goal_id", "case_id", "task_id"],
+      "properties": {
+        "goal_id": {
+          "oneOf": [
+            {"$ref": "#/definitions/opaque_id"},
+            {"type": "null"}
+          ]
+        },
+        "case_id": {
+          "oneOf": [
+            {"$ref": "#/definitions/opaque_id"},
+            {"type": "null"}
+          ]
+        },
+        "task_id": {
+          "oneOf": [
+            {"$ref": "#/definitions/opaque_id"},
+            {"type": "null"}
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {"case_id": {"type": "string"}},
+            "required": ["case_id"]
+          },
+          "then": {"properties": {"goal_id": {"type": "string"}}}
+        },
+        {
+          "if": {
+            "properties": {"task_id": {"type": "string"}},
+            "required": ["task_id"]
+          },
+          "then": {
+            "properties": {
+              "goal_id": {"type": "string"},
+              "case_id": {"type": "string"}
+            }
+          }
+        }
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {"user_id": {"type": "null"}},
+        "required": ["user_id"]
+      },
+      "then": {
+        "properties": {
+          "actor": {
+            "properties": {"actor_type": {"const": "system"}},
+            "required": ["actor_type"]
+          }
+        }
+      }
+    }
+  ],
+  "definitions": {
+    "opaque_id": {
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 160,
+      "pattern": "^[a-z][a-z0-9_]{1,31}_[A-Za-z0-9][A-Za-z0-9._~-]{5,127}$"
+    }
+  }
+}

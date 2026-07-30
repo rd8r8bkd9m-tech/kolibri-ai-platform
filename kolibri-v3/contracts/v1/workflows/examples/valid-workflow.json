@@ -1,0 +1,58 @@
+{
+  "schema_id": "kolibri.project_workflow",
+  "schema_version": "1.0",
+  "workflow_id": "workflow_01JZWFLOWEXAMPLE1",
+  "tenant_id": "ten_01K0TENANT00001",
+  "goal_id": "goal_01K0GOALFLOW001",
+  "case_id": "case_01K0CASEFLOW001",
+  "workflow_type": "project",
+  "parent_workflow_id": null,
+  "status": "running",
+  "version": 4,
+  "graph_id": "task_graph_01K0CASEGRAPH01",
+  "graph_version": 3,
+  "activity_count": 1,
+  "signal_count": 1,
+  "query_count": 1,
+  "timer_count": 1,
+  "activities": [
+    {
+      "activity_id": "activity_01K0ACTIVITY01",
+      "task_id": "task_01K0ACTTASK001",
+      "activity_type": "agent_tool_call",
+      "status": "running",
+      "execution_attempt": 2,
+      "execution_attempt_id": "attempt_01K0ATTMNT001",
+      "assigned_node": "worker-01",
+      "started_at": "2026-07-24T03:20:00+03:00",
+      "updated_at": "2026-07-24T03:20:01+03:00"
+    }
+  ],
+  "pending_signals": [
+    {
+      "signal_id": "signal_01K0SIGNAL001",
+      "signal_type": "user_change",
+      "status": "queued",
+      "received_at": "2026-07-24T03:20:02+03:00"
+    }
+  ],
+  "open_queries": [
+    {
+      "query_id": "query_01K0QUERY001",
+      "query_type": "task_projection",
+      "status": "in_progress",
+      "requested_at": "2026-07-24T03:20:03+03:00"
+    }
+  ],
+  "timers": [
+    {
+      "timer_id": "timer_01K0TIMER001",
+      "timer_type": "lease_expiry",
+      "scheduled_at": "2026-07-24T03:20:05+03:00",
+      "status": "waiting",
+      "fired_at": null
+    }
+  ],
+  "created_at": "2026-07-24T03:20:00+03:00",
+  "updated_at": "2026-07-24T03:20:04+03:00"
+}

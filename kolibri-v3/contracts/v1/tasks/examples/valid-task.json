@@ -1,0 +1,48 @@
+{
+  "schema_id": "kolibri.task",
+  "schema_version": "1.0",
+  "task_id": "task_01JZESTIMATE001",
+  "tenant_id": "ten_01JZTENANT0001",
+  "goal_id": "goal_01JZGOAL000001",
+  "case_id": "case_01JZCASE000001",
+  "title": "Рассчитать предварительную смету",
+  "objective": "Создать структурированную смету штукатурных работ с источниками.",
+  "kind": "estimate.calculate",
+  "parent_task_id": null,
+  "dependency_task_ids": [],
+  "required_capabilities": [
+    "estimate.calculate",
+    "pricing.read"
+  ],
+  "acceptance_criteria": [
+    {
+      "criterion_id": "criterion_01JZTASKTOTAL1",
+      "statement": "Итоги сходятся с суммой строк.",
+      "verification_method": "Детерминированный арифметический тест.",
+      "required": true
+    }
+  ],
+  "expected_outputs": [
+    {
+      "output_id": "output_01JZESTIMATE01",
+      "artifact_type": "estimate",
+      "schema_id": "kolibri.estimate",
+      "evidence_required": true
+    }
+  ],
+  "budget": {
+    "compute_units_limit": 12000,
+    "tool_calls_limit": 40,
+    "external_spend_limit_minor": 0,
+    "currency": "RUB"
+  },
+  "deadline_at": "2026-07-24T01:00:00+03:00",
+  "risk_class": "high",
+  "state": "running",
+  "graph_version": 3,
+  "version": 5,
+  "current_attempt_id": "attempt_01JZESTIMATE01",
+  "current_assignment_id": "assignment_01JZEST01",
+  "created_at": "2026-07-24T00:32:00+03:00",
+  "updated_at": "2026-07-24T00:35:00+03:00"
+}

@@ -1,0 +1,37 @@
+{
+  "schema_id": "kolibri.signoff",
+  "schema_version": "1.0",
+  "signoff_id": "signoff_01JZINTERNAL1",
+  "signoff_version": 1,
+  "tenant_id": "ten_01JZTENANT0001",
+  "goal_id": "goal_01JZGOAL00001",
+  "case_id": "case_01JZCASE00001",
+  "artifact_ref": {
+    "artifact_id": "artifact_01JZESTIMATE01",
+    "artifact_version": 3,
+    "content_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "signoff_type": "internal_approval",
+  "signer": {
+    "actor_id": "agent_01JZQUALITY001",
+    "actor_type": "agent",
+    "credential_ref": null
+  },
+  "authority_basis_ref": "authority_01JZQUALITY1",
+  "policy_decision": {
+    "decision_id": "policydec_01JZALLOW001",
+    "policy_version": "2026.07.24",
+    "effect": "allow"
+  },
+  "review_refs": [
+    {
+      "ref_id": "review_01JZQUALITY001",
+      "version": 1
+    }
+  ],
+  "signature_ref": null,
+  "status": "granted",
+  "granted_at": "2026-07-24T02:20:00+03:00",
+  "revocation": null,
+  "supersedes": null
+}

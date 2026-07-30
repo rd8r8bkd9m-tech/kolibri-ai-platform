@@ -1,0 +1,149 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://schemas.kolibriai.ru/v1/goals/goal-change-event.schema.json",
+  "title": "Kolibri Goal changed event payload v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id",
+    "schema_version",
+    "goal_id",
+    "command_name",
+    "change_type",
+    "previous_version",
+    "new_version",
+    "previous_status",
+    "new_status",
+    "reason_provided"
+  ],
+  "properties": {
+    "schema_id": { "const": "kolibri.goal.changed.event" },
+    "schema_version": { "const": "1.0" },
+    "goal_id": {
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 160,
+      "pattern": "^[a-z][a-z0-9_]{1,31}_[A-Za-z0-9][A-Za-z0-9._~-]{5,127}$"
+    },
+    "command_name": {
+      "type": "string",
+      "enum": ["goal.create", "goal.update", "goal.transition"]
+    },
+    "change_type": {
+      "type": "string",
+      "enum": ["created", "updated", "transitioned", "cancelled", "completed"]
+    },
+    "previous_version": {
+      "oneOf": [
+        { "type": "integer", "minimum": 1 },
+        { "type": "null" }
+      ]
+    },
+    "new_version": { "type": "integer", "minimum": 1 },
+    "previous_status": {
+      "oneOf": [
+        {
+          "$ref": "https://schemas.kolibriai.ru/v1/goals/goal.schema.json#/definitions/status"
+        },
+        { "type": "null" }
+      ]
+    },
+    "new_status": {
+      "$ref": "https://schemas.kolibriai.ru/v1/goals/goal.schema.json#/definitions/status"
+    },
+    "reason_provided": { "type": "boolean" }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "change_type": { "const": "created" } },
+        "required": ["change_type"]
+      },
+      "then": {
+        "properties": {
+          "command_name": { "const": "goal.create" },
+          "previous_version": { "type": "null" },
+          "previous_status": { "type": "null" },
+          "new_version": { "const": 1 },
+          "new_status": { "const": "new" },
+          "reason_provided": { "const": false }
+        }
+      },
+      "else": {
+        "properties": {
+          "previous_version": { "type": "integer" },
+          "previous_status": { "type": "string" }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "change_type": { "const": "updated" } },
+        "required": ["change_type"]
+      },
+      "then": {
+        "properties": { "command_name": { "const": "goal.update" } }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "change_type": {
+            "enum": ["transitioned", "cancelled", "completed"]
+          }
+        },
+        "required": ["change_type"]
+      },
+      "then": {
+        "properties": { "command_name": { "const": "goal.transition" } }
+      }
+    },
+    {
+      "if": {
+        "properties": { "change_type": { "const": "cancelled" } },
+        "required": ["change_type"]
+      },
+      "then": {
+        "properties": { "new_status": { "const": "cancelled" } }
+      }
+    },
+    {
+      "if": {
+        "properties": { "change_type": { "const": "completed" } },
+        "required": ["change_type"]
+      },
+      "then": {
+        "properties": { "new_status": { "const": "completed" } }
+      }
+    },
+    {
+      "if": {
+        "properties": { "change_type": { "const": "transitioned" } },
+        "required": ["change_type"]
+      },
+      "then": {
+        "properties": {
+          "new_status": {
+            "enum": [
+              "new",
+              "intake",
+              "planning",
+              "executing",
+              "reviewing",
+              "awaiting_user",
+              "awaiting_approval",
+              "awaiting_payment",
+              "awaiting_external",
+              "revising",
+              "approved_internal",
+              "released",
+              "executing_physical",
+              "failed_recoverable",
+              "superseded"
+            ]
+          }
+        }
+      }
+    }
+  ]
+}

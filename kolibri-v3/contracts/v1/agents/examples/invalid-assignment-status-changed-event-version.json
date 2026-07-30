@@ -1,0 +1,10 @@
+{
+  "schema_id": "kolibri.agent_assignment.status_changed.event",
+  "schema_version": "1.1",
+  "assignment_id": "assignment_01JZEST01",
+  "previous_status": "active",
+  "new_status": "revoked",
+  "previous_version": 1,
+  "new_version": 2,
+  "reason": "An unknown contract version must fail closed."
+}

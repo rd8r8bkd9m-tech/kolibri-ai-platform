@@ -1,0 +1,15 @@
+{
+  "threads": [
+    {
+      "id": "thread_01KOLIBRIV3CHAT",
+      "projectId": "project_01KOLIBRIV3A",
+      "title": "Нужно оценить ремонт помещения",
+      "status": "regular",
+      "pinned": false,
+      "createdAt": "2026-07-28T09:00:00Z",
+      "updatedAt": "2026-07-28T09:00:02Z",
+      "lastMessageAt": "2026-07-28T09:00:02Z"
+    }
+  ],
+  "nextCursor": null
+}

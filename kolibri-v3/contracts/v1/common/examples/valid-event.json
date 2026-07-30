@@ -1,0 +1,50 @@
+{
+  "schema_id": "kolibri.event",
+  "schema_version": "1.0",
+  "message_id": "evt_01JZCOMMON0000001",
+  "event_name": "estimate.recalculated",
+  "payload_schema_id": "kolibri.estimate.recalculated.event",
+  "payload_schema_version": "1.0",
+  "occurred_at": "2026-07-24T00:30:01+03:00",
+  "recorded_at": "2026-07-24T00:30:01.020+03:00",
+  "producer_owner": "product_data_authority",
+  "identity": {
+    "tenant_id": "ten_01JZTENANT0001",
+    "user_id": "usr_01JZUSER000001",
+    "actor": {
+      "actor_id": "agent_01JZESTIMATOR01",
+      "actor_type": "agent"
+    },
+    "authority": {
+      "authority_id": "auth_01JZPDAUTH0001",
+      "authority_role": "product_data_authority",
+      "authority_epoch": 7,
+      "authority_placement_id": "placement_home_01",
+      "authorization_decision_id": "decision_01JZAUTHZ0001",
+      "capabilities": ["estimate.recalculate"]
+    },
+    "subject_refs": {
+      "goal_id": "goal_01JZGOAL000001",
+      "case_id": "case_01JZCASE000001",
+      "task_id": "task_01JZTASK000001"
+    }
+  },
+  "trace": {
+    "trace_id": "0123456789abcdef0123456789abcdef",
+    "span_id": "fedcba9876543210",
+    "parent_span_id": "0123456789abcdef",
+    "correlation_id": "corr_01JZCOMMON0001",
+    "causation_id": "cmd_01JZCOMMON0000001"
+  },
+  "aggregate": {
+    "aggregate_type": "estimate",
+    "aggregate_id": "estimate_01JZESTIMATE01",
+    "aggregate_version": 5
+  },
+  "source_command_id": "cmd_01JZCOMMON0000001",
+  "deduplication_key": "estimate_01JZESTIMATE01:5",
+  "payload": {
+    "previous_version": 4,
+    "new_version": 5
+  }
+}

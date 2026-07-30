@@ -1,0 +1,29 @@
+{
+  "schema_id": "kolibri.task_attempt",
+  "schema_version": "1.0",
+  "attempt_id": "attempt_01JZESTIMATE01",
+  "tenant_id": "ten_01JZTENANT0001",
+  "goal_id": "goal_01JZGOAL000001",
+  "case_id": "case_01JZCASE000001",
+  "task_id": "task_01JZESTIMATE001",
+  "attempt_number": 2,
+  "assignment_id": "assignment_01JZEST01",
+  "status": "running",
+  "lease": {
+    "lease_id": "lease_01JZESTIMATE001",
+    "authority_id": "auth_01JZLHCP000001",
+    "authority_epoch": 7,
+    "fencing_token": 11,
+    "worker_id": "worker_01JZPRIMARY001",
+    "agent_card_id": "agentcard_01JZEST001",
+    "acquired_at": "2026-07-24T00:34:00+03:00",
+    "heartbeat_at": "2026-07-24T00:35:00+03:00",
+    "expires_at": "2026-07-24T00:36:00+03:00"
+  },
+  "effect_id": "effect_01JZESTIMATE01",
+  "result_artifact_refs": [],
+  "result_hash": null,
+  "error": null,
+  "created_at": "2026-07-24T00:34:00+03:00",
+  "updated_at": "2026-07-24T00:35:00+03:00"
+}

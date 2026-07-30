@@ -1,0 +1,128 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://schemas.kolibriai.ru/v1/agents/agent-card.schema.json",
+  "title": "Kolibri AgentCard v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id",
+    "schema_version",
+    "agent_card_id",
+    "tenant_scope",
+    "display_name",
+    "agent_kind",
+    "capabilities",
+    "skills",
+    "model_profiles",
+    "tool_ids",
+    "jurisdictions",
+    "domain_tags",
+    "limits",
+    "availability",
+    "policy_constraints",
+    "version",
+    "updated_at"
+  ],
+  "properties": {
+    "schema_id": { "const": "kolibri.agent_card" },
+    "schema_version": { "const": "1.0" },
+    "agent_card_id": { "$ref": "#/definitions/opaque_id" },
+    "tenant_scope": {
+      "oneOf": [
+        { "$ref": "#/definitions/opaque_id" },
+        { "const": "platform" }
+      ]
+    },
+    "display_name": { "type": "string", "minLength": 1, "maxLength": 160 },
+    "agent_kind": {
+      "type": "string",
+      "enum": ["model", "worker", "human", "hybrid", "service"]
+    },
+    "capabilities": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9_.:-]{2,127}$"
+      }
+    },
+    "skills": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9_.:-]{2,127}$"
+      }
+    },
+    "model_profiles": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "#/definitions/opaque_id" }
+    },
+    "tool_ids": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9_.:-]{2,127}$"
+      }
+    },
+    "jurisdictions": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Z]{2}(-[A-Z0-9]{1,8})?$"
+      }
+    },
+    "domain_tags": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9_.:-]{2,127}$"
+      }
+    },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "max_concurrent_assignments",
+        "max_context_bytes",
+        "max_external_spend_minor",
+        "currency",
+        "latency_slo_ms"
+      ],
+      "properties": {
+        "max_concurrent_assignments": { "type": "integer", "minimum": 1 },
+        "max_context_bytes": { "type": "integer", "minimum": 1 },
+        "max_external_spend_minor": { "type": "integer", "minimum": 0 },
+        "currency": { "type": "string", "pattern": "^[A-Z]{3}$" },
+        "latency_slo_ms": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "availability": {
+      "type": "string",
+      "enum": ["available", "busy", "degraded", "offline", "revoked"]
+    },
+    "policy_constraints": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9_.:-]{2,127}$"
+      }
+    },
+    "version": { "type": "integer", "minimum": 1 },
+    "updated_at": { "type": "string", "format": "date-time" }
+  },
+  "definitions": {
+    "opaque_id": {
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 160,
+      "pattern": "^[a-z][a-z0-9_]{1,31}_[A-Za-z0-9][A-Za-z0-9._~-]{5,127}$"
+    }
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "schema_id": "kolibri.artifact.transitions",
+  "schema_version": "1.0",
+  "allowed": {
+    "draft": ["in_review", "stale", "revoked", "superseded"],
+    "in_review": ["draft", "approved_internal", "stale", "revoked", "superseded"],
+    "approved_internal": ["in_review", "released", "stale", "revoked", "superseded"],
+    "released": ["stale", "revoked", "superseded"],
+    "stale": ["superseded", "revoked"],
+    "revoked": [],
+    "superseded": []
+  },
+  "terminal_states": ["revoked", "superseded"]
+}

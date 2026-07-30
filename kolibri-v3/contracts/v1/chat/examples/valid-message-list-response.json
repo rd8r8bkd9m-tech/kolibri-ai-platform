@@ -1,0 +1,36 @@
+{
+  "threadId": "thread_01KOLIBRIV3CHAT",
+  "messages": [
+    {
+      "id": "message_01KOLIBRIV3USER",
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "Нужно оценить ремонт помещения. Данных об объекте пока нет."
+        }
+      ],
+      "createdAt": "2026-07-28T09:00:00Z",
+      "status": {
+        "type": "complete",
+        "reason": "stop"
+      }
+    },
+    {
+      "id": "message_01KOLIBRIV3ASST",
+      "role": "assistant",
+      "content": [
+        {
+          "type": "text",
+          "text": "Я создал проектный контекст и начну с безопасных допущений."
+        }
+      ],
+      "createdAt": "2026-07-28T09:00:02Z",
+      "status": {
+        "type": "complete",
+        "reason": "stop"
+      }
+    }
+  ],
+  "nextCursor": null
+}

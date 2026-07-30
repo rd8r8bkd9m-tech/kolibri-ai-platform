@@ -1,0 +1,97 @@
+{
+  "schema_id": "kolibri.command",
+  "schema_version": "1.0",
+  "message_id": "cmd_01K0GOALCREATE01",
+  "command_name": "goal.create",
+  "payload_schema_id": "kolibri.goal.create.command",
+  "payload_schema_version": "1.0",
+  "issued_at": "2026-07-24T03:00:00+03:00",
+  "deadline_at": "2026-07-24T03:01:00+03:00",
+  "target_owner": "logical_home_control_plane",
+  "identity": {
+    "tenant_id": "ten_01K0TENANT00001",
+    "user_id": "usr_01K0USER000001",
+    "actor": {
+      "actor_id": "agent_01K0CONDUCTOR1",
+      "actor_type": "agent"
+    },
+    "authority": {
+      "authority_id": "auth_01K0LHCP000001",
+      "authority_role": "logical_home_control_plane",
+      "authority_epoch": 8,
+      "authority_placement_id": "placement_home_01",
+      "authorization_decision_id": "decision_01K0GOALAUTH1",
+      "capabilities": [
+        "goal.create"
+      ]
+    },
+    "subject_refs": {
+      "goal_id": "goal_01K0CREATE00001",
+      "case_id": null,
+      "task_id": null
+    }
+  },
+  "trace": {
+    "trace_id": "2123456789abcdef0123456789abcdef",
+    "span_id": "2123456789abcdef",
+    "parent_span_id": null,
+    "correlation_id": "corr_01K0GOALCREATE",
+    "causation_id": "message_01K0MESSAGE01"
+  },
+  "idempotency": {
+    "key": "goal.create:01K0GOALCREATE",
+    "scope": "goal",
+    "scope_id": "goal_01K0CREATE00001",
+    "canonical_request_hash": "sha256:453b63ab4f206c20b5ea1f6d31f45845d3263eb399bb3a051856fac9258277e2"
+  },
+  "payload": {
+    "schema_id": "kolibri.goal.create.command",
+    "schema_version": "1.0",
+    "goal": {
+      "schema_id": "kolibri.goal",
+      "schema_version": "1.0",
+      "goal_id": "goal_01K0CREATE00001",
+      "tenant_id": "ten_01K0TENANT00001",
+      "user_id": "usr_01K0USER000001",
+      "intent": {
+        "source_message_id": "message_01K0MESSAGE01",
+        "original_request": "Составь смету на ремонт квартиры.",
+        "normalized_objective": "Подготовить проверяемую смету ремонта квартиры.",
+        "locale": "ru-RU"
+      },
+      "acceptance_criteria": [
+        {
+          "criterion_id": "criterion_01K0TOTAL001",
+          "statement": "Смета содержит объёмы, цены и итог.",
+          "verification_method": "Проверка структуры и арифметики.",
+          "required": true,
+          "status": "pending"
+        }
+      ],
+      "budget_policy": {
+        "currency": "RUB",
+        "compute_units_limit": 50000,
+        "tool_calls_limit": 200,
+        "external_spend_limit_minor": 0,
+        "human_services_limit_minor": 0,
+        "approval_required_above_minor": 0
+      },
+      "deadline_policy": {
+        "due_at": null,
+        "timezone": "Europe/Moscow",
+        "late_action": "continue_and_flag"
+      },
+      "status": "new",
+      "blocking_question_ids": [],
+      "case_id": null,
+      "current_case_version": null,
+      "workflow_id": null,
+      "current_workflow_version": null,
+      "version": 1,
+      "supersedes_goal_id": null,
+      "created_at": "2026-07-24T03:00:00+03:00",
+      "updated_at": "2026-07-24T03:00:00+03:00"
+    },
+    "requested_at": "2026-07-24T03:00:00+03:00"
+  }
+}

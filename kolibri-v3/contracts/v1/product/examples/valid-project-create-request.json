@@ -1,0 +1,5 @@
+{
+  "schema_id": "kolibri.product.project_create_request",
+  "schema_version": "1.0",
+  "name": "Новый проект"
+}

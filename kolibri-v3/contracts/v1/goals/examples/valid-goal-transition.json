@@ -1,0 +1,11 @@
+{
+  "schema_id": "kolibri.goal.transition.command",
+  "schema_version": "1.0",
+  "goal_id": "goal_01JZGOAL000001",
+  "expected_version": 2,
+  "next_version": 3,
+  "from_status": "planning",
+  "to_status": "executing",
+  "reason": "План задач сформирован и готов к исполнению.",
+  "requested_at": "2026-07-24T00:31:00+03:00"
+}

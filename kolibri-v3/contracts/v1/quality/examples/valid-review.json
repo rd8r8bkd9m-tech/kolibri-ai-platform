@@ -1,0 +1,74 @@
+{
+  "schema_id": "kolibri.review",
+  "schema_version": "1.0",
+  "review_id": "review_01JZQUALITY001",
+  "review_version": 1,
+  "tenant_id": "ten_01JZTENANT0001",
+  "goal_id": "goal_01JZGOAL00001",
+  "case_id": "case_01JZCASE00001",
+  "task_id": "task_01JZESTIMATE01",
+  "artifact_ref": {
+    "artifact_id": "artifact_01JZESTIMATE01",
+    "artifact_version": 3,
+    "content_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "author_actor_id": "agent_01JZESTIMATOR1",
+  "reviewer_actor_id": "agent_01JZREVIEWER01",
+  "reviewer_assignment_id": "assignment_01JZREVIEW1",
+  "scope": [
+    "technical",
+    "quality"
+  ],
+  "criteria": [
+    {
+      "criterion_id": "criterion_01JZARITH1",
+      "result": "passed",
+      "evidence_refs": [
+        {
+          "ref_id": "evidence_01JZPRICE0001",
+          "version": 1
+        }
+      ]
+    }
+  ],
+  "evidence_refs": [
+    {
+      "ref_id": "evidence_01JZPRICE0001",
+      "version": 1
+    }
+  ],
+  "findings": [
+    {
+      "finding_id": "finding_01JZLABEL001",
+      "severity": "low",
+      "category": "presentation.label",
+      "statement": "One explanatory label was shortened for mobile rendering.",
+      "artifact_locator": "worksheet:Summary!A2",
+      "evidence_refs": [
+        {
+          "ref_id": "evidence_01JZPRICE0001",
+          "version": 1
+        }
+      ],
+      "required_action": "No release blocker; retain the full label in metadata.",
+      "owner_ref": "agent_01JZESTIMATOR1",
+      "status": "accepted_risk",
+      "resolution": {
+        "disposition": "accepted_risk",
+        "resolved_by": "agent_01JZREVIEWER01",
+        "resolved_at": "2026-07-24T02:18:00+03:00",
+        "evidence_refs": [
+          {
+            "ref_id": "evidence_01JZPRICE0001",
+            "version": 1
+          }
+        ]
+      }
+    }
+  ],
+  "disposition": "approved_internal",
+  "status": "completed",
+  "requested_at": "2026-07-24T02:10:00+03:00",
+  "completed_at": "2026-07-24T02:19:00+03:00",
+  "supersedes": null
+}

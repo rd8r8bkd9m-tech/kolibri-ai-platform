@@ -1,0 +1,91 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://schemas.kolibriai.ru/v1/product/agui-projection.schema.json",
+  "title": "Kolibri Product AG-UI Projection v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id",
+    "schema_version",
+    "tenant_id",
+    "thread_id",
+    "run_id",
+    "source_event_id",
+    "source_sequence",
+    "protocol",
+    "protocol_version",
+    "adapter_package",
+    "adapter_version",
+    "event_type",
+    "custom_schema_id",
+    "custom_schema_version",
+    "payload",
+    "projected_at"
+  ],
+  "properties": {
+    "schema_id": { "const": "kolibri.product.agui.projection" },
+    "schema_version": { "const": "1.0" },
+    "tenant_id": { "$ref": "#/definitions/opaque_id" },
+    "thread_id": { "$ref": "#/definitions/opaque_id" },
+    "run_id": { "$ref": "#/definitions/opaque_id" },
+    "source_event_id": { "$ref": "#/definitions/opaque_id" },
+    "source_sequence": { "type": "integer", "minimum": 1 },
+    "protocol": { "const": "ag-ui" },
+    "protocol_version": { "const": "0.0.57" },
+    "adapter_package": { "const": "@assistant-ui/react-ag-ui" },
+    "adapter_version": { "const": "0.0.45" },
+    "event_type": {
+      "type": "string",
+      "enum": [
+        "RUN_STARTED",
+        "RUN_FINISHED",
+        "RUN_CANCELLED",
+        "RUN_ERROR",
+        "TEXT_MESSAGE_START",
+        "TEXT_MESSAGE_CONTENT",
+        "TEXT_MESSAGE_END",
+        "TEXT_MESSAGE_CHUNK",
+        "TOOL_CALL_START",
+        "TOOL_CALL_ARGS",
+        "TOOL_CALL_END",
+        "TOOL_CALL_CHUNK",
+        "TOOL_CALL_RESULT",
+        "STATE_SNAPSHOT",
+        "STATE_DELTA",
+        "MESSAGES_SNAPSHOT",
+        "CUSTOM"
+      ]
+    },
+    "custom_schema_id": {
+      "oneOf": [
+        {
+          "type": "string",
+          "pattern": "^kolibri\\.product\\.agui\\.custom\\.[a-z][a-z0-9_.:-]{2,127}$"
+        },
+        { "type": "null" }
+      ]
+    },
+    "custom_schema_version": {
+      "oneOf": [
+        {
+          "type": "string",
+          "pattern": "^[1-9][0-9]*\\.[0-9]+$"
+        },
+        { "type": "null" }
+      ]
+    },
+    "payload": {
+      "type": "object",
+      "maxProperties": 128
+    },
+    "projected_at": { "type": "string", "format": "date-time" }
+  },
+  "definitions": {
+    "opaque_id": {
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 160,
+      "pattern": "^[a-z][a-z0-9_]{1,31}_[A-Za-z0-9][A-Za-z0-9._~-]{5,127}$"
+    }
+  }
+}

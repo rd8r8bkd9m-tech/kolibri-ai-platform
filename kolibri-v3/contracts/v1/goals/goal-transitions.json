@@ -1,0 +1,24 @@
+{
+  "schema_id": "kolibri.goal.transitions",
+  "schema_version": "1.0",
+  "terminal_states": ["completed", "cancelled", "superseded"],
+  "allowed": {
+    "new": ["intake", "cancelled"],
+    "intake": ["planning", "awaiting_user", "failed_recoverable", "cancelled"],
+    "planning": ["executing", "awaiting_user", "awaiting_approval", "failed_recoverable", "cancelled"],
+    "executing": ["reviewing", "awaiting_user", "awaiting_approval", "awaiting_payment", "awaiting_external", "revising", "failed_recoverable", "cancelled"],
+    "reviewing": ["revising", "approved_internal", "awaiting_approval", "failed_recoverable", "cancelled"],
+    "awaiting_user": ["intake", "planning", "executing", "revising", "cancelled"],
+    "awaiting_approval": ["planning", "executing", "reviewing", "approved_internal", "cancelled"],
+    "awaiting_payment": ["executing", "cancelled"],
+    "awaiting_external": ["executing", "reviewing", "failed_recoverable", "cancelled"],
+    "revising": ["executing", "reviewing", "awaiting_user", "failed_recoverable", "cancelled"],
+    "approved_internal": ["released", "revising", "cancelled"],
+    "released": ["executing_physical", "completed", "superseded"],
+    "executing_physical": ["completed", "failed_recoverable", "cancelled"],
+    "failed_recoverable": ["intake", "planning", "executing", "revising", "cancelled"],
+    "completed": [],
+    "cancelled": [],
+    "superseded": []
+  }
+}

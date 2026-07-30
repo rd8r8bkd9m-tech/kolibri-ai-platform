@@ -1,0 +1,58 @@
+{
+  "schema_id": "kolibri.command",
+  "schema_version": "1.0",
+  "message_id": "cmd_01JZCASETRANS001",
+  "command_name": "project_case.transition",
+  "payload_schema_id": "kolibri.project_case.transition.command",
+  "payload_schema_version": "1.0",
+  "issued_at": "2026-07-24T00:31:00+03:00",
+  "deadline_at": "2026-07-24T00:32:00+03:00",
+  "target_owner": "logical_home_control_plane",
+  "identity": {
+    "tenant_id": "ten_01JZTENANT0001",
+    "user_id": "usr_01JZUSER000001",
+    "actor": {
+      "actor_id": "agent_01JZCONDUCTOR1",
+      "actor_type": "agent"
+    },
+    "authority": {
+      "authority_id": "auth_01JZLHCP000001",
+      "authority_role": "logical_home_control_plane",
+      "authority_epoch": 7,
+      "authority_placement_id": "placement_primary_01",
+      "authorization_decision_id": "decision_01JZCASEAUTH1",
+      "capabilities": [
+        "project_case.transition"
+      ]
+    },
+    "subject_refs": {
+      "goal_id": "goal_01JZGOAL000001",
+      "case_id": "case_01JZCASE000001",
+      "task_id": null
+    }
+  },
+  "trace": {
+    "trace_id": "2123456789abcdef0123456789abcdef",
+    "span_id": "2123456789abcdef",
+    "parent_span_id": null,
+    "correlation_id": "corr_01JZCASETRANS1",
+    "causation_id": "cmd_01JZCASEWORK001"
+  },
+  "idempotency": {
+    "key": "project_case.transition:01JZCASETRANS1",
+    "scope": "case",
+    "scope_id": "case_01JZCASE000001",
+    "canonical_request_hash": "sha256:1ba236ef7302bd6ee17be7c1839f7c8d20e75acd8484753dccac9ca1dbf6663a"
+  },
+  "payload": {
+    "schema_id": "kolibri.project_case.transition.command",
+    "schema_version": "1.0",
+    "case_id": "case_01JZCASE000001",
+    "expected_version": 3,
+    "next_version": 4,
+    "from_status": "working",
+    "to_status": "review",
+    "reason": "Черновик сметы создан и передан на независимую проверку.",
+    "requested_at": "2026-07-24T00:31:00+03:00"
+  }
+}
