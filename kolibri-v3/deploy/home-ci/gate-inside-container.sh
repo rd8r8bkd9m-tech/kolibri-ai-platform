@@ -22,6 +22,16 @@ trap 'printf "home_ci_error=command_failed phase=%s line=%s\n" \
 [[ -d "${evidence_root}" && -w "${evidence_root}" ]] ||
   fail "evidence_directory_invalid"
 
+cache_root="${repo_root}/.home-ci"
+python_env="${cache_root}/python"
+npm_cache="${cache_root}/npm"
+export HOME="${cache_root}/home"
+export NPM_CONFIG_CACHE="${npm_cache}"
+mkdir -p \
+  "${HOME}" \
+  "${npm_cache}" \
+  "${evidence_root}/release"
+
 git config --global --add safe.directory "${repo_root}"
 actual_commit="$(git -C "${repo_root}" rev-parse HEAD)"
 [[ "${actual_commit}" == "${expected_commit}" ]] ||
@@ -29,11 +39,6 @@ actual_commit="$(git -C "${repo_root}" rev-parse HEAD)"
 [[ -z "$(git -C "${repo_root}" status --porcelain --untracked-files=all \
   -- kolibri-v3 .github/workflows/kolibri-v3.yml)" ]] ||
   fail "candidate_not_clean"
-
-cache_root="${repo_root}/.home-ci"
-python_env="${cache_root}/python"
-npm_cache="${cache_root}/npm"
-mkdir -p "${cache_root}" "${npm_cache}" "${evidence_root}/release"
 
 printf 'home_ci_commit=%s\n' "${actual_commit}"
 printf 'home_ci_node=%s\n' "$(node --version)"
@@ -164,4 +169,3 @@ phase="complete"
 printf 'home_ci=ok\n'
 printf 'home_ci_commit=%s\n' "${actual_commit}"
 printf 'home_ci_archive=%s\n' "${release_archive}"
-

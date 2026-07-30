@@ -32,6 +32,9 @@ test("Home CI pins the R1 toolchains and never mounts Docker or production", () 
 test("Home CI runs the complete exact-commit R1 product gate", () => {
   assert.match(gate, /actual_commit.*expected_commit/s);
   assert.match(gate, /candidate_not_clean/);
+  assert.match(gate, /cache_root=.*[.]home-ci/);
+  assert.match(gate, /export HOME=/);
+  assert.match(gate, /export NPM_CONFIG_CACHE=/);
   assert.match(gate, /npm audit --audit-level=high/);
   assert.match(gate, /npm run typecheck/);
   assert.match(gate, /npm test/);
