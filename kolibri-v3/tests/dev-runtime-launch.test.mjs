@@ -18,6 +18,10 @@ const persistentLauncher = readFileSync(
   new URL("../scripts/dev-persistent.sh", import.meta.url),
   "utf8",
 );
+const screenEntry = readFileSync(
+  new URL("../scripts/dev-screen-entry.sh", import.meta.url),
+  "utf8",
+);
 const backendApplication = readFileSync(
   new URL("../backend/app/main.py", import.meta.url),
   "utf8",
@@ -129,9 +133,17 @@ test("persistent development delegates only to the canonical supervisor", () => 
     "bash scripts/dev-persistent.sh start",
   );
   assert.match(persistentLauncher, /session_name="kolibri-v3-dev"/);
-  assert.match(persistentLauncher, /"\$\{npm_bin\}" run dev/);
+  assert.match(persistentLauncher, /\/bin\/bash "\$\{screen_entry\}"/);
+  assert.match(screenEntry, /exec "\$\{npm_bin\}" run dev/);
+  assert.match(screenEntry, />>"\$\{runtime_log\}" 2>&1/);
   assert.match(persistentLauncher, /'"service":"kolibri-v3"'/);
   assert.match(persistentLauncher, /'"instanceId":"'/);
+  assert.match(persistentLauncher, /session_process_group/);
+  assert.match(persistentLauncher, /kill -TERM -- "-\$\{process_group\}"/);
+  assert.match(
+    persistentLauncher,
+    /! session_exists && runtime_ports_free/,
+  );
   assert.doesNotMatch(persistentLauncher, /\buvicorn\b/);
   assert.doesNotMatch(persistentLauncher, /\bnext dev\b/);
   assert.doesNotMatch(persistentLauncher, /launchctl|LaunchAgent/);
