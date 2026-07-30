@@ -59,6 +59,27 @@ function Navigation() {
             title: "Сметы",
           }}
         />
+        <Drawer.Screen
+          name="settings"
+          options={{
+            drawerItemStyle: { display: "none" },
+            title: "Личный кабинет",
+          }}
+        />
+        <Drawer.Screen
+          name="projects"
+          options={{
+            drawerItemStyle: { display: "none" },
+            title: "Проекты",
+          }}
+        />
+        <Drawer.Screen
+          name="library"
+          options={{
+            drawerItemStyle: { display: "none" },
+            title: "Библиотека",
+          }}
+        />
       </Drawer>
       <StatusBar style="auto" />
     </ThemeProvider>

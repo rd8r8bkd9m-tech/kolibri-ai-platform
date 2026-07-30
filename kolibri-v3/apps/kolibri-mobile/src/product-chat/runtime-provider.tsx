@@ -56,7 +56,8 @@ const createDraftId = () => {
 
 const normalizeId = (value: unknown, prefix: "run_" | "msg_") => {
   if (typeof value !== "string" || !SAFE_SHORT_ID.test(value)) return null;
-  return value.length >= 8 ? value : `${prefix}${value}`;
+  if (value.length >= 8) return value;
+  return `${prefix}${value}`.padEnd(8, "0");
 };
 
 const normalizeMessages = (value: unknown) => {

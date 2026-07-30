@@ -106,6 +106,30 @@ test("native auth accepts only the server-projected entitlement contract", () =>
   );
 });
 
+test("mobile account and chat preserve the shared V3 contracts", () => {
+  const layout = read("app/_layout.tsx");
+  const settings = read("app/settings.tsx");
+  const catalog = read("components/catalog/catalog-screen.tsx");
+  const drawer = read("components/thread-list/drawer-content.tsx");
+  const runtime = read("src/product-chat/runtime-provider.tsx");
+  const nativeSession = read("src/auth/mobile-session.native.tsx");
+  const webSession = read("src/auth/mobile-session.web.tsx");
+
+  assert.match(layout, /name="settings"/);
+  assert.match(drawer, /Открыть личный кабинет/);
+  assert.match(drawer, /navigation\.navigate\("settings"\)/);
+  assert.match(settings, /session\.updateProfile/);
+  assert.match(settings, /session\.updateAgentProfile/);
+  assert.match(catalog, /ConstructionEstimateClient/);
+  assert.match(catalog, /mode === "projects"/);
+  assert.match(catalog, /mode === "projects" \? projectRows : documentRows/);
+  assert.match(drawer, /navigation\.navigate\("projects"\)/);
+  assert.match(drawer, /navigation\.navigate\("library"\)/);
+  assert.match(nativeSession, /\/v1\/profile/);
+  assert.match(webSession, /\/api\/v3\/profile/);
+  assert.match(runtime, /\.padEnd\(8, "0"\)/);
+});
+
 test("estimate editor preserves optimistic versioning and honest conflicts", () => {
   const screen = read("app/estimates.tsx");
   const contracts = read(

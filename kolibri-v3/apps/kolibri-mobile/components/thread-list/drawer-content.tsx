@@ -86,6 +86,48 @@ export function DrawerContent({
           Инструменты
         </Text>
         <Pressable
+          accessibilityLabel="Проекты"
+          accessibilityRole="button"
+          onPress={() => {
+            haptics.selection();
+            navigation.navigate("projects");
+          }}
+          style={({ pressed }) => [
+            styles.verticalEntry,
+            { backgroundColor: colors.surface },
+            pressed && styles.pressed,
+          ]}
+        >
+          <Icon name="folder" size={21} color={colors.foreground} />
+          <View style={styles.verticalEntryCopy}>
+            <Text style={[styles.verticalEntryText, { color: colors.foreground }]}>
+              Проекты
+            </Text>
+          </View>
+          <Icon name="chevron-right" size={18} color={colors.mutedForeground} />
+        </Pressable>
+        <Pressable
+          accessibilityLabel="Библиотека"
+          accessibilityRole="button"
+          onPress={() => {
+            haptics.selection();
+            navigation.navigate("library");
+          }}
+          style={({ pressed }) => [
+            styles.verticalEntry,
+            { backgroundColor: colors.surface },
+            pressed && styles.pressed,
+          ]}
+        >
+          <Icon name="library" size={21} color={colors.foreground} />
+          <View style={styles.verticalEntryCopy}>
+            <Text style={[styles.verticalEntryText, { color: colors.foreground }]}>
+              Библиотека
+            </Text>
+          </View>
+          <Icon name="chevron-right" size={18} color={colors.mutedForeground} />
+        </Pressable>
+        <Pressable
           accessibilityHint={
             estimateAccess.enabled ? undefined : estimateAccess.reason
           }
@@ -143,7 +185,19 @@ export function DrawerContent({
             {session.user?.name.trim().slice(0, 1).toUpperCase() ?? "K"}
           </Text>
         </View>
-        <View style={styles.accountCopy}>
+        <Pressable
+          accessibilityHint="Открывает профиль и настройки"
+          accessibilityLabel="Открыть личный кабинет"
+          accessibilityRole="button"
+          onPress={() => {
+            haptics.selection();
+            navigation.navigate("settings");
+          }}
+          style={({ pressed }) => [
+            styles.accountCopy,
+            pressed && styles.pressed,
+          ]}
+        >
           <Text
             numberOfLines={1}
             style={[styles.accountName, { color: colors.foreground }]}
@@ -156,7 +210,7 @@ export function DrawerContent({
           >
             {session.user?.email}
           </Text>
-        </View>
+        </Pressable>
         <Pressable
           accessibilityLabel="Выйти"
           accessibilityRole="button"

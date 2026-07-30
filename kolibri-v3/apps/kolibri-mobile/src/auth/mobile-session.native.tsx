@@ -79,6 +79,8 @@ type MobileSessionValue = {
   login: (input: AuthInput) => Promise<void>;
   register: (input: RegisterInput) => Promise<void>;
   logout: () => Promise<void>;
+  updateProfile: (input: { name: string }) => Promise<void>;
+  updateAgentProfile: (profile: string) => Promise<void>;
   authorizedFetch: typeof fetch;
 };
 
@@ -342,6 +344,58 @@ export function MobileSessionProvider({ children }: PropsWithChildren) {
     [clearSession, rotate],
   );
 
+  const updateUser = useCallback(
+    async (path: string, body: unknown) => {
+      setError(null);
+      try {
+        const response = await authorizedFetch(`${API_BASE_URL}${path}`, {
+          method: path.endsWith("agent-profile") ? "PUT" : "PATCH",
+          headers: {
+            Accept: "application/json",
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(body),
+        });
+        if (!response.ok) throw await readError(response);
+        const next = (await response.json()) as MobileUser;
+        if (
+          !next ||
+          typeof next.id !== "string" ||
+          typeof next.email !== "string" ||
+          typeof next.name !== "string" ||
+          !Array.isArray(next.capabilities) ||
+          !Array.isArray(next.entitlements)
+        ) {
+          throw new MobileApiError(
+            502,
+            "mobile_profile_contract_invalid",
+            "Сервер вернул несовместимый профиль.",
+          );
+        }
+        setUser(next);
+      } catch (reason) {
+        setError(
+          reason instanceof Error
+            ? reason.message
+            : "Не удалось сохранить профиль.",
+        );
+        throw reason;
+      }
+    },
+    [authorizedFetch],
+  );
+
+  const updateProfile = useCallback(
+    (input: { name: string }) => updateUser("/v1/profile", input),
+    [updateUser],
+  );
+
+  const updateAgentProfile = useCallback(
+    (profile: string) =>
+      updateUser("/v1/profile/agent-profile", { profile }),
+    [updateUser],
+  );
+
   const value = useMemo<MobileSessionValue>(
     () => ({
       status,
@@ -350,9 +404,21 @@ export function MobileSessionProvider({ children }: PropsWithChildren) {
       login,
       register,
       logout,
+      updateProfile,
+      updateAgentProfile,
       authorizedFetch,
     }),
-    [authorizedFetch, error, login, logout, register, status, user],
+    [
+      authorizedFetch,
+      error,
+      login,
+      logout,
+      register,
+      status,
+      updateAgentProfile,
+      updateProfile,
+      user,
+    ],
   );
 
   return (

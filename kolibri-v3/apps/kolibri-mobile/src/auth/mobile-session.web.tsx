@@ -42,6 +42,8 @@ type MobileSessionValue = {
     password: string;
   }) => Promise<void>;
   logout: () => Promise<void>;
+  updateProfile: (input: { name: string }) => Promise<void>;
+  updateAgentProfile: (profile: string) => Promise<void>;
   authorizedFetch: typeof fetch;
 };
 
@@ -164,6 +166,18 @@ const sessionFrom = async (response: Response) => {
   return value as SessionView;
 };
 
+const userFrom = async (response: Response) => {
+  const value = (await response.json()) as unknown;
+  if (!isMobileUser(value)) {
+    throw new MobileApiError(
+      502,
+      "web_profile_contract_invalid",
+      "Сервер вернул несовместимый профиль.",
+    );
+  }
+  return value;
+};
+
 export function MobileSessionProvider({ children }: PropsWithChildren) {
   const [status, setStatus] = useState<SessionStatus>("restoring");
   const [user, setUser] = useState<MobileUser | null>(null);
@@ -195,28 +209,49 @@ export function MobileSessionProvider({ children }: PropsWithChildren) {
 
   const login = useCallback(
     async (input: { email: string; password: string }) => {
-      applySession(
-        await sessionFrom(
-          await request("/api/v3/auth/login", {
-            method: "POST",
-            body: JSON.stringify(input),
-          }),
-        ),
-      );
+      setError(null);
+      try {
+        applySession(
+          await sessionFrom(
+            await request("/api/v3/auth/login", {
+              method: "POST",
+              body: JSON.stringify(input),
+            }),
+          ),
+        );
+      } catch (reason) {
+        const message =
+          reason instanceof MobileApiError &&
+          reason.code === "invalid_request"
+            ? "Проверьте формат электронной почты и пароля."
+            : reason instanceof Error
+              ? reason.message
+              : "Не удалось войти.";
+        setError(message);
+        throw reason;
+      }
     },
     [applySession],
   );
 
   const register = useCallback(
     async (input: { email: string; name: string; password: string }) => {
-      applySession(
-        await sessionFrom(
-          await request("/api/v3/auth/register", {
-            method: "POST",
-            body: JSON.stringify(input),
-          }),
-        ),
-      );
+      setError(null);
+      try {
+        applySession(
+          await sessionFrom(
+            await request("/api/v3/auth/register", {
+              method: "POST",
+              body: JSON.stringify(input),
+            }),
+          ),
+        );
+      } catch (reason) {
+        setError(
+          reason instanceof Error ? reason.message : "Не удалось создать аккаунт.",
+        );
+        throw reason;
+      }
     },
     [applySession],
   );
@@ -225,6 +260,46 @@ export function MobileSessionProvider({ children }: PropsWithChildren) {
     await request("/api/v3/auth/logout", { method: "POST" });
     applySession({ authenticated: false, user: null });
   }, [applySession]);
+
+  const updateProfile = useCallback(async (input: { name: string }) => {
+    setError(null);
+    try {
+      setUser(
+        await userFrom(
+          await request("/api/v3/profile", {
+            method: "PATCH",
+            body: JSON.stringify(input),
+          }),
+        ),
+      );
+    } catch (reason) {
+      setError(
+        reason instanceof Error ? reason.message : "Не удалось сохранить профиль.",
+      );
+      throw reason;
+    }
+  }, []);
+
+  const updateAgentProfile = useCallback(async (profile: string) => {
+    setError(null);
+    try {
+      setUser(
+        await userFrom(
+          await request("/api/v3/profile/agent-profile", {
+            method: "PUT",
+            body: JSON.stringify({ profile }),
+          }),
+        ),
+      );
+    } catch (reason) {
+      setError(
+        reason instanceof Error
+          ? reason.message
+          : "Не удалось переключить профиль агента.",
+      );
+      throw reason;
+    }
+  }, []);
 
   const authorizedFetch = useCallback<typeof fetch>(
     (input, init = {}) => {
@@ -247,9 +322,21 @@ export function MobileSessionProvider({ children }: PropsWithChildren) {
       login,
       register,
       logout,
+      updateProfile,
+      updateAgentProfile,
       authorizedFetch,
     }),
-    [authorizedFetch, error, login, logout, register, status, user],
+    [
+      authorizedFetch,
+      error,
+      login,
+      logout,
+      register,
+      status,
+      updateAgentProfile,
+      updateProfile,
+      user,
+    ],
   );
 
   return (
