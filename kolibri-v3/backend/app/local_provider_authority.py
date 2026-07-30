@@ -44,6 +44,17 @@ def _require_development(settings: Settings) -> None:
         )
 
 
+def _require_vault_read(settings: Settings) -> None:
+    if (
+        settings.environment != "development"
+        and not settings.local_provider_vault_read_enabled
+    ):
+        raise LocalProviderAuthorityError(
+            "local_provider_authority_disabled",
+            "Локальное хранилище ключей отключено в этой среде.",
+        )
+
+
 def _private_key_path(settings: Settings) -> Path:
     configured = os.getenv(
         "KOLIBRI_V3_PROVIDER_ENCRYPTION_KEY_FILE",
@@ -59,14 +70,23 @@ def _private_key_path(settings: Settings) -> Path:
     return path if path.is_absolute() else (Path.cwd() / path).resolve()
 
 
-def ensure_local_provider_master_key(settings: Settings) -> bytes:
-    _require_development(settings)
+def _read_local_provider_master_key(
+    settings: Settings,
+    *,
+    create_missing: bool,
+) -> bytes:
     path = _private_key_path(settings)
-    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    if create_missing:
+        path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     read_flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
     try:
         descriptor = os.open(path, read_flags)
     except FileNotFoundError:
+        if not create_missing:
+            raise LocalProviderAuthorityError(
+                "provider_master_key_missing",
+                "Ключ шифрования provider-authority не настроен.",
+            ) from None
         create_flags = (
             os.O_WRONLY
             | os.O_CREAT
@@ -89,6 +109,7 @@ def ensure_local_provider_master_key(settings: Settings) -> bytes:
         metadata = os.fstat(descriptor)
         if (
             not os.path.isfile(path)
+            or metadata.st_uid not in {0, os.geteuid()}
             or metadata.st_mode & 0o077
             or metadata.st_size != 32
         ):
@@ -105,6 +126,22 @@ def ensure_local_provider_master_key(settings: Settings) -> bytes:
             "Ключ шифрования provider-authority имеет неверный размер.",
         )
     return key
+
+
+def ensure_local_provider_master_key(settings: Settings) -> bytes:
+    _require_development(settings)
+    return _read_local_provider_master_key(
+        settings,
+        create_missing=True,
+    )
+
+
+def load_local_provider_master_key(settings: Settings) -> bytes:
+    _require_vault_read(settings)
+    return _read_local_provider_master_key(
+        settings,
+        create_missing=False,
+    )
 
 
 def _write_private_atomic(path: Path, payload: bytes) -> None:
@@ -254,7 +291,7 @@ def install_mimo_key(
 def load_mimo_key(settings: Settings, *, tenant_id: str) -> str:
     """Decrypt the tenant-bound MiMo credential for direct local execution."""
 
-    _require_development(settings)
+    _require_vault_read(settings)
     database_path = Path(settings.database_url.removeprefix("sqlite:///"))
     vault_root = (
         database_path.parent
@@ -289,7 +326,7 @@ def load_mimo_key(settings: Settings, *, tenant_id: str) -> str:
             "kolibri-v3-provider-vault-v1\0mimo-code\0" + tenant_id
         ).encode("utf-8", "strict")
         plaintext = AESGCM(
-            ensure_local_provider_master_key(settings)
+            load_local_provider_master_key(settings)
         ).decrypt(nonce, ciphertext, aad)
         api_key = plaintext.decode("utf-8", "strict")
     except (OSError, ValueError, KeyError, TypeError, UnicodeError, InvalidTag):

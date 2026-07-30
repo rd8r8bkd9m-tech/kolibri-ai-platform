@@ -276,6 +276,7 @@ class Settings:
     provider_authority_dispatch_configured: bool = False
     provider_enrollment_reauth_seconds: int = 15 * 60
     direct_model_runtime_enabled: bool = False
+    local_provider_vault_read_enabled: bool = False
     direct_model_timeout_seconds: float = 180.0
     developer_agent_enabled: bool = False
     embedded_developer_runtime_enabled: bool = False
@@ -469,6 +470,15 @@ class Settings:
             )
         if not 10 <= self.direct_model_timeout_seconds <= 600:
             raise ValueError("Direct model timeout must be between 10 and 600 seconds")
+        if (
+            self.local_provider_vault_read_enabled
+            and self.environment == "production"
+            and not self.direct_model_runtime_enabled
+        ):
+            raise ValueError(
+                "Production local provider vault reads require the direct "
+                "model runtime"
+            )
         if not 60 <= self.developer_agent_timeout_seconds <= 3600:
             raise ValueError(
                 "Developer agent timeout must be between 60 and 3600 seconds"
@@ -754,6 +764,12 @@ class Settings:
             direct_model_runtime_enabled=_parse_bool(
                 os.getenv("KOLIBRI_V3_DIRECT_MODEL_RUNTIME"),
                 default=environment == "development",
+            ),
+            local_provider_vault_read_enabled=_parse_bool(
+                os.getenv(
+                    "KOLIBRI_V3_LOCAL_PROVIDER_VAULT_READ_ENABLED"
+                ),
+                default=False,
             ),
             direct_model_timeout_seconds=_parse_float(
                 os.getenv("KOLIBRI_V3_DIRECT_MODEL_TIMEOUT_SECONDS"),
