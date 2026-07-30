@@ -278,6 +278,7 @@ class Settings:
     direct_model_runtime_enabled: bool = False
     direct_model_timeout_seconds: float = 180.0
     developer_agent_enabled: bool = False
+    embedded_developer_runtime_enabled: bool = False
     developer_workspace_root: Path | None = None
     developer_agent_timeout_seconds: float = 30 * 60
     provider_execution_enabled: bool = False
@@ -473,9 +474,13 @@ class Settings:
                 "Developer agent timeout must be between 60 and 3600 seconds"
             )
         if self.developer_agent_enabled:
-            if self.environment == "production":
+            if (
+                self.environment == "production"
+                and not self.embedded_developer_runtime_enabled
+            ):
                 raise ValueError(
-                    "Developer agent cannot run in production"
+                    "Developer agent cannot run in production without the "
+                    "embedded V3 runtime capability"
                 )
             if not self.direct_model_runtime_enabled:
                 raise ValueError(
@@ -498,6 +503,15 @@ class Settings:
                 self,
                 "developer_workspace_root",
                 workspace_root,
+            )
+        if self.embedded_developer_runtime_enabled and (
+            self.environment != "production"
+            or not self.developer_agent_enabled
+            or not self.direct_model_runtime_enabled
+        ):
+            raise ValueError(
+                "Embedded V3 developer runtime requires production with the "
+                "direct model runtime and developer agent enabled"
             )
         if not 60 <= self.provider_execution_timeout_seconds <= 3600:
             raise ValueError(
@@ -658,9 +672,12 @@ class Settings:
 
         if execution_mode == "developer":
             if (
-                self.environment != "production"
-                and self.direct_model_runtime_enabled
+                self.direct_model_runtime_enabled
                 and self.developer_agent_enabled
+                and (
+                    self.environment != "production"
+                    or self.embedded_developer_runtime_enabled
+                )
             ):
                 return "direct"
             return "home"
@@ -744,6 +761,12 @@ class Settings:
                 name="KOLIBRI_V3_DIRECT_MODEL_TIMEOUT_SECONDS",
             ),
             developer_agent_enabled=developer_agent_enabled,
+            embedded_developer_runtime_enabled=_parse_bool(
+                os.getenv(
+                    "KOLIBRI_V3_EMBEDDED_DEVELOPER_RUNTIME_ENABLED"
+                ),
+                default=False,
+            ),
             developer_workspace_root=(
                 Path(configured_workspace_root)
                 if configured_workspace_root is not None
