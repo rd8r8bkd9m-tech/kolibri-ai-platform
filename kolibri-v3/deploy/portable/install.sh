@@ -533,7 +533,7 @@ tar --strip-components=1 -C "$source_root" \
   exit 3
 }
 mv "$build_root/backend/venv" "$source_root/backend/venv"
-cp -a "$source_root/public" "$runtime_root/frontend/public"
+cp -a "$build_root/public" "$runtime_root/frontend/public"
 ln -s ../source/backend "$runtime_root/backend"
 chown -h "$KOLIBRI_SERVICE_USER:$service_group" "$runtime_root/backend"
 rm -rf -- "$build_root"

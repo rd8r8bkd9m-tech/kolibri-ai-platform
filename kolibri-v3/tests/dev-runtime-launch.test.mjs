@@ -65,6 +65,11 @@ test("dev stack restarts only the canonical backend launcher", () => {
     stackSupervisor,
     /KOLIBRI_V3_BACKEND_URL: "http:\/\/127\.0\.0\.1:8002"/,
   );
+  assert.match(
+    stackSupervisor,
+    /KOLIBRI_MOBILE_WEB_ORIGIN: "http:\/\/127\.0\.0\.1:3104"/,
+  );
+  assert.match(stackSupervisor, /scheduleRestart\(startMobileWeb\)/);
   assert.match(stackSupervisor, /path: "\/v1\/health"/);
   assert.match(stackSupervisor, /payload\.service === "kolibri-v3"/);
   assert.match(
@@ -144,6 +149,7 @@ test("persistent development delegates only to the canonical supervisor", () => 
     persistentLauncher,
     /! session_exists && runtime_ports_free/,
   );
+  assert.match(persistentLauncher, /iTCP:3104/);
   assert.doesNotMatch(persistentLauncher, /\buvicorn\b/);
   assert.doesNotMatch(persistentLauncher, /\bnext dev\b/);
   assert.doesNotMatch(persistentLauncher, /launchctl|LaunchAgent/);

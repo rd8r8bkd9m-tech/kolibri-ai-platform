@@ -82,18 +82,17 @@ test("construction vertical fails closed and uses only real V3 endpoints", () =>
   assert.match(access, /construction\.estimates\.use/);
   assert.match(access, /enabled: false/);
   assert.match(registration, /construction\.estimate\.renderer\.v1/);
-  assert.match(client, /\/v1\/documents/);
-  assert.match(
-    client,
-    /\/v1\/projects\/\$\{encodeURIComponent\(estimate\.projectId\)\}\/estimate/,
-  );
+  assert.match(client, /Platform\.OS === "web" \? "\/api\/v3"/);
+  assert.match(client, /`\$\{API_BASE_URL\}\/v1`/);
+  assert.match(client, /`\$\{PRODUCT_API_BASE\}\/documents`/);
+  assert.match(client, /encodeURIComponent\(estimate\.projectId\)/);
   assert.match(client, /method: "PATCH"/);
   assert.match(client, /estimatePatchBody/);
   assert.doesNotMatch(client, /fixture|mock|sample|localStorage/i);
 });
 
 test("native auth accepts only the server-projected entitlement contract", () => {
-  const session = read("src/auth/mobile-session.tsx");
+  const session = read("src/auth/mobile-session.native.tsx");
   assert.match(session, /entitlements: readonly string\[\]/);
   assert.match(session, /"entitlements" in value\.user/);
   assert.match(session, /Array\.isArray\(value\.user\.entitlements\)/);

@@ -10,6 +10,7 @@
     "test": "node --test tests/*.test.mjs",
     "lint": "expo lint",
     "typecheck": "tsc --noEmit",
+    "export:web": "expo export --platform web --output-dir ../../public/app",
     "export:ios": "expo export --platform ios --output-dir dist-ios",
     "export:android": "expo export --platform android --output-dir dist-android"
   },

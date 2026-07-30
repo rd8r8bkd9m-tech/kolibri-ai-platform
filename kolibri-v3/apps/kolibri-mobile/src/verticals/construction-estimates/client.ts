@@ -2,6 +2,7 @@ import {
   API_BASE_URL,
   MobileApiError,
 } from "@/src/auth/mobile-session";
+import { Platform } from "react-native";
 import type { AuthorizedFetch } from "@/src/product-chat/client";
 import {
   estimatePatchBody,
@@ -12,6 +13,8 @@ import {
 } from "@/src/verticals/construction-estimates/contracts";
 
 const SAFE_PROJECT_ID = /^project_[A-Za-z0-9._~-]{8,96}$/;
+const PRODUCT_API_BASE =
+  Platform.OS === "web" ? "/api/v3" : `${API_BASE_URL}/v1`;
 
 const responseError = async (response: Response) => {
   try {
@@ -43,7 +46,7 @@ export class ConstructionEstimateClient {
   constructor(private readonly request: AuthorizedFetch) {}
 
   async list() {
-    const response = await this.request(`${API_BASE_URL}/v1/documents`, {
+    const response = await this.request(`${PRODUCT_API_BASE}/documents`, {
       headers: { Accept: "application/json" },
     });
     if (!response.ok) throw await responseError(response);
@@ -55,7 +58,7 @@ export class ConstructionEstimateClient {
       throw new Error("Invalid estimate project ID.");
     }
     const response = await this.request(
-      `${API_BASE_URL}/v1/projects/${encodeURIComponent(projectId)}/estimate`,
+      `${PRODUCT_API_BASE}/projects/${encodeURIComponent(projectId)}/estimate`,
       { headers: { Accept: "application/json" } },
     );
     if (!response.ok) throw await responseError(response);
@@ -68,7 +71,7 @@ export class ConstructionEstimateClient {
     rows: readonly NativeEstimateRow[],
   ) {
     const response = await this.request(
-      `${API_BASE_URL}/v1/projects/${encodeURIComponent(estimate.projectId)}/estimate`,
+      `${PRODUCT_API_BASE}/projects/${encodeURIComponent(estimate.projectId)}/estimate`,
       {
         method: "PATCH",
         headers: {

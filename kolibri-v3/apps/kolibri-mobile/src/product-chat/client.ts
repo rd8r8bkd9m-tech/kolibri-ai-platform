@@ -4,6 +4,7 @@ import {
   parseMessagePage,
   parseThreadPage,
 } from "@/src/product-chat/contracts";
+import { Platform } from "react-native";
 
 export type AuthorizedFetch = typeof fetch;
 export type ThreadAction =
@@ -12,6 +13,9 @@ export type ThreadAction =
   | "pin"
   | "unpin"
   | "remove";
+
+const PRODUCT_CHAT_BASE =
+  Platform.OS === "web" ? "/api/v3/chat" : `${API_BASE_URL}/v1/chat`;
 
 const readError = async (response: Response) => {
   try {
@@ -43,7 +47,7 @@ export class ProductChatClient {
   constructor(private readonly request: AuthorizedFetch) {}
 
   private async json(path: string) {
-    const response = await this.request(`${API_BASE_URL}/v1/chat${path}`, {
+    const response = await this.request(`${PRODUCT_CHAT_BASE}${path}`, {
       headers: { Accept: "application/json" },
     });
     if (!response.ok) throw await readError(response);
@@ -65,7 +69,7 @@ export class ProductChatClient {
   async updateThread(threadId: string, action: ThreadAction) {
     if (!isSafeProductId(threadId)) throw new Error("Invalid thread ID.");
     const response = await this.request(
-      `${API_BASE_URL}/v1/chat/threads/${encodeURIComponent(threadId)}`,
+      `${PRODUCT_CHAT_BASE}/threads/${encodeURIComponent(threadId)}`,
       {
         method: "PATCH",
         headers: {
@@ -84,7 +88,7 @@ export class ProductChatClient {
   async cancelRun(runId: string) {
     if (!isSafeProductId(runId)) throw new Error("Invalid run ID.");
     const response = await this.request(
-      `${API_BASE_URL}/v1/chat/runs/${encodeURIComponent(runId)}/cancel`,
+      `${PRODUCT_CHAT_BASE}/runs/${encodeURIComponent(runId)}/cancel`,
       {
         method: "POST",
         headers: { Accept: "application/json" },

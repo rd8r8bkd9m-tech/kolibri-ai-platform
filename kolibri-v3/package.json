@@ -3,6 +3,9 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "workspaces": [
+    "apps/kolibri-mobile"
+  ],
   "scripts": {
     "dev": "node scripts/dev-stack.mjs",
     "dev:backend": "bash scripts/dev-backend.sh",
@@ -12,7 +15,9 @@
     "dev:persistent:stop": "bash scripts/dev-persistent.sh stop",
     "dev:stack": "node scripts/dev-stack.mjs",
     "dev:web": "node scripts/dev-web-blocked.mjs",
-    "build": "next build --webpack",
+    "build": "npm run build:mobile && npm run build:web",
+    "build:mobile": "npm --workspace kolibri-mobile run export:web",
+    "build:web": "next build --webpack",
     "start": "next start",
     "typecheck": "tsc --noEmit",
     "test": "node --test tests/*.test.mjs"
@@ -34,8 +39,8 @@
     "lucide-react": "^1.26.0",
     "next": "^16.2.11",
     "radix-ui": "^1.6.7",
-    "react": "^19.2.8",
-    "react-dom": "^19.2.8",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
     "react-resizable-panels": "^4.12.2",
     "streamdown": "^2.5.0",
     "tailwind-merge": "^3.6.0",

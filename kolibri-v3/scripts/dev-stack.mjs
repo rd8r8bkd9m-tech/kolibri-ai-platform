@@ -9,12 +9,15 @@ import path from "node:path";
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const v3Root = path.resolve(scriptDirectory, "..");
 const nextBinary = path.join(v3Root, "node_modules", ".bin", "next");
+const expoBinary = path.join(v3Root, "node_modules", ".bin", "expo");
+const mobileRoot = path.join(v3Root, "apps", "kolibri-mobile");
 const restartDelayMs = 1_000;
 const readinessPollMs = 150;
 const devInstanceId = randomUUID();
 
 let backend = null;
 let web = null;
+let mobileWeb = null;
 let backendReady = false;
 let stopping = false;
 let readinessTimer = null;
@@ -134,6 +137,7 @@ function startWeb() {
     env: {
       ...process.env,
       KOLIBRI_V3_BACKEND_URL: "http://127.0.0.1:8002",
+      KOLIBRI_MOBILE_WEB_ORIGIN: "http://127.0.0.1:3104",
     },
     stdio: "inherit",
   });
@@ -148,6 +152,33 @@ function startWeb() {
       } else {
         scheduleReadinessProbe();
       }
+    }
+  });
+}
+
+function startMobileWeb() {
+  if (stopping || mobileWeb) {
+    return;
+  }
+  mobileWeb = spawn(
+    expoBinary,
+    ["start", "--web", "--port", "3104"],
+    {
+      cwd: mobileRoot,
+      env: {
+        ...process.env,
+        EXPO_PUBLIC_API_BASE_URL: "http://127.0.0.1:3103",
+      },
+      stdio: "inherit",
+    },
+  );
+  mobileWeb.once("exit", (code, signal) => {
+    mobileWeb = null;
+    if (!stopping) {
+      console.error(
+        `[dev:stack] mobile web stopped (${signal ?? code}); restarting`,
+      );
+      scheduleRestart(startMobileWeb);
     }
   });
 }
@@ -167,7 +198,8 @@ function shutdown(signal) {
   }
   backend?.kill("SIGTERM");
   web?.kill("SIGTERM");
-  const activeChildren = [backend, web].filter(Boolean);
+  mobileWeb?.kill("SIGTERM");
+  const activeChildren = [backend, web, mobileWeb].filter(Boolean);
   if (activeChildren.length === 0) {
     process.exit(signal === "SIGINT" ? 130 : 0);
   }
@@ -190,3 +222,4 @@ console.log(
   `[dev:stack] Kolibri V3 source=${v3Root} database=var/kolibri-v3.db`,
 );
 startBackend();
+startMobileWeb();

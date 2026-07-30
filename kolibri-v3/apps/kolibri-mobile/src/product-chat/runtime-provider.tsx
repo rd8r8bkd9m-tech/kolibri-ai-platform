@@ -18,6 +18,7 @@ import {
   useState,
   type PropsWithChildren,
 } from "react";
+import { Platform } from "react-native";
 
 import {
   API_BASE_URL,
@@ -30,7 +31,8 @@ import {
   type ProductThread,
 } from "@/src/product-chat/contracts";
 
-const AG_UI_URL = `${API_BASE_URL}/v1/chat/ag-ui`;
+const AG_UI_URL =
+  Platform.OS === "web" ? "/api/agui" : `${API_BASE_URL}/v1/chat/ag-ui`;
 const SAFE_SHORT_ID = /^[A-Za-z0-9][A-Za-z0-9._~-]{0,123}$/;
 
 type Projection = {

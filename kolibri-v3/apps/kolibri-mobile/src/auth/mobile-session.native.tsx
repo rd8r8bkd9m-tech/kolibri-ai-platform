@@ -17,9 +17,16 @@ const REFRESH_TOKEN_KEY = "kolibri.mobile.refresh-token.v1";
 const rawApiBase =
   process.env.EXPO_PUBLIC_API_BASE_URL ?? "https://kolibriai.ru";
 const parsedApiBase = new URL(rawApiBase);
+const loopbackDevelopmentOrigin =
+  parsedApiBase.protocol === "http:" &&
+  (parsedApiBase.hostname === "127.0.0.1" ||
+    parsedApiBase.hostname === "localhost" ||
+    parsedApiBase.hostname === "::1");
 
-if (parsedApiBase.protocol !== "https:") {
-  throw new Error("EXPO_PUBLIC_API_BASE_URL must be an absolute HTTPS URL.");
+if (parsedApiBase.protocol !== "https:" && !loopbackDevelopmentOrigin) {
+  throw new Error(
+    "EXPO_PUBLIC_API_BASE_URL must use HTTPS outside local development.",
+  );
 }
 
 export const API_BASE_URL = parsedApiBase.toString().replace(/\/$/, "");

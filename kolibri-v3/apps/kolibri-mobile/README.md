@@ -19,6 +19,16 @@ EXPO_PUBLIC_API_BASE_URL=https://example.test
 
 ## Запуск
 
+Из корня V3 мобильный web-клиент запускается вместе со всем продуктом:
+
+```bash
+npm run dev
+```
+
+На телефоне и при принудительной QA-проверке
+`/app?client=mobile` один и тот же адрес обслуживает Expo Router. Desktop
+остаётся на Next.js. Отдельный `npm start` нужен только для нативной отладки:
+
 ```bash
 npm ci
 npm start
@@ -35,9 +45,14 @@ SecureStore, ротация сессии, background/foreground, клавиат�
 npm run typecheck
 npm run lint
 npx expo-doctor
+npm run export:web
 npm run export:ios
 npm run export:android
 ```
+
+Web-export — React Native Web SPA с base URL `/app`. Он создаётся внутри
+единственного корневого `npm run build`, попадает в portable release и не
+хранится в Git как сгенерированный артефакт.
 
 ## Реализованный срез
 

@@ -23,8 +23,17 @@
       "softwareKeyboardLayoutMode": "resize"
     },
     "web": {
-      "output": "static",
-      "favicon": "./assets/images/favicon.png"
+      "output": "single",
+      "favicon": "./assets/images/favicon.png",
+      "name": "Kolibri AI",
+      "shortName": "Kolibri",
+      "lang": "ru",
+      "scope": "/app/",
+      "themeColor": "#000000",
+      "backgroundColor": "#000000",
+      "display": "standalone",
+      "startUrl": "/app",
+      "orientation": "portrait"
     },
     "plugins": [
       "expo-router",
@@ -43,6 +52,7 @@
       ]
     ],
     "experiments": {
+      "baseUrl": "/app",
       "typedRoutes": true,
       "reactCompiler": true
     }
