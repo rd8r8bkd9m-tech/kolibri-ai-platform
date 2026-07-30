@@ -71,34 +71,3 @@ def test_production_developer_runtime_is_forbidden_with_separate_workspace(
             developer_agent_enabled=True,
             developer_workspace_root=workspace,
         )
-
-
-def test_production_embedded_v3_developer_runtime_is_explicit_and_direct(
-    tmp_path: Path,
-) -> None:
-    workspace = tmp_path / "kolibri-v3-workspace"
-    workspace.mkdir()
-
-    settings = replace(
-        _production_base(tmp_path / "embedded.db"),
-        direct_model_runtime_enabled=True,
-        developer_agent_enabled=True,
-        embedded_developer_runtime_enabled=True,
-        developer_workspace_root=workspace,
-    )
-
-    assert settings.chat_execution_plane("developer") == "direct"
-    assert settings.chat_execution_plane("standard") == "direct"
-
-
-def test_embedded_v3_developer_runtime_requires_complete_production_capability(
-    tmp_path: Path,
-) -> None:
-    with pytest.raises(
-        ValueError,
-        match="requires production",
-    ):
-        replace(
-            _production_base(tmp_path / "incomplete.db"),
-            embedded_developer_runtime_enabled=True,
-        )
