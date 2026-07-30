@@ -1,0 +1,31 @@
+FROM rust:1.85.0-bookworm
+
+ARG RUSTUP_VERSION=1.28.2
+ARG RUSTUP_SHA256=20a06e644b0d9bd2fbdbfd52d42540bdde820ea7df86e92e533c073da0cdd43c
+
+ENV CARGO_HOME=/opt/cargo
+ENV RUSTUP_HOME=/opt/rustup
+ENV PATH=/opt/cargo/bin:/usr/local/cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && curl --proto '=https' --tlsv1.2 --fail --silent --show-error \
+      --output /tmp/rustup-init \
+      "https://static.rust-lang.org/rustup/archive/${RUSTUP_VERSION}/x86_64-unknown-linux-gnu/rustup-init" \
+    && printf '%s  %s\n' "${RUSTUP_SHA256}" /tmp/rustup-init \
+      | sha256sum --check --strict \
+    && chmod 0755 /tmp/rustup-init \
+    && /tmp/rustup-init \
+      -y \
+      --profile minimal \
+      --default-toolchain 1.85.0 \
+      --component rustfmt,clippy \
+      --no-modify-path \
+    && rm -f /tmp/rustup-init \
+    && rustc --version \
+    && cargo --version \
+    && rustfmt --version \
+    && cargo clippy --version
+
+WORKDIR /source/kolibri-v3/packages/estimate-kernel-rs

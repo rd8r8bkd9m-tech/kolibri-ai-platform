@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+state_root="${KOLIBRI_HOME_CI_STATE:-${HOME}/.local/state/kolibri-v3-home-ci}"
+mkdir -p "${state_root}"
+chmod 0700 "${state_root}"
+
+while read -r _old_revision new_revision reference; do
+  [[ "${reference}" == "refs/heads/candidate" ]] || continue
+  [[ "${new_revision}" =~ ^[0-9a-f]{40}$ ]] || continue
+  [[ "${new_revision}" != "0000000000000000000000000000000000000000" ]] ||
+    continue
+  temporary="${state_root}/.queue.$$"
+  printf '%s\n' "${new_revision}" > "${temporary}"
+  chmod 0600 "${temporary}"
+  mv -f "${temporary}" "${state_root}/queue"
+done
+
