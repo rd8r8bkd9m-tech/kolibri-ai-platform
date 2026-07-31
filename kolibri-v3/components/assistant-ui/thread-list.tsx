@@ -378,6 +378,7 @@ export const ThreadListItem: FC = () => {
   const suppressClickResetTimerRef = useRef<ReturnType<
     typeof setTimeout
   > | null>(null);
+  const threadId = useAuiState((state) => state.threadListItem.id);
   const title = useAuiState(
     (state) => state.threadListItem.title || "Новая задача",
   );
@@ -531,7 +532,16 @@ export const ThreadListItem: FC = () => {
               setMenuOpen(true);
             }}
             onClickCapture={preventConsumedLongPressNavigation}
-            onClick={consumeLongPressClick}
+            onClick={(event) => {
+              consumeLongPressClick(event);
+              if (!suppressNextClickRef.current && !isDraft) {
+                try {
+                  aui.threads().switchToThread(threadId);
+                } catch {
+                  // Thread may already be active or unavailable.
+                }
+              }
+            }}
           >
             <span
               data-slot="aui_thread-list-item-title"
