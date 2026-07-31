@@ -46,3 +46,48 @@ unless the product owner explicitly requests that mutation.
 - Production requires a clean committed candidate, the portable release gates,
   backup/restore and rollback rehearsal, canary evidence, and explicit owner
   GO.
+
+## Coding standards
+
+All code in this repository must pass automated checks before commit.
+
+### Automated tooling
+
+| Layer | Linter + Formatter | Config |
+|-------|-------------------|--------|
+| TypeScript/React/CSS/JSON | **Biome** (`npm run lint`) | `biome.json` |
+| Python | **Ruff** (`npm run backend:lint`) | `backend/pyproject.toml` |
+| Git hooks | **lefthook** | `lefthook.yml` |
+| Python deps | **uv** | `backend/pyproject.toml` |
+
+Pre-commit hooks (`lefthook`) enforce linting and formatting on every commit.
+Commit messages must follow Conventional Commits (`feat:`, `fix:`, `chore:`, etc.).
+
+### TypeScript rules
+
+- `strict: true` is enforced in `tsconfig.json`.
+- No `any` types — use `unknown` with type guards.
+- `camelCase` for variables/functions, `PascalCase` for components/types.
+- Absolute imports via `@/` prefix.
+- Named exports for components, not default exports.
+
+### Python rules
+
+- `snake_case` for everything, `PascalCase` for classes.
+- All functions must have type annotations.
+- SQL queries must be parameterized — never string concatenation.
+- Business logic lives in `services/`, not in route handlers.
+- Routes are thin controllers: validate → call service → respond.
+
+### Architecture boundaries
+
+- Frontend components in `components/` must not import from `backend/`.
+- Backend `services/` must not import from `fastapi` — only `routers/` do.
+- Backend `repositories/` handle all database access — no raw SQL in services.
+- Shared types defined in `contracts/v1/` — generated code in `generated/`.
+
+### File conventions
+
+- One file, one responsibility. Max ~300 lines.
+- Comments explain WHY, not WHAT.
+- No dead code — delete it, git remembers.
