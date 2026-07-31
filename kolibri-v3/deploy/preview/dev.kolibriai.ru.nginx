@@ -1,0 +1,39 @@
+server {
+    listen 80;
+    listen [::]:80;
+    server_name dev.kolibriai.ru;
+    location ^~ /.well-known/acme-challenge/ { root /var/www/html; }
+    return 301 https://dev.kolibriai.ru$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    server_name dev.kolibriai.ru;
+    ssl_certificate /etc/letsencrypt/live/dev.kolibriai.ru/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/dev.kolibriai.ru/privkey.pem;
+    client_max_body_size 64m;
+
+    add_header Cache-Control "no-store" always;
+    add_header X-Content-Type-Options nosniff always;
+    add_header X-Frame-Options SAMEORIGIN always;
+    add_header X-Kolibri-Preview home-agent-worktree always;
+    add_header X-Robots-Tag "noindex, nofollow, noarchive" always;
+    add_header Referrer-Policy strict-origin-when-cross-origin always;
+
+    location / {
+        proxy_pass http://127.0.0.2:3103;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_connect_timeout 10s;
+        proxy_send_timeout 1800s;
+        proxy_read_timeout 1800s;
+        proxy_buffering off;
+        proxy_request_buffering off;
+    }
+}
