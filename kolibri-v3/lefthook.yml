@@ -1,0 +1,37 @@
+pre-commit:
+  commands:
+    lint:
+      glob: "*.{ts,tsx,js,jsx,mjs,cjs}"
+      run: npx biome check --write --no-errors-on-unmatched --files-ignore-unknown=true {staged_files}
+      stage_fixed: true
+    format-json:
+      glob: "*.json"
+      run: npx biome format --write --no-errors-on-unmatched {staged_files}
+      stage_fixed: true
+    backend-lint:
+      glob: "*.py"
+      run: |
+        if command -v ruff &>/dev/null; then
+          ruff check --fix --stdin-filename={staged_files} {staged_files}
+          ruff format --stdin-filename={staged_files} {staged_files}
+        elif [ -f "backend/venv/bin/ruff" ]; then
+          backend/venv/bin/ruff check --fix --stdin-filename={staged_files} {staged_files}
+          backend/venv/bin/ruff format --stdin-filename={staged_files} {staged_files}
+        fi
+      stage_fixed: true
+
+commit-msg:
+  commands:
+    conventional:
+      run: |
+        MSG=$(cat "$1")
+        if ! echo "$MSG" | grep -qE '^(feat|fix|docs|style|refactor|perf|test|chore|ci|revert)(\(.+\))?!?: .{1,72}'; then
+          echo "Commit message must follow Conventional Commits format:"
+          echo "  feat: add new feature"
+          echo "  fix: fix bug"
+          echo "  chore: maintenance task"
+          echo "  (optional scope) feat(chat): add streaming"
+          echo ""
+          echo "Got: $MSG"
+          exit 1
+        fi
