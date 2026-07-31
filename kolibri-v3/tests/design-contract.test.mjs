@@ -64,7 +64,17 @@ test("the welcome surface uses four desktop and three mobile assistant-ui prompt
 });
 
 test("the compact shell matches the mobile chat contract and persists theme choice", async () => {
-  const [shell, header, sidebar, thread, threadList, theme, layout, css] = await Promise.all([
+  const [
+    shell,
+    header,
+    sidebar,
+    thread,
+    threadList,
+    theme,
+    layout,
+    css,
+    runtimeProvider,
+  ] = await Promise.all([
     readSource("components/kolibri-shell/workspace-shell.tsx"),
     readSource("components/kolibri-shell/mobile-workspace-header.tsx"),
     readSource("components/kolibri-shell/workspace-sidebar.tsx"),
@@ -73,6 +83,7 @@ test("the compact shell matches the mobile chat contract and persists theme choi
     readSource("components/theme/kolibri-theme-provider.tsx"),
     readSource("app/layout.tsx"),
     readSource("app/globals.css"),
+    readSource("app/MyRuntimeProvider.tsx"),
   ]);
 
   assert.match(shell, /isDesktop\s*\?\s*\([\s\S]*<WorkspaceHeader\b/);
@@ -86,6 +97,10 @@ test("the compact shell matches the mobile chat contract and persists theme choi
   assert.match(header, /data-slot=["']mobile-editor-back["']/);
   assert.match(header, /aria-label=["']На основной экран["']/);
   assert.match(sidebar, /previewDisabled=\{isOverlay\}/);
+  assert.match(
+    sidebar,
+    /data-slot=["']workspace-sidebar-brand["'][\s\S]{0,240}Колибри/,
+  );
   assert.match(
     sidebar,
     /if\s*\(previewDisabled\)\s*return\s+destinationButton/,
@@ -173,6 +188,12 @@ test("the compact shell matches the mobile chat contract and persists theme choi
   assert.doesNotMatch(thread, /aui-composer-voice-submit-icon/);
   assert.match(thread, /composerEmpty\s*\|\|/);
   assert.match(thread, /Голосовой ввод недоступен/);
+  assert.match(
+    runtimeProvider,
+    /WebSpeechDictationAdapter\.isSupported\(\)/,
+  );
+  assert.match(runtimeProvider, /language:\s*["']ru-RU["']/);
+  assert.match(runtimeProvider, /\bdictation,\s*\n\s*feedback:/);
 });
 
 test("mobile runtime uses iOS and Android viewport primitives", async () => {

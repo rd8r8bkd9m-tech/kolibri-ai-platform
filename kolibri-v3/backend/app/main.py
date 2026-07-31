@@ -17,7 +17,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from .agent_operations import router as agent_operations_router
-from .agent_runtime import AgentRuntimeRegistry
+from .agent_runtime import (
+    AGENT_RUNTIME_SCHEMA_ID,
+    AGENT_RUNTIME_SCHEMA_VERSION,
+    AgentRuntimeRegistry,
+)
 from .attachments import router as attachments_router
 from .config import Settings
 from .chat.cancellation import ActiveRunCancellationRegistry
@@ -375,7 +379,13 @@ def create_app(
                 },
                 headers=NO_STORE_HEADERS,
             )
-        payload = {"status": "ok", "service": "kolibri-v3"}
+        payload = {
+            "status": "ok",
+            "service": "kolibri-v3",
+            "agentRuntimeContract": (
+                f"{AGENT_RUNTIME_SCHEMA_ID}@{AGENT_RUNTIME_SCHEMA_VERSION}"
+            ),
+        }
         if release_identity is not None:
             payload.update(release_identity)
         if configured.environment == "development":
@@ -385,6 +395,7 @@ def create_app(
             ).strip()
             if dev_instance_id:
                 payload["instanceId"] = dev_instance_id
+            payload["sourceRoot"] = str(Path(__file__).resolve().parents[2])
         return payload
 
     @app.get(

@@ -2,6 +2,30 @@
 
 These rules apply to every task under `kolibri-v3/`.
 
+## Product structure and change placement
+
+- `docs/PROJECT_MAP.md` is the canonical map of code ownership, dependency
+  direction, and where new code belongs. Do not create a new top-level source
+  directory without an accepted architecture decision record (ADR).
+- Keep transport code thin. Next route handlers live in `app/api/`, FastAPI
+  routers in `backend/app/`, and neither is the home of reusable business
+  rules.
+- Browser business contracts and clients live in `lib/<domain>/`; reusable
+  product UI lives in `components/<surface>/`; generic visual primitives live
+  in `components/ui/` and must not depend on product surfaces.
+- Backend domain behavior lives in a domain module/package under
+  `backend/app/`. Database migrations are append-only in
+  `backend/migrations/`; do not hide schema changes in application startup.
+- Cross-runtime contracts have one declared authority. Follow the ownership
+  table in `docs/SOURCE_OF_TRUTH.md`; generated copies must not be edited by
+  hand.
+- A change that introduces a new subsystem, reverses a dependency, changes a
+  persistence boundary, or adds a deployment lane requires an ADR under
+  `docs/adr/`.
+- `npm run verify:structure` is the executable structure contract and is part
+  of every verification run. Update the documentation and checker together
+  when an accepted ADR changes the structure.
+
 ## Canonical development runtime
 
 - Start the complete local product only from this directory with `npm run dev`.

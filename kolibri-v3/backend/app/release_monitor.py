@@ -130,6 +130,24 @@ def _expected_payload(release_id: str, release_commit: str) -> dict[str, str]:
     }
 
 
+def _payload_matches_release(
+    payload: object,
+    release_id: str,
+    release_commit: str,
+) -> bool:
+    if not isinstance(payload, dict):
+        return False
+    expected = _expected_payload(release_id, release_commit)
+    if any(payload.get(key) != value for key, value in expected.items()):
+        return False
+    extra_keys = set(payload) - set(expected)
+    return not extra_keys or (
+        extra_keys == {"agentRuntimeContract"}
+        and payload.get("agentRuntimeContract")
+        == "kolibri.agent-runtime@1.0"
+    )
+
+
 def _endpoint_ready(
     url: str,
     *,
@@ -163,7 +181,7 @@ def _endpoint_ready(
         json.JSONDecodeError,
     ):
         return False
-    return payload == _expected_payload(release_id, release_commit)
+    return _payload_matches_release(payload, release_id, release_commit)
 
 
 def _service_active(systemctl: Path, unit: str) -> bool:

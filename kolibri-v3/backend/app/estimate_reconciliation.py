@@ -12,7 +12,6 @@ import hashlib
 import json
 import sqlite3
 from dataclasses import asdict, dataclass
-from typing import Any
 
 from .config import Settings
 from .database import connect_database, initialize_database, transaction

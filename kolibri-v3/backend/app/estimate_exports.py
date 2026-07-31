@@ -41,7 +41,6 @@ from reportlab.platypus import (
     Paragraph,
     SimpleDocTemplate,
     Spacer,
-    Table,
     TableStyle,
 )
 

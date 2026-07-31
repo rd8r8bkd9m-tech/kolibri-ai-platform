@@ -12,6 +12,7 @@ const nextBinary = path.join(v3Root, "node_modules", ".bin", "next");
 const restartDelayMs = 1_000;
 const readinessPollMs = 150;
 const devInstanceId = randomUUID();
+const agentRuntimeContract = "kolibri.agent-runtime@1.0";
 
 let backend = null;
 let web = null;
@@ -86,7 +87,9 @@ function probeBackendReadiness() {
             response.statusCode === 200 &&
               payload.status === "ok" &&
               payload.service === "kolibri-v3" &&
-              payload.instanceId === devInstanceId,
+              payload.instanceId === devInstanceId &&
+              payload.sourceRoot === v3Root &&
+              payload.agentRuntimeContract === agentRuntimeContract,
           );
         } catch {
           finish(false);

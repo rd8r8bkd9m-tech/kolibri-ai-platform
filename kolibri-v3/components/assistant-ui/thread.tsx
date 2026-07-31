@@ -608,7 +608,7 @@ const ComposerAction: FC = () => {
                 </ComposerPrimitive.StopDictation>
               </AuiIf>
             </AuiIf>
-            {compact && !dictationSupported ? (
+            {!dictationSupported ? (
               <TooltipIconButton
                 tooltip="Голосовой ввод недоступен"
                 side="bottom"

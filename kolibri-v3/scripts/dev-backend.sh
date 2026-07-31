@@ -57,5 +57,7 @@ printf 'Kolibri V3 dev backend: %s/var/kolibri-v3.db (%s:%s)\n' \
 
 exec "${python_bin}" -m uvicorn app.main:app \
   --app-dir "${v3_root}/backend" \
+  --reload \
+  --reload-dir "${v3_root}/backend" \
   --host "${backend_host}" \
   --port "${backend_port}"

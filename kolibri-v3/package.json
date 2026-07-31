@@ -12,10 +12,16 @@
     "dev:persistent:stop": "bash scripts/dev-persistent.sh stop",
     "dev:stack": "node scripts/dev-stack.mjs",
     "dev:web": "node scripts/dev-web-blocked.mjs",
+    "preview:home:web": "node scripts/home-preview-frontend.mjs",
     "build": "next build --webpack",
     "start": "next start",
     "typecheck": "tsc --noEmit",
-    "test": "node --test tests/*.test.mjs"
+    "test": "node --test tests/*.test.mjs",
+    "verify:structure": "node scripts/check-structure.mjs",
+    "verify": "bash scripts/verify.sh --quick",
+    "verify:full": "bash scripts/verify.sh --full",
+    "mobile": "npm --prefix apps/kolibri-mobile start",
+    "mobile:typecheck": "npm --prefix apps/kolibri-mobile run typecheck"
   },
   "dependencies": {
     "@ag-ui/client": "^0.0.57",

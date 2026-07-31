@@ -282,11 +282,9 @@ export const kolibriGenerativeUIComponentSchemas = {
         .default([]),
       generation: z
         .object({
-          providerProfile: z.enum([
-            "mimo-code",
-            "codex-cli",
-            "estimate-engine",
-          ]),
+          providerProfile: z
+            .string()
+            .regex(/^[a-z0-9][a-z0-9._-]{1,95}$/),
           runId: z
             .string()
             .regex(/^(?:run|calculation)_[A-Za-z0-9._~-]{8,96}$/),

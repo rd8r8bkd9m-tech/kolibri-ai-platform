@@ -49,6 +49,7 @@ type IdentityContextValue = {
 };
 
 const IdentityContext = createContext<IdentityContextValue | null>(null);
+const OFFLINE_RETRY_MS = 1_500;
 
 function errorMessage(error: unknown) {
   return error instanceof Error && error.message.trim()
@@ -128,6 +129,25 @@ export function IdentityProvider({
       );
     };
   }, [refresh]);
+
+  useEffect(() => {
+    if (status !== "offline") return;
+
+    let cancelled = false;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    const retry = () => {
+      retryTimer = setTimeout(async () => {
+        await refresh();
+        if (!cancelled) retry();
+      }, OFFLINE_RETRY_MS);
+    };
+    retry();
+
+    return () => {
+      cancelled = true;
+      if (retryTimer) clearTimeout(retryTimer);
+    };
+  }, [refresh, status]);
 
   const login = useCallback(
     async (input: { email: string; password: string }) => {

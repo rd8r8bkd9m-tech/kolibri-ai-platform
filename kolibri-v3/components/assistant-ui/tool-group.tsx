@@ -101,7 +101,17 @@ function ToolGroupTrigger({
   count: number;
   active?: boolean;
 }) {
-  const label = `${count} tool ${count === 1 ? "call" : "calls"}`;
+  const actionLabel = (() => {
+    const lastTwoDigits = count % 100;
+    const lastDigit = count % 10;
+    if (lastTwoDigits >= 11 && lastTwoDigits <= 14) return "действий";
+    if (lastDigit === 1) return "действие";
+    if (lastDigit >= 2 && lastDigit <= 4) return "действия";
+    return "действий";
+  })();
+  const label = active
+    ? `Выполняется · ${count} ${actionLabel}`
+    : `${count} ${actionLabel}`;
 
   return (
     <CollapsibleTrigger
@@ -177,17 +187,18 @@ function ToolGroupContent({
       {...props}
     >
       <div
+        data-slot="tool-group-scroll-region"
+        role="log"
+        aria-label="Журнал действий агента"
+        aria-live="off"
+        tabIndex={0}
         className={cn(
-          "mt-2 flex flex-col gap-2",
+          "mt-2 flex max-h-[42dvh] flex-col gap-1.5 overflow-y-auto overscroll-contain scroll-smooth pr-1 [scrollbar-gutter:stable]",
+          "focus-visible:ring-ring rounded-md outline-none focus-visible:ring-1",
+          "md:max-h-96",
           "group-data-[variant=ghost]/tool-group-root:mt-1 group-data-[variant=ghost]/tool-group-root:gap-1",
           "group-data-[variant=outline]/tool-group-root:mt-3 group-data-[variant=outline]/tool-group-root:border-t group-data-[variant=outline]/tool-group-root:px-4 group-data-[variant=outline]/tool-group-root:pt-3",
           "group-data-[variant=muted]/tool-group-root:mt-3 group-data-[variant=muted]/tool-group-root:border-t group-data-[variant=muted]/tool-group-root:px-4 group-data-[variant=muted]/tool-group-root:pt-3",
-          "[&>*]:animate-in [&>*]:fade-in-0 [&>*]:slide-in-from-top-1 [&>*]:duration-(--animation-duration) [&>*]:ease-[cubic-bezier(0.32,0.72,0,1)]",
-          "[&>*]:motion-reduce:animate-none",
-          "[&>*:nth-child(2)]:[animation-delay:40ms]",
-          "[&>*:nth-child(3)]:[animation-delay:80ms]",
-          "[&>*:nth-child(4)]:[animation-delay:120ms]",
-          "[&>*:nth-child(n+5)]:[animation-delay:160ms]",
         )}
       >
         {children}

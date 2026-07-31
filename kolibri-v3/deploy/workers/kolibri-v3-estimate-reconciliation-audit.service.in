@@ -10,7 +10,7 @@ Group=@SERVICE_GROUP@
 EnvironmentFile=@CONFIG_ROOT@/backend.env
 EnvironmentFile=@CONFIG_ROOT@/release.env
 Environment=KOLIBRI_WORKER_EXPECTED_DATABASE_URL=sqlite:///@INSTALL_ROOT@/var/kolibri-v3.db
-Environment=KOLIBRI_WORKER_LOCK_PATH=/run/kolibri-v3-estimate-audit/owner.lock
+Environment=KOLIBRI_WORKER_LOCK_PATH=/run/@INSTANCE@-estimate-audit/owner.lock
 Environment=HOME=/nonexistent
 Environment=PYTHONDONTWRITEBYTECODE=1
 Environment=PYTHONUNBUFFERED=1
@@ -19,7 +19,7 @@ ExecStartPre=@INSTALL_ROOT@/current/backend/venv/bin/python @INSTALL_ROOT@/libex
 ExecStart=@INSTALL_ROOT@/current/backend/venv/bin/python @INSTALL_ROOT@/libexec/worker_launcher.py estimate-audit
 TimeoutStartSec=30s
 TimeoutStopSec=5m
-RuntimeDirectory=kolibri-v3-estimate-audit
+RuntimeDirectory=@INSTANCE@-estimate-audit
 RuntimeDirectoryMode=0700
 RuntimeDirectoryPreserve=restart
 UMask=0077
@@ -45,5 +45,5 @@ CapabilityBoundingSet=
 AmbientCapabilities=
 SystemCallArchitectures=native
 RestrictAddressFamilies=AF_UNIX
-ReadWritePaths=@INSTALL_ROOT@/var /run/kolibri-v3-estimate-audit
+ReadWritePaths=@INSTALL_ROOT@/var /run/@INSTANCE@-estimate-audit
 ReadOnlyPaths=@INSTALL_ROOT@/current @INSTALL_ROOT@/libexec @CONFIG_ROOT@

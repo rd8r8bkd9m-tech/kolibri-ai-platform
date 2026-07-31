@@ -9,7 +9,7 @@ const publicReleaseId =
     : "unversioned";
 
 const nextConfig: NextConfig = {
-  allowedDevOrigins: ["127.0.0.1", "localhost"],
+  allowedDevOrigins: ["127.0.0.1", "127.0.0.2", "localhost", "dev.kolibriai.ru"],
   devIndicators: false,
   experimental: {
     webpackMemoryOptimizations: true,

@@ -16,14 +16,16 @@ EnvironmentFile=@CONFIG_ROOT@/release.env
 EnvironmentFile=@CONFIG_ROOT@/workers.env
 LoadCredential=home-product-command-token:@CONFIG_ROOT@/credentials/home-product-command-token
 LoadCredential=home-product-identity-hmac-key:@CONFIG_ROOT@/credentials/home-product-identity-hmac-key
-Environment=KOLIBRI_V3_HOME_PRODUCT_COMMAND_TOKEN_FILE=%d/home-product-command-token
-Environment=KOLIBRI_V3_HOME_PRODUCT_IDENTITY_HMAC_KEY_FILE=%d/home-product-identity-hmac-key
+Environment=KOLIBRI_WORKER_CREDENTIAL_DIRECTORY=/run/@INSTANCE@-product-run-worker
+Environment=KOLIBRI_V3_HOME_PRODUCT_COMMAND_TOKEN_FILE=/run/@INSTANCE@-product-run-worker/home-product-command-token
+Environment=KOLIBRI_V3_HOME_PRODUCT_IDENTITY_HMAC_KEY_FILE=/run/@INSTANCE@-product-run-worker/home-product-identity-hmac-key
 Environment=KOLIBRI_WORKER_EXPECTED_DATABASE_URL=sqlite:///@INSTALL_ROOT@/var/kolibri-v3.db
-Environment=KOLIBRI_WORKER_LOCK_PATH=/run/kolibri-v3-product-run-worker/owner.lock
+Environment=KOLIBRI_WORKER_LOCK_PATH=/run/@INSTANCE@-product-run-worker/owner.lock
 Environment=HOME=/nonexistent
 Environment=PYTHONDONTWRITEBYTECODE=1
 Environment=PYTHONUNBUFFERED=1
 WorkingDirectory=@INSTALL_ROOT@/current/backend
+ExecStartPre=@INSTALL_ROOT@/current/backend/venv/bin/python @INSTALL_ROOT@/libexec/worker_launcher.py product-run --materialize-credentials
 ExecStartPre=@INSTALL_ROOT@/current/backend/venv/bin/python @INSTALL_ROOT@/libexec/worker_launcher.py product-run --check
 ExecStart=@INSTALL_ROOT@/current/backend/venv/bin/python @INSTALL_ROOT@/libexec/worker_launcher.py product-run
 Restart=on-failure
@@ -33,7 +35,7 @@ TimeoutStartSec=30s
 TimeoutStopSec=45s
 KillSignal=SIGTERM
 KillMode=mixed
-RuntimeDirectory=kolibri-v3-product-run-worker
+RuntimeDirectory=@INSTANCE@-product-run-worker
 RuntimeDirectoryMode=0700
 RuntimeDirectoryPreserve=restart
 UMask=0077
@@ -58,7 +60,7 @@ CapabilityBoundingSet=
 AmbientCapabilities=
 SystemCallArchitectures=native
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
-ReadWritePaths=@INSTALL_ROOT@/var /run/kolibri-v3-product-run-worker
+ReadWritePaths=@INSTALL_ROOT@/var /run/@INSTANCE@-product-run-worker
 ReadOnlyPaths=@INSTALL_ROOT@/current @INSTALL_ROOT@/libexec @CONFIG_ROOT@
 
 [Install]

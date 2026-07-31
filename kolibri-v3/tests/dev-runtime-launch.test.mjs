@@ -22,6 +22,14 @@ const screenEntry = readFileSync(
   new URL("../scripts/dev-screen-entry.sh", import.meta.url),
   "utf8",
 );
+const homePreviewLauncher = readFileSync(
+  new URL("../scripts/home-preview-frontend.mjs", import.meta.url),
+  "utf8",
+);
+const homePreviewService = readFileSync(
+  new URL("../scripts/kolibri-v3-home-preview.service", import.meta.url),
+  "utf8",
+);
 const backendApplication = readFileSync(
   new URL("../backend/app/main.py", import.meta.url),
   "utf8",
@@ -45,6 +53,11 @@ test("canonical backend launcher pins the V3 database and auth surface", () => {
   assert.match(backendLauncher, /unset KOLIBRI_V3_CSRF_SECRET_FILE/);
   assert.match(backendLauncher, /KOLIBRI_V3_DEV_OWNER_EMAIL/);
   assert.match(backendLauncher, /--expected-owner-email/);
+  assert.match(backendLauncher, /--reload/);
+  assert.match(
+    backendLauncher,
+    /--reload-dir "\$\{v3_root\}\/backend"/,
+  );
 });
 
 test("migration and owner preflight runs before uvicorn opens the port", () => {
@@ -71,6 +84,15 @@ test("dev stack restarts only the canonical backend launcher", () => {
     stackSupervisor,
     /payload\.instanceId === devInstanceId/,
   );
+  assert.match(stackSupervisor, /payload\.sourceRoot === v3Root/);
+  assert.match(
+    stackSupervisor,
+    /payload\.agentRuntimeContract === agentRuntimeContract/,
+  );
+  assert.match(
+    stackSupervisor,
+    /agentRuntimeContract = "kolibri\.agent-runtime@1\.0"/,
+  );
   assert.match(
     stackSupervisor,
     /KOLIBRI_V3_DEV_INSTANCE_ID: devInstanceId/,
@@ -83,6 +105,12 @@ test("dev stack restarts only the canonical backend launcher", () => {
     backendApplication,
     /payload\["instanceId"\] = dev_instance_id/,
   );
+  assert.match(
+    backendApplication,
+    /payload\["sourceRoot"\] = str\(Path\(__file__\)\.resolve\(\)\.parents\[2\]\)/,
+  );
+  assert.match(backendApplication, /AGENT_RUNTIME_SCHEMA_ID/);
+  assert.match(backendApplication, /AGENT_RUNTIME_SCHEMA_VERSION/);
   assert.match(
     stackSupervisor,
     /healthy &&[\s\S]*backend\.exitCode === null[\s\S]*startWeb\(\)/,
@@ -138,6 +166,11 @@ test("persistent development delegates only to the canonical supervisor", () => 
   assert.match(screenEntry, />>"\$\{runtime_log\}" 2>&1/);
   assert.match(persistentLauncher, /'"service":"kolibri-v3"'/);
   assert.match(persistentLauncher, /'"instanceId":"'/);
+  assert.match(
+    persistentLauncher,
+    /'"agentRuntimeContract":"kolibri\.agent-runtime@1\.0"'/,
+  );
+  assert.match(persistentLauncher, /\\"sourceRoot\\":\\"\$\{v3_root\}\\"/);
   assert.match(persistentLauncher, /session_process_group/);
   assert.match(persistentLauncher, /kill -TERM -- "-\$\{process_group\}"/);
   assert.match(
@@ -147,4 +180,25 @@ test("persistent development delegates only to the canonical supervisor", () => 
   assert.doesNotMatch(persistentLauncher, /\buvicorn\b/);
   assert.doesNotMatch(persistentLauncher, /\bnext dev\b/);
   assert.doesNotMatch(persistentLauncher, /launchctl|LaunchAgent/);
+});
+
+test("Home HMR preview always recovers after an unexpected Next exit", () => {
+  assert.equal(
+    packageManifest.scripts["preview:home:web"],
+    "node scripts/home-preview-frontend.mjs",
+  );
+  assert.match(homePreviewLauncher, /previewHost = "127\.0\.0\.2"/);
+  assert.match(
+    homePreviewLauncher,
+    /productionBackend = "http:\/\/127\.0\.0\.1:8002"/,
+  );
+  assert.match(homePreviewLauncher, /KOLIBRI_HOME_PREVIEW_CONFIRM/);
+  assert.match(homePreviewLauncher, /if \(stopping\)[\s\S]*process\.exit\(0\)/);
+  assert.match(homePreviewLauncher, /process\.exit\(1\)/);
+  assert.match(homePreviewService, /Restart=always/);
+  assert.match(homePreviewService, /StartLimitIntervalSec=0/);
+  assert.match(
+    homePreviewService,
+    /WorkingDirectory=\/opt\/kolibri-v3\/workspaces\/v3-current\/kolibri-v3/,
+  );
 });

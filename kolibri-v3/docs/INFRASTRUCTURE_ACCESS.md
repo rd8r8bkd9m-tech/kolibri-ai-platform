@@ -1,6 +1,6 @@
 # Home and Primary access runbook
 
-Last live verification: 2026-07-30 14:02 MSK
+Last route pinning: 2026-07-31
 
 This is the canonical operator entry point for the two physical V3 runtime
 nodes. An agent must read this file before declaring either node unavailable.
@@ -11,8 +11,8 @@ reports.
 
 | Logical node | OS hostname | Preferred local command | Effective identity |
 |---|---|---|---|
-| Home | `plastilin` | `ssh home` | `ladik@192.168.88.210:22` |
-| Home privileged | `plastilin` | `ssh root@home` | `root@192.168.88.210:22` |
+| Home | `plastilin` | `ssh home` | `ladik@178.207.11.90:2222` |
+| Home VPN fallback | `plastilin` | `ssh home-vpn` | `ladik@10.99.0.1:22` through Primary |
 | Primary | `kolibri` | `ssh primary` | `root@78.17.4.108:22` |
 
 `ssh kolibri-primary-codex` is an equivalent Primary alias.
@@ -30,14 +30,17 @@ ssh -G primary |
        $1 == "identityfile" || $1 == "proxyjump" { print }'
 ```
 
-Both preferred aliases currently use `~/.ssh/id_ed25519`.
+The direct Home alias uses the operator key at
+`~/Desktop/Kolibri SSH Key/id_ed25519`. Primary uses
+`~/.ssh/id_ed25519`. Do not search for another Home key before resolving these
+two declared aliases.
 
 ## Confirmed mesh/VPN fallbacks
 
-These direct mesh routes were also verified on 2026-07-30:
+The declared mesh fallback is:
 
 ```bash
-ssh -i ~/.ssh/id_ed25519 ladik@10.99.0.1
+ssh home-vpn
 ssh -i ~/.ssh/id_ed25519 root@10.99.0.10
 ```
 
@@ -46,17 +49,9 @@ They resolve to the same physical hosts:
 - `10.99.0.1` → Home / `plastilin`;
 - `10.99.0.10` → Primary / `kolibri`.
 
-Home also accepts the separately provisioned shared operator key on the LAN
-route:
-
-```bash
-ssh -i ~/.ssh/ubuntu_home_shared_ed25519 ladik@192.168.88.210
-```
-
-The historical `ubuntu-home-wan-key` route
-`ladik@178.207.11.90:2222` timed out during the same verification. It is not a
-current primary path and must not be used as the sole basis for declaring Home
-unavailable.
+`ssh home` is always attempted first when the Mac is outside the Home LAN.
+Only a bounded WAN timeout permits `ssh home-vpn`; agents must not enumerate
+old addresses, keys, or legacy aliases.
 
 ## Required connection sequence
 
@@ -73,7 +68,7 @@ ssh -o BatchMode=yes -o ConnectTimeout=10 primary \
 If an alias probe fails:
 
 1. inspect it with `ssh -G`;
-2. try the confirmed mesh address for that same physical host;
+2. run the single declared fallback `ssh home-vpn`;
 3. distinguish timeout, host-key failure and authentication failure;
 4. record the exact failed route and timestamp.
 

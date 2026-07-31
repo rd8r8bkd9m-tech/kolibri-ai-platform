@@ -81,8 +81,13 @@ from .mimo_developer_runtime import (
 )
 from .product_widgets import (
     ProductWidget,
+    deterministic_estimate_revision_proposal,
+    deterministic_house_estimate_proposal,
+    has_estimate_scope_input,
     is_estimate_generation_prompt,
+    is_estimate_revision_prompt,
     materialize_engine_estimate_widget,
+    materialize_generated_estimate_widget,
     try_prepare_product_widget,
 )
 from .runtime_skills import (
@@ -2612,6 +2617,9 @@ def execute_direct_run(
     estimate_requested = is_estimate_generation_prompt(
         messages[-1]["content"],
     )
+    estimate_scope_present = has_estimate_scope_input(
+        messages[-1]["content"],
+    )
     text_stream: _TextRunStream | None = None
     try:
         accepted_execution_mode = getattr(
@@ -2796,6 +2804,43 @@ def execute_direct_run(
                 generated_image=prepared_image,
             )
             return
+        estimate_revision_requested = is_estimate_revision_prompt(
+            messages[-1]["content"]
+        )
+        estimate_revision = deterministic_estimate_revision_proposal(
+            settings,
+            accepted,
+            prompt=messages[-1]["content"],
+        )
+        if estimate_revision is not None:
+            widget = materialize_generated_estimate_widget(
+                settings,
+                accepted,
+                proposal=estimate_revision,
+                provider_profile="server-estimate-revision",
+                replace_existing=True,
+            )
+            _finish_success(
+                settings,
+                accepted,
+                (
+                    f"Смета пересчитана с учётом уточнения. "
+                    f"{widget.fallback_text}"
+                ),
+                widget=widget,
+            )
+            return
+        if estimate_revision_requested:
+            _finish_success(
+                settings,
+                accepted,
+                (
+                    "Смета не изменена: я не смог однозначно определить "
+                    "позицию или новый параметр. Укажите наименование позиции, "
+                    "количество, единицу и цену либо источник цены."
+                ),
+            )
+            return
         local_answer = (
             None
             if estimate_requested
@@ -2805,13 +2850,13 @@ def execute_direct_run(
             _finish_success(settings, accepted, local_answer)
             return
         widget = (
-            None
-            if estimate_requested
-            else try_prepare_product_widget(
+            try_prepare_product_widget(
                 settings,
                 accepted,
                 prompt=messages[-1]["content"],
             )
+            if not estimate_requested or not estimate_scope_present
+            else None
         )
         if widget is not None:
             _finish_success(
@@ -2819,6 +2864,16 @@ def execute_direct_run(
                 accepted,
                 widget.fallback_text,
                 widget=widget,
+            )
+            return
+        if estimate_requested and not estimate_scope_present:
+            _finish_success(
+                settings,
+                accepted,
+                (
+                    "Чтобы составить новую интерактивную смету, укажите "
+                    "объект, объём или площадь и регион."
+                ),
             )
             return
         weather_query = try_parse_weather_query(messages[-1]["content"])
@@ -2854,6 +2909,22 @@ def execute_direct_run(
                     widget=widget,
                 )
                 return
+        # The canonical house BOQ is deterministic and provider-independent.
+        # Resolve it before requiring a model runtime so a valid estimate does
+        # not fail merely because an optional chat provider is unavailable.
+        canonical_house = deterministic_house_estimate_proposal(
+            messages[-1]["content"]
+        )
+        if estimate_requested and canonical_house is not None:
+            widget = materialize_generated_estimate_widget(
+                settings,
+                accepted,
+                proposal=canonical_house,
+                provider_profile="server-house-estimate",
+                replace_existing=True,
+            )
+            _finish_success(settings, accepted, widget.fallback_text, widget=widget)
+            return
         database = connect_database(settings.database_url)
         try:
             profile, credential_tenant_id = _connected_profile(

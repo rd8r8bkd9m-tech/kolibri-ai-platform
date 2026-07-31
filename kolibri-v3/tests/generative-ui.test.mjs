@@ -192,3 +192,43 @@ test("estimate widgets accept complete technology assumptions from the backend c
     result.success ? undefined : JSON.stringify(result.error.issues),
   );
 });
+
+test("estimate widgets accept provider-neutral server revision profiles", async () => {
+  const { kolibriGenerativeUIComponentSchemas } = await import(
+    "../lib/generative-ui/schema.ts"
+  );
+
+  const result =
+    kolibriGenerativeUIComponentSchemas.EstimateEditor.safeParse({
+      schemaId: "kolibri.estimate_draft",
+      schemaVersion: "1.2",
+      projectId: "project_contract_12345678",
+      documentId: "document_contract_12345678",
+      version: 3,
+      status: "draft",
+      estimateTitle: "Смета после уточнения",
+      currency: "RUB",
+      estimateRegion: "Республика Татарстан",
+      assumptions: [],
+      generation: {
+        providerProfile: "server-estimate-revision",
+        runId: "run_contract_12345678",
+      },
+      rows: [],
+      pricing: {
+        status: "unpriced",
+        sourcedRows: 0,
+        staleRows: 0,
+        totalRows: 0,
+        lastCheckedAt: null,
+      },
+      totals: { subtotal: "0.00", total: "0.00" },
+      updatedAt: "2026-07-31T00:00:00Z",
+    });
+
+  assert.equal(
+    result.success,
+    true,
+    result.success ? undefined : JSON.stringify(result.error.issues),
+  );
+});

@@ -216,7 +216,7 @@ export function WorkspaceSidebar({
         >
           <div className="flex min-w-0 items-center">
             <span className="truncate text-[17px] font-semibold tracking-[-0.02em]">
-              Kolibri
+              Колибри
             </span>
           </div>
         </div>

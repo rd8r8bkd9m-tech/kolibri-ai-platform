@@ -3,6 +3,8 @@
 import { HttpAgent } from "@ag-ui/client";
 import {
   AssistantRuntimeProvider,
+  WebSpeechDictationAdapter,
+  type DictationAdapter,
   type ThreadMessage,
 } from "@assistant-ui/react";
 import {
@@ -91,8 +93,20 @@ function ProductChatRuntimeScope({
   profileRef.current = preferredAgentProfile;
   const [developerAccessMode, setDeveloperAccessMode] =
     useState<DeveloperAccessMode>("standard");
+  const [dictation, setDictation] = useState<DictationAdapter | undefined>();
   const developerAccessModeRef = useRef(developerAccessMode);
   developerAccessModeRef.current = developerAccessMode;
+
+  useEffect(() => {
+    if (!WebSpeechDictationAdapter.isSupported()) return;
+    setDictation(
+      new WebSpeechDictationAdapter({
+        language: "ru-RU",
+        continuous: true,
+        interimResults: true,
+      }),
+    );
+  }, []);
 
   useEffect(() => {
     if (!developerAgentAvailable) setDeveloperAccessMode("standard");
@@ -448,6 +462,7 @@ function ProductChatRuntimeScope({
       activeThread?.status === "archived",
     adapters: {
       attachments,
+      dictation,
       feedback: authenticated ? feedback : undefined,
       history,
       threadList: threadListAdapter,
