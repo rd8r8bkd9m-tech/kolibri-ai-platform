@@ -9,7 +9,6 @@ import {
   useAgUiRuntime,
   type UseAgUiThreadListAdapter,
 } from "@assistant-ui/react-ag-ui";
-import { WebSpeechDictationAdapter } from "@assistant-ui/core";
 import {
   useCallback,
   useEffect,
@@ -449,9 +448,6 @@ function ProductChatRuntimeScope({
       activeThread?.status === "archived",
     adapters: {
       attachments,
-      dictation: WebSpeechDictationAdapter.isSupported()
-        ? new WebSpeechDictationAdapter({ language: "ru-RU", continuous: true })
-        : undefined,
       feedback: authenticated ? feedback : undefined,
       history,
       threadList: threadListAdapter,

@@ -46,9 +46,9 @@ export function MobileWorkspaceHeader({
   return (
     <header
       data-slot="kolibri-mobile-header"
-      className="relative h-[6.5rem] shrink-0 bg-background"
+      className="relative flex shrink-0 items-center bg-background"
     >
-      <div className="absolute inset-x-0 top-[calc(1.35rem+env(safe-area-inset-top))] flex items-center justify-between px-[15px]">
+      <div className="flex w-full items-center justify-between px-3">
         {onBack ? (
           <Button
             type="button"
@@ -57,11 +57,11 @@ export function MobileWorkspaceHeader({
             onClick={onBack}
             aria-label="На основной экран"
             data-slot="mobile-editor-back"
-            className="size-12 rounded-full border border-foreground/45 bg-background p-0 shadow-none hover:bg-muted"
+            className="size-10 shrink-0 rounded-lg"
           >
             <ChevronLeft
               aria-hidden="true"
-              className="size-8 -translate-x-px stroke-[2.2]"
+              className="size-5 stroke-[1.75]"
             />
           </Button>
         ) : (
@@ -73,15 +73,15 @@ export function MobileWorkspaceHeader({
             aria-label="Открыть меню"
             aria-controls="workspace-project-navigation"
             aria-expanded={navigationOpen}
-            className="size-12 rounded-full border border-foreground/45 bg-background p-0 shadow-none hover:bg-muted"
+            className="size-10 shrink-0 rounded-lg"
           >
             <span
               data-slot="mobile-hamburger-icon"
               aria-hidden="true"
-              className="flex w-6 flex-col gap-[7px]"
+              className="flex w-5 flex-col gap-[5px]"
             >
-              <span className="h-[2.5px] w-full rounded-full bg-current" />
-              <span className="h-[2.5px] w-full rounded-full bg-current" />
+              <span className="h-[1.5px] w-full rounded-full bg-current" />
+              <span className="h-[1.5px] w-full rounded-full bg-current" />
             </span>
           </Button>
         )}
@@ -91,20 +91,20 @@ export function MobileWorkspaceHeader({
             <DropdownMenuTrigger asChild>
               <button
                 type="button"
-                className="focus-visible:ring-ring absolute left-1/2 flex h-11 -translate-x-1/2 items-center gap-1 rounded-xl px-2 text-[21px] leading-none font-semibold tracking-[-0.035em] underline decoration-[1.5px] underline-offset-4 outline-none focus-visible:ring-2"
+                className="focus-visible:ring-ring flex h-8 items-center gap-1 rounded-lg px-2 text-sm font-medium tracking-tight outline-none focus-visible:ring-2"
                 aria-label="Chat. Выбрать раздел"
               >
-                <span>Chat</span>
+                <span>Kolibri</span>
                 <ChevronDown
                   aria-hidden="true"
-                  className="text-muted-foreground size-5 stroke-[2]"
+                  className="text-muted-foreground size-3.5 stroke-[2]"
                 />
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent
               align="center"
               sideOffset={8}
-              className="z-[80] w-[min(17rem,calc(100vw-2rem))] rounded-[1.75rem] border-foreground/35 p-2 shadow-xl"
+              className="z-[80] w-[min(15rem,calc(100vw-2rem))] rounded-xl p-1 shadow-lg"
             >
               {[
                 { id: "chat", label: "Chat" },
@@ -125,26 +125,26 @@ export function MobileWorkspaceHeader({
                         | "references",
                     )
                   }
-                  className="min-h-12 rounded-2xl px-4 text-[17px]"
+                  className="min-h-9 rounded-lg px-3 text-sm"
                 >
                   <span className="min-w-0 flex-1 truncate">
                     {destination.label}
                   </span>
                   {destination.id === "chat" ? (
-                    <Check aria-hidden="true" className="size-5" />
+                    <Check aria-hidden="true" className="size-4" />
                   ) : null}
                 </DropdownMenuItem>
               ))}
             </DropdownMenuContent>
           </DropdownMenu>
         ) : (
-          <h1 className="pointer-events-none absolute left-1/2 max-w-[58vw] -translate-x-1/2 truncate text-[21px] leading-none font-semibold tracking-[-0.035em]">
+          <h1 className="pointer-events-none absolute left-1/2 max-w-[55vw] -translate-x-1/2 truncate text-sm font-medium tracking-tight">
             {title}
           </h1>
         )}
 
         {onBack ? (
-          <span aria-hidden="true" className="size-12 shrink-0" />
+          <span aria-hidden="true" className="size-10 shrink-0" />
         ) : isChat || isProjects ? (
           <ThreadListPrimitive.New asChild>
             <Button
@@ -153,20 +153,20 @@ export function MobileWorkspaceHeader({
               size="icon"
               aria-label={isProjects ? "Новая задача" : "Новый чат"}
               onClick={isProjects ? onOpenChat : undefined}
-              className="size-12 rounded-full border border-foreground/45 bg-background p-0 shadow-none hover:bg-muted"
+              className="size-10 shrink-0 rounded-lg"
             >
               {isProjects ? (
-                <Plus aria-hidden="true" className="size-8 stroke-[1.7]" />
+                <Plus aria-hidden="true" className="size-5 stroke-[1.75]" />
               ) : (
                 <MessageCircle
                   aria-hidden="true"
-                  className="size-7 stroke-[1.8]"
+                  className="size-5 stroke-[1.75]"
                 />
               )}
             </Button>
           </ThreadListPrimitive.New>
         ) : (
-          <span aria-hidden="true" className="size-12 shrink-0" />
+          <span aria-hidden="true" className="size-10 shrink-0" />
         )}
       </div>
     </header>

@@ -208,51 +208,55 @@
   [data-workspace-mode="compact"] {
     height: var(--kolibri-visual-viewport-height, 100dvh);
     max-height: var(--kolibri-visual-viewport-height, 100dvh);
-    --mobile-control-size: 3rem;
-    --mobile-edge-inset: 1rem;
-    --mobile-row-height: 3.5rem;
-    --mobile-sheet-radius: 1.75rem;
+    --mobile-control-size: 2.75rem;
+    --mobile-edge-inset: 0.875rem;
+    --mobile-row-height: 3.25rem;
+    --mobile-sheet-radius: 1.5rem;
+    /* GPT-like light palette */
     --background: #ffffff;
-    --foreground: #111113;
+    --foreground: #202123;
     --card: #ffffff;
-    --card-foreground: #111113;
+    --card-foreground: #202123;
     --popover: #ffffff;
-    --popover-foreground: #111113;
-    --primary: #111113;
+    --popover-foreground: #202123;
+    --primary: #202123;
     --primary-foreground: #ffffff;
-    --secondary: #f2f2f4;
-    --secondary-foreground: #111113;
-    --muted: #f2f2f4;
-    --muted-foreground: #737379;
-    --accent: #eeeeef;
-    --accent-foreground: #111113;
-    --border: rgb(17 17 19 / 22%);
-    --input: rgb(17 17 19 / 38%);
-    --ring: #7a7a80;
-    --mobile-composer: #f7f7f8;
-    --mobile-action: #353539;
+    --secondary: #f7f7f8;
+    --secondary-foreground: #202123;
+    --muted: #ececf1;
+    --muted-foreground: #6e6e80;
+    --accent: #f0f0f1;
+    --accent-foreground: #202123;
+    --border: rgba(0, 0, 0, 0.1);
+    --input: rgba(0, 0, 0, 0.15);
+    --ring: #ababaf;
+    --mobile-composer: #f4f4f4;
+    --mobile-action: #202123;
+    --mobile-gpt-accent: #10a37f;
   }
 
   .dark [data-workspace-mode="compact"] {
-    --background: #000000;
-    --foreground: #f5f5f7;
-    --card: #111113;
-    --card-foreground: #f5f5f7;
-    --popover: #171719;
-    --popover-foreground: #f5f5f7;
-    --primary: #f5f5f7;
-    --primary-foreground: #111113;
-    --secondary: #1c1c1e;
-    --secondary-foreground: #f5f5f7;
-    --muted: #1c1c1e;
-    --muted-foreground: #a9a9af;
-    --accent: #242426;
-    --accent-foreground: #f5f5f7;
-    --border: rgb(245 245 247 / 22%);
-    --input: rgb(245 245 247 / 48%);
-    --ring: #a6a6ab;
-    --mobile-composer: #111113;
-    --mobile-action: #bcbcc1;
+    /* GPT-like dark palette */
+    --background: #212121;
+    --foreground: #ececf1;
+    --card: #2f2f2f;
+    --card-foreground: #ececf1;
+    --popover: #2f2f2f;
+    --popover-foreground: #ececf1;
+    --primary: #ececf1;
+    --primary-foreground: #212121;
+    --secondary: #2f2f2f;
+    --secondary-foreground: #ececf1;
+    --muted: #353535;
+    --muted-foreground: #b4b4b4;
+    --accent: #3a3a3a;
+    --accent-foreground: #ececf1;
+    --border: rgba(255, 255, 255, 0.1);
+    --input: rgba(255, 255, 255, 0.15);
+    --ring: #5a5a5a;
+    --mobile-composer: #2f2f2f;
+    --mobile-action: #ececf1;
+    --mobile-gpt-accent: #10a37f;
   }
 
   [data-slot="kolibri-mobile-header"] button {
@@ -261,7 +265,22 @@
   }
 
   [data-slot="kolibri-mobile-header"] {
-    min-height: 6.5rem;
+    min-height: 3.5rem;
+    height: 3.5rem;
+    border-bottom: 1px solid var(--border);
+    background: var(--background);
+  }
+
+  [data-slot="kolibri-mobile-header"] > div {
+    top: calc(0.5rem + env(safe-area-inset-top));
+    padding-inline: 0.75rem;
+  }
+
+  [data-slot="kolibri-mobile-header"] button {
+    width: 2.5rem;
+    height: 2.5rem;
+    border: none;
+    border-radius: 0.5rem;
   }
 
   [data-slot="mobile-hamburger-icon"] {
@@ -622,16 +641,17 @@
   .aui-thread-root[data-mobile-layout="true"] {
     --thread-max-width: none !important;
     --composer-bg: var(--mobile-composer) !important;
-    --composer-radius: 999px !important;
-    --composer-padding: 5px !important;
+    --composer-radius: 1.25rem !important;
+    --composer-padding: 0.375rem !important;
   }
 
   .aui-thread-root[data-mobile-layout="true"]
     [data-slot="aui_thread-viewport"]
     > div {
-    width: calc(100% - 3.75rem);
+    width: 100%;
     max-width: none;
     padding-top: 0;
+    padding-inline: 0;
   }
 
   .aui-thread-root[data-mobile-layout="true"]
@@ -643,9 +663,10 @@
 
   .aui-thread-root[data-mobile-layout="true"]
     .aui-thread-viewport-footer {
-    gap: 16px;
+    gap: 0.75rem;
     padding-top: 0;
-    padding-bottom: max(1rem, env(safe-area-inset-bottom));
+    padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
+    padding-inline: 0.5rem;
     background: var(--background);
   }
 
@@ -656,26 +677,27 @@
 
   .aui-mobile-starter-action {
     display: flex;
-    min-height: 48px;
+    min-height: 2.75rem;
     width: 100%;
     min-width: 0;
     align-items: center;
-    gap: 10px;
-    border-radius: 12px;
-    padding: 0;
-    color: var(--mobile-action);
-    font-size: 19px;
-    font-weight: 570;
-    letter-spacing: -0.025em;
+    gap: 0.625rem;
+    border-radius: 0.75rem;
+    border: 1px solid var(--border);
+    padding: 0 0.75rem;
+    color: var(--foreground);
+    font-size: 0.875rem;
+    font-weight: 450;
+    letter-spacing: -0.01em;
     text-align: left;
     outline: none;
     transition:
       color 120ms ease,
-      background-color 120ms ease;
+      background-color 120ms ease,
+      border-color 120ms ease;
   }
 
-  .aui-mobile-starter-action:hover,
-  .aui-mobile-starter-action:focus-visible {
+  .aui-mobile-starter-action:active {
     background: var(--accent);
   }
 
@@ -684,8 +706,8 @@
   }
 
   .aui-mobile-starter-action > svg {
-    width: 20px;
-    height: 20px;
+    width: 1rem;
+    height: 1rem;
     flex: none;
     stroke-width: 1.75px;
     color: var(--muted-foreground);
@@ -694,15 +716,15 @@
   .aui-thread-root[data-mobile-layout="true"]
     [data-slot="aui_composer-shell"] {
     display: grid;
-    min-height: 52px;
-    grid-template-columns: 40px minmax(0, 1fr) auto;
-    grid-template-rows: minmax(40px, auto);
+    min-height: 2.75rem;
+    grid-template-columns: 2.5rem minmax(0, 1fr) auto;
+    grid-template-rows: minmax(2.75rem, auto);
     align-items: center;
-    gap: 4px;
-    border-color: var(--input);
-    border-radius: 999px;
+    gap: 0.25rem;
+    border-color: var(--border);
+    border-radius: 1.25rem;
     background: var(--mobile-composer);
-    box-shadow: none;
+    box-shadow: 0 0 15px rgba(0, 0, 0, 0.05);
   }
 
   .aui-thread-root[data-mobile-layout="true"]
@@ -729,11 +751,17 @@
   .aui-thread-root[data-mobile-layout="true"] .aui-composer-input {
     grid-column: 2;
     grid-row: 1;
-    min-height: 40px;
-    padding: 0 5px;
-    font-size: 17px;
-    font-weight: 500;
-    line-height: 1.25;
+    min-height: 2.75rem;
+    padding: 0 0.25rem;
+    font-size: 1rem;
+    font-weight: 400;
+    line-height: 1.4;
+    color: var(--foreground);
+  }
+
+  .aui-thread-root[data-mobile-layout="true"] .aui-composer-input::placeholder {
+    color: var(--muted-foreground);
+    font-weight: 400;
   }
 
   .aui-thread-root[data-mobile-layout="true"]
@@ -773,47 +801,64 @@
 
   .aui-thread-root[data-mobile-layout="true"]
     .aui-composer-add-attachment {
-    width: 40px;
-    height: 40px;
+    width: 2.5rem;
+    height: 2.75rem;
+    color: var(--muted-foreground);
+    transition: color 150ms ease;
+  }
+
+  .aui-thread-root[data-mobile-layout="true"]
+    .aui-composer-add-attachment:active {
     color: var(--foreground);
   }
 
   .aui-thread-root[data-mobile-layout="true"]
     .aui-attachment-add-icon {
-    width: 27px;
-    height: 27px;
-    stroke-width: 1.65px;
+    width: 1.25rem;
+    height: 1.25rem;
+    stroke-width: 1.75px;
   }
 
   .aui-thread-root[data-mobile-layout="true"] .aui-composer-dictate {
-    width: 36px;
-    height: 40px;
-    color: var(--foreground);
+    width: 2.25rem;
+    height: 2.75rem;
+    color: var(--muted-foreground);
     opacity: 1;
+    transition: color 150ms ease;
+  }
+
+  .aui-thread-root[data-mobile-layout="true"] .aui-composer-dictate:active {
+    color: var(--foreground);
   }
 
   .aui-thread-root[data-mobile-layout="true"]
     .aui-composer-dictate-icon {
-    width: 22px;
-    height: 22px;
-    stroke-width: 1.8px;
+    width: 1.25rem;
+    height: 1.25rem;
+    stroke-width: 1.75px;
   }
 
   .aui-thread-root[data-mobile-layout="true"] .aui-composer-send,
   .aui-thread-root[data-mobile-layout="true"] .aui-composer-cancel {
-    width: 40px;
-    height: 40px;
-    border-radius: 999px;
-    background: #0a84ff;
-    color: #ffffff;
+    width: 2.25rem;
+    height: 2.25rem;
+    border-radius: 50%;
+    background: var(--foreground);
+    color: var(--background);
     opacity: 1;
+    transition: background 150ms ease, transform 100ms ease;
+  }
+
+  .aui-thread-root[data-mobile-layout="true"] .aui-composer-send:active,
+  .aui-thread-root[data-mobile-layout="true"] .aui-composer-cancel:active {
+    transform: scale(0.92);
   }
 
   .aui-thread-root[data-mobile-layout="true"]
     .aui-composer-send-empty:disabled {
     background: var(--muted);
     color: var(--muted-foreground);
-    opacity: 1;
+    opacity: 0.6;
   }
 
   .aui-thread-root[data-mobile-layout="true"]
@@ -821,9 +866,11 @@
       :focus-within,
       :has(.aui-composer-mobile-model button[data-state="open"])
     ) {
-    grid-template-rows: minmax(44px, auto) 40px;
-    border-radius: 1.75rem;
-    padding: 0.5rem;
+    grid-template-rows: minmax(2.75rem, auto) 2.5rem;
+    border-radius: 1.25rem;
+    padding: 0.375rem;
+    border-color: var(--ring);
+    box-shadow: 0 0 0 1px color-mix(in oklab, var(--ring) 30%, transparent);
   }
 
   .aui-thread-root[data-mobile-layout="true"]
@@ -892,13 +939,44 @@
     )
     .aui-composer-trailing-actions {
     grid-column: 3;
-    grid-row: 2;
+    grid-row: 1;
   }
 
+  /* GPT-like message bubble styles */
   .aui-thread-root[data-mobile-layout="true"]
     [data-slot="aui_message-group"] {
-    margin-bottom: 24px;
-    padding-top: 12px;
+    margin-bottom: 1rem;
+    padding-top: 0.5rem;
+    padding-inline: 0;
+  }
+
+  /* GPT-like message spacing */
+  .aui-thread-root[data-mobile-layout="true"]
+    [data-slot="aui_message-group"]
+    > * + * {
+    margin-top: 1.25rem;
+  }
+
+  /* Tighter viewport for mobile */
+  .aui-thread-root[data-mobile-layout="true"]
+    [data-slot="aui_thread-viewport"] {
+    padding-top: 0;
+  }
+}
+
+@media (max-width: 340px) {
+  .aui-mobile-starter-action {
+    gap: 0.5rem;
+    font-size: 0.8125rem;
+  }
+
+  .aui-mobile-starter-action > svg {
+    width: 0.875rem;
+    height: 0.875rem;
+  }
+
+  .aui-thread-root[data-mobile-layout="true"] .aui-composer-input {
+    font-size: 0.9375rem;
   }
 }
 
