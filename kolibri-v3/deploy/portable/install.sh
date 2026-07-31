@@ -337,6 +337,7 @@ fi
 release_root="$KOLIBRI_INSTALL_ROOT/releases/$release_id"
 current_link="$KOLIBRI_INSTALL_ROOT/current"
 data_root="$KOLIBRI_INSTALL_ROOT/var"
+scheduled_backup_root="$KOLIBRI_BACKUP_ROOT/database"
 backend_env_file="$KOLIBRI_CONFIG_ROOT/backend.env"
 release_env_file="$KOLIBRI_CONFIG_ROOT/release.env"
 frontend_env_file="$KOLIBRI_CONFIG_ROOT/frontend.env"
@@ -366,6 +367,8 @@ database_helper="$libexec_root/database-rehearsal.py"
 systemctl_path="$(command -v systemctl)"
 journalctl_path="$(command -v journalctl)"
 allowed_origin="$KOLIBRI_PUBLIC_SCHEME://$KOLIBRI_DOMAIN"
+developer_preview_origin="$KOLIBRI_PUBLIC_SCHEME://dev.$KOLIBRI_DOMAIN"
+allowed_origins="$allowed_origin,$developer_preview_origin"
 nginx_site="$KOLIBRI_NGINX_SITE"
 backup_dir="$KOLIBRI_BACKUP_ROOT/$(date -u +%Y%m%dT%H%M%SZ)-$release_id"
 lock_file="/run/lock/${KOLIBRI_INSTANCE}-release.lock"
@@ -411,6 +414,7 @@ for managed_path in \
   "$KOLIBRI_INSTALL_ROOT/releases" \
   "$data_root" \
   "$KOLIBRI_BACKUP_ROOT" \
+  "$scheduled_backup_root" \
   "$KOLIBRI_CONFIG_ROOT"; do
   [[ ! -L "$managed_path" ]] || {
     echo "install_error=managed_directory_symlink path=$managed_path" >&2
@@ -419,14 +423,16 @@ for managed_path in \
 done
 install -d -o root -g root -m 755 \
   "$KOLIBRI_INSTALL_ROOT" "$KOLIBRI_INSTALL_ROOT/releases"
+install -d -o root -g "$service_group" -m 710 "$KOLIBRI_BACKUP_ROOT"
+install -d -o root -g root -m 700 "$KOLIBRI_CONFIG_ROOT"
 install -d -o "$KOLIBRI_SERVICE_USER" -g "$service_group" -m 700 \
-  "$data_root"
-install -d -o root -g root -m 700 "$KOLIBRI_BACKUP_ROOT" "$KOLIBRI_CONFIG_ROOT"
+  "$data_root" "$scheduled_backup_root"
 for managed_path in \
   "$KOLIBRI_INSTALL_ROOT" \
   "$KOLIBRI_INSTALL_ROOT/releases" \
   "$data_root" \
   "$KOLIBRI_BACKUP_ROOT" \
+  "$scheduled_backup_root" \
   "$KOLIBRI_CONFIG_ROOT"; do
   [[ "$(readlink -f -- "$managed_path")" == "$managed_path" ]] || {
     echo "install_error=managed_directory_not_canonical path=$managed_path" >&2
@@ -555,8 +561,11 @@ python3 "$script_dir/install-contract.py" render-operations \
   --output-dir "$operation_render_root" \
   --instance "$KOLIBRI_INSTANCE" \
   --current-link "$current_link" \
+  --service-user "$KOLIBRI_SERVICE_USER" \
+  --service-group "$service_group" \
+  --service-uid "$service_uid" \
   --data-root "$data_root" \
-  --backup-root "$KOLIBRI_BACKUP_ROOT" \
+  --backup-root "$scheduled_backup_root" \
   --backend-port "$KOLIBRI_BACKEND_PORT" \
   --frontend-port "$KOLIBRI_FRONTEND_PORT" \
   --public-origin "$allowed_origin" \
@@ -705,7 +714,7 @@ fi
 cat > "$release_env_file.new" <<EOF
 KOLIBRI_V3_ENV=production
 KOLIBRI_V3_DATABASE_URL=sqlite:///$data_root/kolibri-v3.db
-KOLIBRI_V3_ALLOWED_ORIGINS=$allowed_origin
+KOLIBRI_V3_ALLOWED_ORIGINS=$allowed_origins
 KOLIBRI_V3_COOKIE_SECURE=true
 KOLIBRI_V3_CSRF_SECRET=$csrf_value
 KOLIBRI_V3_DIRECT_MODEL_RUNTIME=$KOLIBRI_DIRECT_MODEL_RUNTIME
@@ -1111,6 +1120,13 @@ if [[ "$KOLIBRI_ENABLE_NGINX" == "true" ]]; then
 fi
 
 systemctl daemon-reload
+systemctl reset-failed \
+  "${KOLIBRI_INSTANCE}-backend.service" \
+  "${KOLIBRI_INSTANCE}-frontend.service" \
+  "${KOLIBRI_INSTANCE}-product-run-worker.service" \
+  "${KOLIBRI_INSTANCE}-provider-enrollment-worker.service" \
+  "${KOLIBRI_INSTANCE}-database-backup.service" \
+  "${KOLIBRI_INSTANCE}-release-monitor.service" 2>/dev/null || true
 systemd-analyze verify \
   "$backend_unit" \
   "$frontend_unit" \
@@ -1138,8 +1154,9 @@ systemctl restart "${KOLIBRI_INSTANCE}-backend.service"
 
 wait_for_url() {
   local url="$1"
+  shift
   local deadline=$((SECONDS + KOLIBRI_HEALTH_TIMEOUT_SECONDS))
-  until curl -fsS --max-time 3 "$url" >/dev/null; do
+  until curl -fsS --max-time 3 "$@" "$url" >/dev/null; do
     (( SECONDS < deadline )) || return 1
     sleep 1
   done
@@ -1194,8 +1211,9 @@ wait_for_release_health \
   "http://127.0.0.1:$KOLIBRI_FRONTEND_PORT/api/health"
 if [[ "$KOLIBRI_ENABLE_NGINX" == "true" ]]; then
   systemctl reload nginx
-  curl -fsS --resolve "$KOLIBRI_DOMAIN:443:127.0.0.1" \
-    --max-time 15 "https://$KOLIBRI_DOMAIN/livez" >/dev/null
+  wait_for_url \
+    "https://$KOLIBRI_DOMAIN/livez" \
+    --resolve "$KOLIBRI_DOMAIN:443:127.0.0.1"
   wait_for_release_health \
     "https://$KOLIBRI_DOMAIN/readyz" \
     --resolve "$KOLIBRI_DOMAIN:443:127.0.0.1"
