@@ -436,6 +436,11 @@ def test_standard_codex_run_uses_frozen_model_and_effort(
     assert runtime.complete_calls[0]["model"] == "gpt-test-selected"
     assert runtime.complete_calls[0]["effort"] == "high"
     assert runtime.complete_calls[0]["service_tier"] == "priority"
+    assert (
+        '"name":"Direct model test"'
+        in runtime.complete_calls[0]["initial_prompt"]
+    )
+    assert '"object":null' in runtime.complete_calls[0]["initial_prompt"]
     database = sqlite3.connect(database_path)
     try:
         status, error_code = database.execute(

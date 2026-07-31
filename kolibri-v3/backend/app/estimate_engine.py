@@ -17,6 +17,7 @@ from typing import Any, Literal, Mapping, Sequence
 
 ENGINE_VERSION = "kolibri-estimate-engine/1.0.0"
 PLASTER_RULES_VERSION = "plastering/1.0.0"
+TILING_RULES_VERSION = "tiling/1.0.0"
 MONEY_QUANTUM = Decimal("0.01")
 QUANTITY_QUANTUM = Decimal("0.000001")
 
@@ -1283,6 +1284,816 @@ def calculate_plastering_estimate(
         "schemaVersion": "1.0",
         "engineVersion": ENGINE_VERSION,
         "rulesVersion": PLASTER_RULES_VERSION,
+        "projectCase": project_case_document,
+        "inputHash": content_hash(input_document),
+        "technologyCard": technology_card.as_document(),
+        "items": line_items,
+        "totals": {
+            "directCost": _money(direct_cost),
+            "overhead": _money(overhead),
+            "profit": _money(profit),
+            "discount": _money(discount),
+            "tax": _money(tax),
+            "total": _money(total),
+            "complete": not missing_prices,
+        },
+        "validation": {
+            "status": (
+                "passed"
+                if not missing_prices and not unverified_prices
+                else "blocked"
+            ),
+            "missingPriceItemCodes": sorted(missing_prices),
+            **(
+                {"unverifiedPriceItemCodes": sorted(unverified_prices)}
+                if unverified_prices
+                else {}
+            ),
+        },
+        "roundingPolicy": {
+            "lineSubtotal": "ROUND_HALF_UP:0.01",
+            "commercialComponent": "ROUND_HALF_UP:0.01",
+            "total": "sum_of_rounded_components",
+        },
+    }
+    result["resultHash"] = content_hash(result)
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Tiling (плитка) scope and calculation
+# ---------------------------------------------------------------------------
+
+TilingWorkType = Literal["floor_and_walls", "floor_only", "walls_only"]
+
+
+@dataclass(frozen=True, slots=True)
+class TilingScope:
+    """Input scope for tile work estimation.
+
+    Consumption norms (adhesive kg/m²/mm, grout kg/m², waterproofing kg/m²)
+    are computed deterministically from tile format, trowel notch, joint width,
+    tile thickness, and number of coats.  Callers do not supply pre-computed
+    consumptions — the engine owns arithmetic.
+    """
+
+    floor_area_m2: Decimal
+    wall_area_m2: Decimal
+    tile_format_mm: int
+    work_type: TilingWorkType
+    grout_joint_width_mm: Decimal
+    trowel_notch_mm: Decimal
+    tile_thickness_mm: Decimal
+    waste_percent: Decimal
+    waterproofing_area_m2: Decimal
+    waterproofing_coats: int
+    deduct_area_m2: Decimal
+    adhesive_bag_weight_kg: Decimal
+    grout_bag_weight_kg: Decimal
+
+    def __post_init__(self) -> None:
+        for field in (
+            "floor_area_m2",
+            "wall_area_m2",
+            "grout_joint_width_mm",
+            "trowel_notch_mm",
+            "tile_thickness_mm",
+            "waste_percent",
+            "waterproofing_area_m2",
+            "deduct_area_m2",
+            "adhesive_bag_weight_kg",
+            "grout_bag_weight_kg",
+        ):
+            value = _non_negative(getattr(self, field), field=field)
+            object.__setattr__(self, field, value)
+        for field in (
+            "floor_area_m2",
+            "wall_area_m2",
+            "tile_format_mm",
+            "trowel_notch_mm",
+            "tile_thickness_mm",
+            "adhesive_bag_weight_kg",
+            "grout_bag_weight_kg",
+        ):
+            if getattr(self, field) <= 0:
+                raise EstimateEngineError(f"{field} must be positive")
+        if self.tile_format_mm not in {100, 150, 200, 250, 300, 330, 400, 450, 500, 600, 800, 1000, 1200}:
+            raise EstimateEngineError("tile_format_mm must be a standard tile size")
+        if self.work_type not in {"floor_and_walls", "floor_only", "walls_only"}:
+            raise EstimateEngineError("unsupported tiling work type")
+        if not 0 <= self.waste_percent <= 100:
+            raise EstimateEngineError("waste_percent must be between 0 and 100")
+        if not 1 <= self.waterproofing_coats <= 4:
+            raise EstimateEngineError("waterproofing_coats must be between 1 and 4")
+
+
+def build_tiling_technology_card(scope: TilingScope) -> TechnologyCard:
+    do_floor = scope.work_type in {"floor_and_walls", "floor_only"}
+    do_walls = scope.work_type in {"floor_and_walls", "walls_only"}
+    has_waterproofing = scope.waterproofing_area_m2 > 0
+    stages = (
+        TechnologyStage(
+            "survey",
+            10,
+            "Обследование основания",
+            (
+                "Проверить прочность, влажность, ровность и совместимость основания.",
+                "Зафиксировать дефекты, перепады и фактические размеры помещения.",
+            ),
+            ("правило", "лазерный уровень", "влагомер", "рулетка"),
+            ("Акт осмотра основания", "Карта перепадов плоскости"),
+        ),
+        TechnologyStage(
+            "protection",
+            20,
+            "Защита объекта",
+            (
+                "Закрыть окна, двери, смежные готовые поверхности.",
+                "Организовать безопасную рабочую зону и проходы.",
+            ),
+            ("плёнка", "картон", "малярная лента"),
+            ("Защитные покрытия без разрывов",),
+        ),
+        TechnologyStage(
+            "preparation",
+            30,
+            "Подготовка основания",
+            (
+                "Удалить пыль, загрязнения и непрочные участки.",
+                "Нанести совместимый грунт с выдержкой по техрегламенту.",
+                "Выровнять поверхность при необходимости.",
+            ),
+            ("грунт", "щётки", "пылесос", "шпатели"),
+            ("Адгезия и равномерность грунтования",),
+        ),
+        TechnologyStage(
+            "waterproofing",
+            40,
+            "Гидроизоляция",
+            (
+                "Нанести обмазочную гидроизоляцию в зонах влажных воздействий.",
+                "Обработать стыки, углы и проходы коммуникаций.",
+            ) if has_waterproofing else (
+                "Гидроизоляция не требуется по условиям объекта.",
+            ),
+            ("обмазочная гидроизоляция", "армирующая лента", "кисти", "валики") if has_waterproofing else (),
+            ("Толщина слоя", "Перехлёст ленты", "Отсутствие пропусков") if has_waterproofing else (),
+        ),
+        TechnologyStage(
+            "layout",
+            50,
+            "Разметка и раскладка",
+            (
+                "Выполнить разметку рядов и определить точку начала укладки.",
+                "Проверить раскладку с учётом подрезки и симметрии.",
+            ),
+            ("лазерный уровень", "рулетка", "маркер"),
+            ("Симметрия раскладки", "Размер подрезки не менее половины плитки"),
+        ),
+        TechnologyStage(
+            "installation",
+            60,
+            "Укладка плитки",
+            (
+                "Приготовить клеевой состав согласно инструкции производителя.",
+                "Нанести клей зубчатым шпателем на основание и/или плитку.",
+                "Уложить плитку с контролем плоскости и уровня.",
+            ),
+            ("зубчатый шпатель", "миксер", "ёмкости", "уровень", "крестики/СВП"),
+            ("Плоскостность", "Уровень", "Зазоры", "Адгезия"),
+        ),
+        TechnologyStage(
+            "grouting",
+            70,
+            "Затирка швов",
+            (
+                "Очистить швы от излишков клея.",
+                "Приготовить затирочный состав и заполнить швы.",
+                "Удалить излишки затирки и выполнить расшивку.",
+            ),
+            ("резиновый шпатель", "губка", "ёмкость"),
+            ("Заполнение швов", "Равномерность цвета", "Отсутствие пустот"),
+        ),
+        TechnologyStage(
+            "sealing",
+            80,
+            "Герметизация стыков",
+            (
+                "Заполнить силиконовым герметиком стыки, примыкания и проходы.",
+            ),
+            ("силиконовый герметик", "пистолет", "мыльный раствор"),
+            ("Непрерывность шва", "Отсутствие пустот"),
+        ),
+        TechnologyStage(
+            "closeout",
+            90,
+            "Контроль, уборка и сдача",
+            (
+                "Провести итоговый контроль качества.",
+                "Убрать рабочую зону, собрать упаковку и вывезти отходы.",
+            ),
+            ("контрольный инструмент", "тара для отходов"),
+            ("Протокол контроля", "Передача результата заказчику"),
+        ),
+    )
+    decisions = (
+        InclusionDecision(
+            "waterproofing",
+            has_waterproofing,
+            (
+                f"Включено для {scope.waterproofing_area_m2} м² "
+                f"({scope.waterproofing_coats} слоя)."
+                if has_waterproofing
+                else "Исключено: площадь гидроизоляции равна нулю."
+            ),
+        ),
+        InclusionDecision(
+            "floor_tile",
+            do_floor,
+            (
+                f"Включено: укладка плитки на пол {scope.floor_area_m2} м²."
+                if do_floor
+                else "Исключено: тип работ не включает пол."
+            ),
+        ),
+        InclusionDecision(
+            "wall_tile",
+            do_walls,
+            (
+                f"Включено: укладка плитки на стены {scope.wall_area_m2} м²."
+                if do_walls
+                else "Исключено: тип работ не включает стены."
+            ),
+        ),
+    )
+    return TechnologyCard(
+        schema_version="1.0",
+        rules_version=TILING_RULES_VERSION,
+        stages=stages,
+        decisions=decisions,
+    )
+
+
+def _tiling_variables(scope: TilingScope) -> dict[str, Quantity]:
+    do_floor = scope.work_type in {"floor_and_walls", "floor_only"}
+    do_walls = scope.work_type in {"walls_only", "floor_and_walls"}
+
+    floor_area = scope.floor_area_m2 if do_floor else Decimal("0")
+    wall_area = scope.wall_area_m2 if do_walls else Decimal("0")
+    total_area = floor_area + wall_area - scope.deduct_area_m2
+    if total_area < 0:
+        total_area = Decimal("0")
+
+    waste_factor = Decimal("1") + _percent(scope.waste_percent)
+
+    # Adhesive consumption: trowel_notch² / 2 kg/m²/mm; with tile back-butter
+    # add 30%.
+    trowel_notch_m = scope.trowel_notch_mm / Decimal("1000")
+    adhesive_norm = (
+        (scope.trowel_notch_mm ** 2) / Decimal("2")
+        * Decimal("1.3")
+    )
+
+    # Grout consumption per m²:
+    # ((L + W) / (L × W)) × J × T × 1.6  [kg/m²]
+    fmt = Decimal(str(scope.tile_format_mm))
+    grout_norm = (
+        (fmt + fmt) / (fmt * fmt)
+        * scope.grout_joint_width_mm
+        * scope.tile_thickness_mm
+        * Decimal("1.6")
+    )
+
+    # Waterproofing: 1.0 kg/m² per coat (typical for cement-based)
+    waterproofing_norm = Decimal("1.0")
+
+    return {
+        "floor_area": Quantity.of(floor_area, "m2"),
+        "wall_area": Quantity.of(wall_area, "m2"),
+        "total_area": Quantity.of(total_area, "m2"),
+        "waterproofing_area": Quantity.of(scope.waterproofing_area_m2, "m2"),
+        "deduct_area": Quantity.of(scope.deduct_area_m2, "m2"),
+        "waste_factor": Quantity.of(waste_factor, "1"),
+        "adhesive_norm": Quantity.of(adhesive_norm, "kg_per_m2"),
+        "adhesive_bag_weight": Quantity.of(scope.adhesive_bag_weight_kg, "kg"),
+        "grout_norm": Quantity.of(grout_norm, "kg_per_m2"),
+        "grout_bag_weight": Quantity.of(scope.grout_bag_weight_kg, "kg"),
+        "waterproofing_norm": Quantity.of(waterproofing_norm, "kg_per_m2"),
+        "waterproofing_coats": Quantity.of(scope.waterproofing_coats, "1"),
+        "primer_norm": Quantity.of("0.15", "l_per_m2"),
+        "primer_passes": Quantity.of("1", "1"),
+        "vehicle_payload": Quantity.of("1500", "kg"),
+        "one_each": Quantity.of("1", "ea"),
+        "one_bag": Quantity.of("1", "bag"),
+        "one_trip": Quantity.of("1", "trip"),
+        "one_set": Quantity.of("1", "set"),
+    }
+
+
+def _tiling_line_plans(scope: TilingScope) -> tuple[LinePlan, ...]:
+    do_floor = scope.work_type in {"floor_and_walls", "floor_only"}
+    do_walls = scope.work_type in {"walls_only", "floor_and_walls"}
+    has_waterproofing = scope.waterproofing_area_m2 > 0
+
+    floor_area = variable("floor_area")
+    wall_area = variable("wall_area")
+    total_area = variable("total_area")
+    waste = variable("waste_factor")
+
+    rows: list[LinePlan] = [
+        LinePlan(
+            "survey",
+            "Подготовка",
+            "work",
+            "Обследование основания и контроль ровности",
+            "m2",
+            total_area,
+            None,
+            Decimal("1"),
+            "Проверка основания перед началом работ по СП 71.13330.",
+        ),
+        LinePlan(
+            "surface_cleaning",
+            "Подготовка",
+            "work",
+            "Очистка и обеспыливание основания",
+            "m2",
+            total_area,
+            None,
+            Decimal("1"),
+            "Удаление загрязнений и непрочных участков.",
+        ),
+        LinePlan(
+            "leveling",
+            "Подготовка",
+            "work",
+            "Выравнивание основания",
+            "m2",
+            total_area,
+            None,
+            Decimal("1"),
+            "Перепады не должны превышать 2 мм на 2 м правила.",
+        ),
+        LinePlan(
+            "protection",
+            "Защита объекта",
+            "service",
+            "Защита смежных поверхностей и сантехники",
+            "m2",
+            total_area,
+            None,
+            Decimal("1"),
+            "Защита окон, пола, ванны и смежных поверхностей.",
+        ),
+    ]
+
+    # Primer
+    rows.extend(
+        (
+            LinePlan(
+                "primer_application",
+                "Грунтование",
+                "work",
+                "Нанесение грунта",
+                "m2",
+                total_area,
+                "1 проход",
+                Decimal("1"),
+                "Грунтование всей площади перед укладкой.",
+            ),
+            LinePlan(
+                "primer_material",
+                "Грунтование",
+                "material",
+                "Грунтовка глубокого проникновения",
+                "l",
+                multiply(total_area, variable("primer_norm"), waste),
+                "0.15 л/м²",
+                Decimal("1") + _percent(scope.waste_percent),
+                "Расход грунтовки с запасом.",
+            ),
+        )
+    )
+
+    # Waterproofing
+    if has_waterproofing:
+        rows.extend(
+            (
+                LinePlan(
+                    "waterproofing_work",
+                    "Гидроизоляция",
+                    "work",
+                    "Нанесение обмазочной гидроизоляции",
+                    "m2",
+                    variable("waterproofing_area"),
+                    f"{scope.waterproofing_coats} слоя",
+                    Decimal("1"),
+                    "Гидроизоляция по СП 71.13330 для влажных зон.",
+                ),
+                LinePlan(
+                    "waterproofing_material",
+                    "Гидроизоляция",
+                    "material",
+                    "Обмазочная гидроизоляция",
+                    "kg",
+                    multiply(
+                        variable("waterproofing_area"),
+                        variable("waterproofing_norm"),
+                        variable("waterproofing_coats"),
+                        waste,
+                    ),
+                    "1.0 кг/м² за слой",
+                    Decimal("1") + _percent(scope.waste_percent),
+                    "Расход зависит от площади, числа слоёв и запаса.",
+                ),
+            )
+        )
+
+    # Floor tile
+    if do_floor:
+        rows.extend(
+            (
+                LinePlan(
+                    "floor_tile_work",
+                    "Укладка плитки — пол",
+                    "work",
+                    "Укладка плитки на пол",
+                    "m2",
+                    floor_area,
+                    None,
+                    Decimal("1"),
+                    "Укладка на подготовленное основание.",
+                ),
+                LinePlan(
+                    "floor_tile_material",
+                    "Укладка плитки — пол",
+                    "material",
+                    f"Плитка напольная {scope.tile_format_mm}×{scope.tile_format_mm} мм",
+                    "m2",
+                    multiply(floor_area, waste),
+                    None,
+                    Decimal("1") + _percent(scope.waste_percent),
+                    f"Площадь пола с запасом {scope.waste_percent}%.",
+                ),
+            )
+        )
+
+    # Wall tile
+    if do_walls:
+        rows.extend(
+            (
+                LinePlan(
+                    "wall_tile_work",
+                    "Укладка плитки — стены",
+                    "work",
+                    "Укладка плитки на стены",
+                    "m2",
+                    wall_area,
+                    None,
+                    Decimal("1"),
+                    "Укладка на подготовленное основание стен.",
+                ),
+                LinePlan(
+                    "wall_tile_material",
+                    "Укладка плитки — стены",
+                    "material",
+                    f"Плитка настенная {scope.tile_format_mm}×{scope.tile_format_mm} мм",
+                    "m2",
+                    multiply(wall_area, waste),
+                    None,
+                    Decimal("1") + _percent(scope.waste_percent),
+                    f"Площадь стен с запасом {scope.waste_percent}%.",
+                ),
+            )
+        )
+
+    # Adhesive
+    adhesive_mass = multiply(total_area, variable("adhesive_norm"), waste)
+    rows.extend(
+        (
+            LinePlan(
+                "adhesive_work",
+                "Клеевые работы",
+                "work",
+                "Приготовление и нанесение клеевого состава",
+                "m2",
+                total_area,
+                f"шпатель {scope.trowel_notch_mm} мм",
+                Decimal("1"),
+                "Клей наносится зубчатым шпателем.",
+            ),
+            LinePlan(
+                "adhesive_material",
+                "Клеевые работы",
+                "material",
+                "Клеевой состав для плитки",
+                "bag",
+                multiply(
+                    ceil_formula(divide(adhesive_mass, variable("adhesive_bag_weight"))),
+                    variable("one_bag"),
+                ),
+                f"{_decimal_text((scope.trowel_notch_mm ** 2) / Decimal('2') * Decimal('1.3'))} кг/м²",
+                Decimal("1") + _percent(scope.waste_percent),
+                "Масса зависит от площади, зуба шпателя и запаса; "
+                "результат округляется вверх до целых мешков.",
+            ),
+        )
+    )
+
+    # Grout
+    grout_mass = multiply(total_area, variable("grout_norm"), waste)
+    rows.extend(
+        (
+            LinePlan(
+                "grouting_work",
+                "Затирка швов",
+                "work",
+                "Затирка швов плитки",
+                "m2",
+                total_area,
+                f"шов {scope.grout_joint_width_mm} мм",
+                Decimal("1"),
+                "Затирка выполняется после полного схватывания клея.",
+            ),
+            LinePlan(
+                "grouting_material",
+                "Затирка швов",
+                "material",
+                "Затирка для швов",
+                "bag",
+                multiply(
+                    ceil_formula(divide(grout_mass, variable("grout_bag_weight"))),
+                    variable("one_bag"),
+                ),
+                f"{_decimal_text((Decimal(str(scope.tile_format_mm * 2)) / Decimal(str(scope.tile_format_mm ** 2)) * scope.grout_joint_width_mm * scope.tile_thickness_mm * Decimal('1.6')))} кг/м²",
+                Decimal("1") + _percent(scope.waste_percent),
+                "Расход зависит от формата, ширины шва, толщины и запаса.",
+            ),
+        )
+    )
+
+    # Sealing — fixed quantities as constant formulas
+    rows.append(
+        LinePlan(
+            "sealant_work",
+            "Герметизация",
+            "work",
+            "Герметизация стыков и примыканий",
+            "m",
+            constant("12", "m"),
+            None,
+            Decimal("1"),
+            "Стыки стен, пола, вокруг ванны и коммуникаций.",
+        )
+    )
+    rows.append(
+        LinePlan(
+            "sealant_material",
+            "Герметизация",
+            "material",
+            "Силиконовый герметик",
+            "ea",
+            constant("3", "ea"),
+            None,
+            Decimal("1"),
+            "3 тубы герметика на объект.",
+        )
+    )
+
+    # Delivery — total mass = adhesive + grout (both are formula dicts)
+    total_mass = {"op": "add", "items": [adhesive_mass, grout_mass]}
+    rows.extend(
+        (
+            LinePlan(
+                "delivery",
+                "Логистика",
+                "service",
+                "Доставка материалов",
+                "trip",
+                multiply(
+                    ceil_formula(
+                        divide(total_mass, variable("vehicle_payload"))
+                    ),
+                    variable("one_trip"),
+                ),
+                "грузоподъёмность 1500 кг",
+                Decimal("1"),
+                "Число рейсов связано с массой материалов.",
+            ),
+            LinePlan(
+                "lifting",
+                "Логистика",
+                "service",
+                "Подъём материалов",
+                "t",
+                total_mass,
+                None,
+                Decimal("1"),
+                "Масса материалов переводится из кг в тонны.",
+            ),
+        )
+    )
+
+    # QC and cleanup
+    rows.extend(
+        (
+            LinePlan(
+                "quality_control",
+                "Контроль",
+                "work",
+                "Контроль качества укладки",
+                "m2",
+                total_area,
+                None,
+                Decimal("1"),
+                "Проверка плоскости, уровня, заполнения швов.",
+            ),
+            LinePlan(
+                "cleanup",
+                "Завершение",
+                "work",
+                "Уборка рабочей зоны",
+                "m2",
+                total_area,
+                None,
+                Decimal("1"),
+                "Сбор упаковки и очистка рабочей зоны.",
+            ),
+            LinePlan(
+                "waste_removal",
+                "Завершение",
+                "service",
+                "Вывоз строительных отходов",
+                "trip",
+                constant("1", "trip"),
+                None,
+                Decimal("1"),
+                "Вывоз упаковки и остатков материалов.",
+            ),
+            LinePlan(
+                "consumables",
+                "Расходные материалы",
+                "material",
+                "Крестики/СВП, плёнка, лента и мелкие расходники",
+                "set",
+                variable("one_set"),
+                None,
+                Decimal("1"),
+                "Комплект расходников на расчётный объект.",
+            ),
+        )
+    )
+    return tuple(rows)
+
+
+def calculate_tiling_estimate(
+    *,
+    project_case: ProjectCaseRef,
+    scope: TilingScope,
+    prices: Sequence[PriceQuote],
+    terms: CommercialTerms = CommercialTerms(),
+    require_complete_prices: bool = False,
+) -> dict[str, Any]:
+    by_code: dict[str, PriceQuote] = {}
+    for quote in prices:
+        if quote.source.source_type == "ai_candidate":
+            raise EstimateEngineError(
+                "AI candidate prices cannot participate in estimate arithmetic"
+            )
+        if quote.item_code in by_code:
+            raise EstimateEngineError(
+                f"duplicate price quote for {quote.item_code}"
+            )
+        if quote.source.region != project_case.region:
+            raise EstimateEngineError(
+                f"price region mismatch for {quote.item_code}"
+            )
+        by_code[quote.item_code] = quote
+
+    technology_card = build_tiling_technology_card(scope)
+    variables = _tiling_variables(scope)
+    line_items: list[dict[str, Any]] = []
+    missing_prices: list[str] = []
+    unverified_prices: list[str] = []
+    direct_cost = Decimal("0")
+    for plan in _tiling_line_plans(scope):
+        quantity = evaluate_formula(
+            plan.formula,
+            variables,
+            target_unit=plan.unit,
+        )
+        quote = by_code.get(plan.code)
+        if quote is not None and quote.unit != plan.unit:
+            raise EstimateEngineError(
+                f"price unit mismatch for {plan.code}: "
+                f"{quote.unit} != {plan.unit}"
+            )
+        subtotal: Decimal | None = None
+        if quote is None:
+            missing_prices.append(plan.code)
+        else:
+            if not quote.source.verified:
+                unverified_prices.append(plan.code)
+            subtotal = (quantity * quote.unit_price).quantize(
+                MONEY_QUANTUM,
+                rounding=ROUND_HALF_UP,
+            )
+            direct_cost += subtotal
+        line_items.append(
+            {
+                "id": _stable_item_id(plan.code),
+                "code": plan.code,
+                "section": plan.section,
+                "kind": plan.kind,
+                "title": plan.title,
+                "unit": plan.unit,
+                "quantityFormula": plan.formula,
+                "normalizedQuantity": _decimal_text(quantity),
+                "consumptionNorm": plan.consumption_norm,
+                "wasteFactor": _decimal_text(plan.waste_factor),
+                "unitPrice": _money(quote.unit_price) if quote else None,
+                "currency": quote.currency if quote else "RUB",
+                "vatMode": quote.vat_mode if quote else "unknown",
+                "source": _source_document(quote.source) if quote else None,
+                "observedAt": quote.source.observed_at if quote else None,
+                "region": project_case.region,
+                "confidence": (
+                    _decimal_text(quote.confidence) if quote else "0"
+                ),
+                "subtotal": _money(subtotal) if subtotal is not None else None,
+                "explanation": plan.explanation,
+            }
+        )
+    if require_complete_prices and missing_prices:
+        raise MissingPriceError(
+            "missing prices: " + ", ".join(sorted(missing_prices))
+        )
+    if require_complete_prices and unverified_prices:
+        raise EstimateEngineError(
+            "unverified prices: " + ", ".join(sorted(unverified_prices))
+        )
+
+    overhead = (direct_cost * _percent(terms.overhead_percent)).quantize(
+        MONEY_QUANTUM,
+        rounding=ROUND_HALF_UP,
+    )
+    before_profit = direct_cost + overhead
+    profit = (before_profit * _percent(terms.profit_percent)).quantize(
+        MONEY_QUANTUM,
+        rounding=ROUND_HALF_UP,
+    )
+    before_discount = before_profit + profit
+    discount = (before_discount * _percent(terms.discount_percent)).quantize(
+        MONEY_QUANTUM,
+        rounding=ROUND_HALF_UP,
+    )
+    taxable = before_discount - discount
+    tax = (taxable * _percent(terms.tax_percent)).quantize(
+        MONEY_QUANTUM,
+        rounding=ROUND_HALF_UP,
+    )
+    total = taxable + tax
+    project_case_document = {
+        "tenantId": project_case.tenant_id,
+        "projectId": project_case.project_id,
+        "caseId": project_case.case_id,
+        "version": project_case.version,
+        "region": project_case.region,
+    }
+    input_document = {
+        "projectCase": project_case_document,
+        "scope": {
+            key: (
+                _decimal_text(value)
+                if isinstance(value, Decimal)
+                else value
+            )
+            for key, value in asdict(scope).items()
+        },
+        "priceSnapshot": [
+            {
+                "itemCode": quote.item_code,
+                "unit": quote.unit,
+                "unitPrice": _money(quote.unit_price),
+                "currency": quote.currency,
+                "vatMode": quote.vat_mode,
+                "confidence": _decimal_text(quote.confidence),
+                "source": _source_document(quote.source),
+            }
+            for quote in sorted(prices, key=lambda item: item.item_code)
+        ],
+        "terms": {
+            key: _decimal_text(value)
+            for key, value in asdict(terms).items()
+        },
+        "engineVersion": ENGINE_VERSION,
+        "rulesVersion": TILING_RULES_VERSION,
+    }
+    result = {
+        "schemaId": "kolibri.estimate_calculation",
+        "schemaVersion": "1.0",
+        "engineVersion": ENGINE_VERSION,
+        "rulesVersion": TILING_RULES_VERSION,
         "projectCase": project_case_document,
         "inputHash": content_hash(input_document),
         "technologyCard": technology_card.as_document(),

@@ -24,13 +24,16 @@ from .estimate_artifact import (
 from .estimate_engine import (
     ENGINE_VERSION,
     PLASTER_RULES_VERSION,
+    TILING_RULES_VERSION,
     CommercialTerms,
     EstimateEngineError,
     PlasteringScope,
     PriceQuote,
     PriceSource,
     ProjectCaseRef,
+    TilingScope,
     calculate_plastering_estimate,
+    calculate_tiling_estimate,
     canonical_json,
     content_hash,
 )
@@ -143,6 +146,51 @@ class CommercialTermsInput(ContractModel):
         alias="discountPercent",
     )
     tax_percent: DecimalText = Field(default="0", alias="taxPercent")
+
+
+class TilingScopeInput(ContractModel):
+    floor_area_m2: DecimalText = Field(alias="floorAreaM2")
+    wall_area_m2: DecimalText = Field(alias="wallAreaM2")
+    tile_format_mm: int = Field(alias="tileFormatMm")
+    work_type: Literal["floor_and_walls", "floor_only", "walls_only"] = Field(
+        alias="workType"
+    )
+    grout_joint_width_mm: DecimalText = Field(alias="groutJointWidthMm")
+    trowel_notch_mm: DecimalText = Field(alias="trowelNotchMm")
+    tile_thickness_mm: DecimalText = Field(alias="tileThicknessMm")
+    waste_percent: DecimalText = Field(alias="wastePercent")
+    waterproofing_area_m2: DecimalText = Field(alias="waterproofingAreaM2")
+    waterproofing_coats: int = Field(alias="waterproofingCoats", ge=1, le=4)
+    deduct_area_m2: DecimalText = Field(alias="deductAreaM2")
+    adhesive_bag_weight_kg: DecimalText = Field(alias="adhesiveBagWeightKg")
+    grout_bag_weight_kg: DecimalText = Field(alias="groutBagWeightKg")
+
+
+class TilingCalculationInput(ContractModel):
+    expected_estimate_version: int = Field(
+        alias="expectedEstimateVersion",
+        ge=1,
+    )
+    region: str = Field(min_length=1, max_length=160)
+    title: str = Field(min_length=1, max_length=240)
+    assumptions: list[str] = Field(default_factory=list, max_length=20)
+    scope: TilingScopeInput
+    prices: list[PriceQuoteInput] = Field(max_length=200)
+    terms: CommercialTermsInput = Field(default_factory=CommercialTermsInput)
+    source_message_id: str | None = Field(
+        default=None,
+        alias="sourceMessageId",
+        pattern=r"^message_[A-Za-z0-9._~-]{8,96}$",
+    )
+    source_run_id: str | None = Field(
+        default=None,
+        alias="sourceRunId",
+        pattern=RUN_ID.pattern,
+    )
+    require_release_ready: bool = Field(
+        default=False,
+        alias="requireReleaseReady",
+    )
 
 
 class PlasteringCalculationInput(ContractModel):
@@ -816,6 +864,318 @@ def calculate_plastering(
                 estimate_version,
                 ENGINE_VERSION,
                 PLASTER_RULES_VERSION,
+                (
+                    "complete"
+                    if result["validation"]["status"] == "passed"
+                    else "blocked"
+                ),
+                result["inputHash"],
+                result["resultHash"],
+                canonical_json(result),
+                identity.user_id,
+                now,
+            ),
+        )
+        database.execute(
+            """
+            INSERT INTO api_command_idempotency (
+                tenant_id, operation, key_hash, request_hash,
+                result_type, result_id, created_by_user_id, created_at
+            ) VALUES (?, ?, ?, ?, 'estimate_calculation', ?, ?, ?)
+            """,
+            (
+                identity.tenant_id,
+                operation,
+                key_hash,
+                request_hash,
+                calculation_id,
+                identity.user_id,
+                now,
+            ),
+        )
+        database.execute(
+            """
+            INSERT INTO audit_events (
+                tenant_id, id, actor_user_id, action, subject_type,
+                subject_id, project_id, metadata_json, created_at
+            ) VALUES (?, ?, ?, 'estimate.calculated',
+                      'estimate_calculation', ?, ?, ?, ?)
+            """,
+            (
+                identity.tenant_id,
+                f"audit_{uuid.uuid4().hex}",
+                identity.user_id,
+                calculation_id,
+                project_id,
+                canonical_json(
+                    {
+                        "projectCaseId": case_id,
+                        "projectCaseVersion": case_version,
+                        "estimateVersion": estimate_version,
+                        "inputHash": result["inputHash"],
+                        "resultHash": result["resultHash"],
+                        "validationStatus": result["validation"]["status"],
+                    }
+                ),
+                now,
+            ),
+        )
+        database.execute(
+            """
+            UPDATE projects
+            SET updated_at = ?
+            WHERE tenant_id = ? AND id = ?
+            """,
+            (now, identity.tenant_id, project_id),
+        )
+        response = _response_for_calculation(
+            database,
+            tenant_id=identity.tenant_id,
+            calculation_id=calculation_id,
+            replayed=False,
+        )
+    return response
+
+
+def _tiling_scope(value: TilingScopeInput) -> TilingScope:
+    return TilingScope(
+        floor_area_m2=Decimal(value.floor_area_m2),
+        wall_area_m2=Decimal(value.wall_area_m2),
+        tile_format_mm=value.tile_format_mm,
+        work_type=value.work_type,
+        grout_joint_width_mm=Decimal(value.grout_joint_width_mm),
+        trowel_notch_mm=Decimal(value.trowel_notch_mm),
+        tile_thickness_mm=Decimal(value.tile_thickness_mm),
+        waste_percent=Decimal(value.waste_percent),
+        waterproofing_area_m2=Decimal(value.waterproofing_area_m2),
+        waterproofing_coats=value.waterproofing_coats,
+        deduct_area_m2=Decimal(value.deduct_area_m2),
+        adhesive_bag_weight_kg=Decimal(value.adhesive_bag_weight_kg),
+        grout_bag_weight_kg=Decimal(value.grout_bag_weight_kg),
+    )
+
+
+@router.post(
+    "/{project_id}/estimate/calculations/tiling",
+    status_code=status.HTTP_201_CREATED,
+)
+def calculate_tiling(
+    project_id: str,
+    payload: TilingCalculationInput,
+    database: DatabaseDependency,
+    identity: IdentityDependency,
+    _auth: MutationAuthDependency,
+    idempotency_key: IdempotencyDependency,
+) -> dict[str, Any]:
+    if not PROJECT_ID.fullmatch(project_id):
+        raise _error(
+            status.HTTP_404_NOT_FOUND,
+            "project_not_found",
+            "Проект не найден.",
+        )
+    operation = f"estimate.calculate.tiling:{project_id}"
+    request_hash = _request_hash(payload)
+    key_hash = _key_hash(idempotency_key)
+    with transaction(database, immediate=True):
+        previous = database.execute(
+            """
+            SELECT request_hash, result_id
+            FROM api_command_idempotency
+            WHERE tenant_id = ? AND operation = ? AND key_hash = ?
+            LIMIT 1
+            """,
+            (identity.tenant_id, operation, key_hash),
+        ).fetchone()
+        if previous is not None:
+            if str(previous["request_hash"]) != request_hash:
+                raise _error(
+                    status.HTTP_409_CONFLICT,
+                    "idempotency_conflict",
+                    "Этот ключ уже использован для другого входа.",
+                )
+            return _response_for_calculation(
+                database,
+                tenant_id=identity.tenant_id,
+                calculation_id=str(previous["result_id"]),
+                replayed=True,
+            )
+
+        slot = load_estimate_slot(
+            database,
+            tenant_id=identity.tenant_id,
+            project_id=project_id,
+        )
+        if slot is None:
+            raise _error(
+                status.HTTP_404_NOT_FOUND,
+                "estimate_not_found",
+                "Смета проекта не найдена.",
+            )
+        if int(slot["version"]) != payload.expected_estimate_version:
+            raise _error(
+                status.HTTP_409_CONFLICT,
+                "estimate_version_conflict",
+                "Смета уже изменилась. Обновите данные перед расчётом.",
+            )
+        case_id = _case_id(database, identity.tenant_id, project_id)
+        case_version = int(
+            database.execute(
+                """
+                SELECT COALESCE(MAX(version), 0) + 1
+                FROM project_cases
+                WHERE tenant_id = ? AND project_id = ?
+                """,
+                (identity.tenant_id, project_id),
+            ).fetchone()[0]
+        )
+        snapshot = _project_snapshot(
+            database,
+            identity=identity,
+            project_id=project_id,
+            case_id=case_id,
+            case_version=case_version,
+            payload=payload,
+        )
+        calculation_id = f"calculation_{uuid.uuid4().hex}"
+        technology_card_id = f"technology_card_{uuid.uuid4().hex}"
+        try:
+            result = calculate_tiling_estimate(
+                project_case=ProjectCaseRef(
+                    tenant_id=identity.tenant_id,
+                    project_id=project_id,
+                    case_id=case_id,
+                    version=case_version,
+                    region=payload.region,
+                ),
+                scope=_tiling_scope(payload.scope),
+                prices=_quotes(payload.prices),
+                terms=_terms(payload.terms),
+                require_complete_prices=payload.require_release_ready,
+            )
+        except EstimateEngineError as exc:
+            raise _error(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                "estimate_calculation_invalid",
+                str(exc),
+            ) from exc
+        now = _now(database)
+        technology_card = result["technologyCard"]
+        database.execute(
+            """
+            INSERT INTO project_cases (
+                tenant_id, id, project_id, version, status, region,
+                snapshot_json, content_hash, source_message_id,
+                created_by_user_id, created_at
+            ) VALUES (?, ?, ?, ?, 'ready', ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                identity.tenant_id,
+                case_id,
+                project_id,
+                case_version,
+                payload.region,
+                canonical_json(snapshot),
+                content_hash(snapshot),
+                payload.source_message_id,
+                identity.user_id,
+                now,
+            ),
+        )
+        database.execute(
+            """
+            INSERT INTO technology_cards (
+                tenant_id, id, project_id, project_case_id,
+                project_case_version, rules_version, status,
+                content_json, content_hash, created_by_user_id, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, 'ready', ?, ?, ?, ?)
+            """,
+            (
+                identity.tenant_id,
+                technology_card_id,
+                project_id,
+                case_id,
+                case_version,
+                TILING_RULES_VERSION,
+                canonical_json(technology_card),
+                content_hash(technology_card),
+                identity.user_id,
+                now,
+            ),
+        )
+        current = parse_estimate_document(
+            slot["content_json"],
+            now=str(slot["updated_at"]),
+        )
+        estimate_version = (
+            int(slot["version"]) + 1
+            if current["rows"]
+            else int(slot["version"])
+        )
+        document = _estimate_document(
+            payload=payload,
+            result=result,
+            calculation_id=calculation_id,
+            now=now,
+        )
+        updated = database.execute(
+            """
+            UPDATE document_slots
+            SET version = ?, status = 'draft', content_json = ?, updated_at = ?
+            WHERE tenant_id = ? AND id = ? AND version = ?
+            """,
+            (
+                estimate_version,
+                canonical_estimate_json(document),
+                now,
+                identity.tenant_id,
+                slot["id"],
+                payload.expected_estimate_version,
+            ),
+        )
+        if updated.rowcount != 1:
+            raise _error(
+                status.HTTP_409_CONFLICT,
+                "estimate_version_conflict",
+                "Смета уже изменилась. Обновите данные перед расчётом.",
+            )
+        record_estimate_version(
+            database,
+            tenant_id=identity.tenant_id,
+            project_id=project_id,
+            document_id=str(slot["id"]),
+            version=estimate_version,
+            status="draft",
+            document=document,
+            origin_type="engine_calculation",
+            origin_run_id=(
+                str(snapshot["sourceRunId"])
+                if snapshot["sourceRunId"] is not None
+                else None
+            ),
+            created_by_user_id=identity.user_id,
+            created_at=now,
+        )
+        database.execute(
+            """
+            INSERT INTO estimate_calculations (
+                tenant_id, id, project_id, project_case_id,
+                project_case_version, technology_card_id, document_id,
+                estimate_version, engine_version, rules_version, status,
+                input_hash, result_hash, result_json,
+                created_by_user_id, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                identity.tenant_id,
+                calculation_id,
+                project_id,
+                case_id,
+                case_version,
+                technology_card_id,
+                slot["id"],
+                estimate_version,
+                ENGINE_VERSION,
+                TILING_RULES_VERSION,
                 (
                     "complete"
                     if result["validation"]["status"] == "passed"

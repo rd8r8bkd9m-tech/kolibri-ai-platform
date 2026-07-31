@@ -754,6 +754,89 @@ def _history(
     ]
 
 
+def _project_chat_context(
+    database: sqlite3.Connection,
+    accepted: AcceptedRunLike,
+) -> str:
+    """Build a small, tenant-scoped factual context for the current project."""
+
+    project = database.execute(
+        """
+        SELECT title, status
+        FROM projects
+        WHERE tenant_id = ? AND id = ?
+        LIMIT 1
+        """,
+        (accepted.tenant_id, accepted.project_id),
+    ).fetchone()
+    if project is None:
+        return "Контекст проекта отсутствует."
+
+    construction_object = database.execute(
+        """
+        SELECT name
+        FROM construction_objects
+        WHERE tenant_id = ? AND project_id = ?
+        LIMIT 1
+        """,
+        (accepted.tenant_id, accepted.project_id),
+    ).fetchone()
+    parties = database.execute(
+        """
+        SELECT links.role, counterparties.display_name
+        FROM project_parties AS links
+        JOIN counterparties
+          ON counterparties.tenant_id = links.tenant_id
+         AND counterparties.id = links.counterparty_id
+        WHERE links.tenant_id = ? AND links.project_id = ?
+          AND links.is_primary = 1 AND links.status = 'active'
+        ORDER BY links.role
+        """,
+        (accepted.tenant_id, accepted.project_id),
+    ).fetchall()
+    documents = database.execute(
+        """
+        SELECT slot_type, status, version
+        FROM document_slots
+        WHERE tenant_id = ? AND project_id = ?
+        ORDER BY slot_type
+        """,
+        (accepted.tenant_id, accepted.project_id),
+    ).fetchall()
+    payload = {
+        "project": {
+            "name": str(project["title"]),
+            "status": str(project["status"]),
+        },
+        "object": (
+            {"name": str(construction_object["name"])}
+            if construction_object is not None
+            else None
+        ),
+        "primaryParties": [
+            {
+                "role": str(row["role"]),
+                "name": str(row["display_name"]),
+            }
+            for row in parties
+        ],
+        "documents": [
+            {
+                "type": str(row["slot_type"]),
+                "status": str(row["status"]),
+                "version": int(row["version"]),
+            }
+            for row in documents
+        ],
+    }
+    return json.dumps(
+        payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+
+
 def _connected_profile(
     database: sqlite3.Connection,
     accepted: AcceptedRunLike,
@@ -2529,6 +2612,7 @@ def execute_direct_run(
         ):
             return
         messages = _history(database, accepted)
+        project_chat_context = _project_chat_context(database, accepted)
         selected_profile = str(run["selected_profile"])
         execution_context_present = run["context_run_id"] is not None
         frozen_model = str(run["model_id"]) if run["model_id"] is not None else None
@@ -3092,7 +3176,10 @@ def execute_direct_run(
             credential_tenant_id=credential_tenant_id,
             initial_prompt=(
                 "Ниже канонический снимок разговора Kolibri. "
-                "Ответь на последний запрос пользователя.\n\n"
+                "Ответь на последний запрос пользователя. Ниже также дан "
+                "серверный контекст текущего проекта: используй только "
+                "указанные факты и прямо отмечай отсутствующие сведения.\n\n"
+                f"Серверный контекст проекта:\n{project_chat_context}\n\n"
                 f"{conversation}"
             ),
             instructions=AGENT_CHAT_INSTRUCTIONS,
