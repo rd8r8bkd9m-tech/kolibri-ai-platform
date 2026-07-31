@@ -212,12 +212,7 @@ print(json.dumps({
         / "mimo-runtime/home/.local/share/mimocode/auth.json"
     ).read_bytes() == b'{"opaque":"test-login"}'
     assert deltas == ["MiMo completed.", "MiMo completed."]
-    assert [phase for phase, _item in activities] == [
-        "started",
-        "completed",
-        "started",
-        "completed",
-    ]
+    assert activities == []
     assert runtime.inspect() == {
         "server_url": "http://127.0.0.1:49291",
         "server_pid": None,
@@ -233,6 +228,71 @@ print(json.dumps({
             "tenant:test-thread": "ses_persistent_test_01",
         },
     }
+
+
+def test_mimo_jsonl_is_normalized_to_codex_style_live_events(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runtime, _observation, _aborts = _attached_runtime(
+        tmp_path,
+        monkeypatch,
+        script_body="""
+import json
+import sys
+
+sys.stdin.read()
+session_id = "ses_presentation_adapter_01"
+print(json.dumps({
+    "type": "tool_use",
+    "sessionID": session_id,
+    "part": {
+        "type": "tool",
+        "tool": "bash",
+        "callID": "call_pwd_01",
+        "state": {
+            "status": "completed",
+            "input": {"command": "pwd"},
+            "metadata": {"exit": 0},
+            "time": {"start": 1000, "end": 1025},
+        },
+    },
+}), flush=True)
+print(json.dumps({
+    "type": "text",
+    "sessionID": session_id,
+    "part": {"type": "text", "text": "NORMALIZED_OK"},
+}), flush=True)
+""",
+    )
+    deltas: list[str] = []
+    activities: list[tuple[str, dict[str, object]]] = []
+
+    result = runtime.complete(
+        workspace_root=tmp_path,
+        prompt="Run pwd.",
+        run_id="run-presentation-adapter-01",
+        conversation_key="tenant:presentation-thread",
+        timeout=10,
+        access_mode="full",
+        on_delta=deltas.append,
+        on_activity=lambda phase, item: activities.append((phase, item)),
+    )
+
+    assert result.text == "NORMALIZED_OK"
+    assert deltas == ["NORMALIZED_OK"]
+    assert [phase for phase, _item in activities] == [
+        "started",
+        "completed",
+    ]
+    started = activities[0][1]
+    completed = activities[1][1]
+    assert started["type"] == completed["type"] == "commandExecution"
+    assert started["command"] == completed["command"] == "pwd"
+    assert started["status"] == "inProgress"
+    assert completed["status"] == "completed"
+    assert completed["exitCode"] == 0
+    assert completed["durationMs"] == 25
 
 
 def test_runtime_starts_one_server_for_its_lifespan(
