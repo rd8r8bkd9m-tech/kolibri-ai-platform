@@ -288,6 +288,7 @@ export function WorkspaceSidebar({
               aria-label="Диалоги пользователя"
               className="pl-0.5"
               onClickCapture={(event) => {
+                if (!isOverlay) return;
                 const trigger =
                   event.target instanceof Element
                     ? event.target.closest(
