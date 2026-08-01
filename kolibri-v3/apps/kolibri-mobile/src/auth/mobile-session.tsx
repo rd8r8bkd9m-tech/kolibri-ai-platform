@@ -19,6 +19,14 @@ const rawApiBase =
 	process.env.EXPO_PUBLIC_API_BASE_URL ?? "https://kolibriai.ru";
 const parsedApiBase = new URL(rawApiBase);
 
+// Expo Web normally reports `Platform.OS === "web"`. Keep the browser
+// runtime check as a second guard because a stale/native-compatible bundle can
+// otherwise load expo-secure-store and call its native bridge on the Web.
+// Refresh tokens remain in the browser's origin-scoped storage in that case;
+// native platforms continue to use the OS keychain below.
+const isWebRuntime =
+	Platform.OS === "web" || typeof globalThis.window !== "undefined";
+
 const isLoopbackHost = (hostname: string) => {
 	const normalized = hostname.toLowerCase().replace(/^\[(.*)\]$/, "$1");
 	return (
@@ -30,7 +38,7 @@ const isLoopbackHost = (hostname: string) => {
 };
 
 const localWebDevelopment =
-	Platform.OS === "web" &&
+	isWebRuntime &&
 	process.env.NODE_ENV !== "production" &&
 	isLoopbackHost(parsedApiBase.hostname);
 
@@ -48,7 +56,7 @@ const nativeFetch = expoFetch as unknown as typeof globalThis.fetch;
 
 const browserRefreshTokenStorage = {
 	get(): string | null {
-		if (Platform.OS !== "web") return null;
+		if (!isWebRuntime) return null;
 		try {
 			return globalThis.localStorage.getItem(REFRESH_TOKEN_KEY);
 		} catch {
@@ -56,7 +64,7 @@ const browserRefreshTokenStorage = {
 		}
 	},
 	set(value: string) {
-		if (Platform.OS !== "web") return;
+		if (!isWebRuntime) return;
 		try {
 			globalThis.localStorage.setItem(REFRESH_TOKEN_KEY, value);
 		} catch {
@@ -65,7 +73,7 @@ const browserRefreshTokenStorage = {
 		}
 	},
 	clear() {
-		if (Platform.OS !== "web") return;
+		if (!isWebRuntime) return;
 		try {
 			globalThis.localStorage.removeItem(REFRESH_TOKEN_KEY);
 		} catch {
@@ -75,12 +83,12 @@ const browserRefreshTokenStorage = {
 };
 
 const getRefreshToken = async () =>
-	Platform.OS === "web"
+	isWebRuntime
 		? browserRefreshTokenStorage.get()
 		: await SecureStore.getItemAsync(REFRESH_TOKEN_KEY);
 
 const setRefreshToken = async (value: string) => {
-	if (Platform.OS === "web") {
+	if (isWebRuntime) {
 		browserRefreshTokenStorage.set(value);
 		return;
 	}
@@ -90,7 +98,7 @@ const setRefreshToken = async (value: string) => {
 };
 
 const clearRefreshToken = async () => {
-	if (Platform.OS === "web") {
+	if (isWebRuntime) {
 		browserRefreshTokenStorage.clear();
 		return;
 	}
@@ -98,7 +106,7 @@ const clearRefreshToken = async () => {
 };
 
 const withRefreshTokenLock = async <T,>(operation: () => Promise<T>) => {
-	if (Platform.OS !== "web") return operation();
+	if (!isWebRuntime) return operation();
 	const locks = (
 		globalThis as typeof globalThis & {
 			navigator?: {
@@ -379,7 +387,7 @@ export function MobileSessionProvider({ children }: PropsWithChildren) {
 
 		const operation = withRefreshTokenLock(async () => {
 			const refreshToken =
-				Platform.OS === "web"
+				isWebRuntime
 					? await getRefreshToken()
 					: refreshTokenRef.current ?? (await getRefreshToken());
 			if (!refreshToken) {
@@ -460,7 +468,7 @@ export function MobileSessionProvider({ children }: PropsWithChildren) {
 
 	const logout = useCallback(async () => {
 		const refreshToken =
-			Platform.OS === "web"
+			isWebRuntime
 				? await getRefreshToken()
 				: refreshTokenRef.current ?? (await getRefreshToken());
 		try {

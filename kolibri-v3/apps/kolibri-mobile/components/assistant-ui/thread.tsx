@@ -113,8 +113,11 @@ export function Thread() {
 }
 
 const styles = StyleSheet.create({
-	root: { flex: 1 },
-	flex: { flex: 1 },
+	// RN Web maps the chat list to a CSS flex child. Without an explicit
+	// min-height of zero, the child can refuse to shrink and gestures are sent
+	// to the page/drawer instead of the list once a conversation grows.
+	root: { flex: 1, minHeight: 0, minWidth: 0 },
+	flex: { flex: 1, minHeight: 0, minWidth: 0 },
 	empty: {
 		flex: 1,
 		paddingBottom: 8,
@@ -139,6 +142,7 @@ const styles = StyleSheet.create({
 	messageList: {
 		alignSelf: "center",
 		gap: 18,
+		flexGrow: 1,
 		maxWidth: Layout.threadMaxWidth,
 		paddingHorizontal: 14,
 		paddingVertical: 20,

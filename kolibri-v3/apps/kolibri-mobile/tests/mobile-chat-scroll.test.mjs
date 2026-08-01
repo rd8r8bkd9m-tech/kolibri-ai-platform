@@ -17,4 +17,7 @@ test("the pet overlay lets mobile chat gestures reach the message list", () => {
 
 	assert.match(thread, /<ThreadPrimitive\.MessagesFlatList/);
 	assert.match(thread, /style=\{styles\.flex\}/);
+	assert.match(thread, /root: \{ flex: 1, minHeight: 0, minWidth: 0 \}/);
+	assert.match(thread, /flex: \{ flex: 1, minHeight: 0, minWidth: 0 \}/);
+	assert.match(thread, /flexGrow: 1/);
 });

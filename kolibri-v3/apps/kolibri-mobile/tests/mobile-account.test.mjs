@@ -33,6 +33,10 @@ test("mobile navigation opens the real bearer-backed account route", () => {
 	assert.match(session, /refreshProfile/);
 	assert.match(session, /navigator\?\.locks/);
 	assert.match(session, /locks\.request\(REFRESH_TOKEN_LOCK, operation\)/);
+	assert.match(
+		session,
+		/Platform\.OS === "web" \|\| typeof globalThis\.window !== "undefined"/,
+	);
 });
 
 test("PWA billing uses hosted T-Bank checkout without leaking into native stores", () => {
