@@ -21,6 +21,13 @@ test("billing BFF exposes only the canonical bounded V3 routes", () => {
     paymentReturn: read(
       "app/api/v3/billing/tbank/return/[intentId]/route.ts",
     ),
+    adminConfig: read("app/api/superadmin/billing/config/route.ts"),
+    adminPlans: read("app/api/superadmin/billing/plans/route.ts"),
+    adminPayments: read("app/api/superadmin/billing/payments/route.ts"),
+    adminSubscriptions: read(
+      "app/api/superadmin/billing/subscriptions/route.ts",
+    ),
+    adminAudit: read("app/api/superadmin/billing/audit/route.ts"),
   };
   const combined = Object.values(routes).join("\n");
 
@@ -58,7 +65,25 @@ test("billing BFF exposes only the canonical bounded V3 routes", () => {
 	assert.match(routes.paymentReturn, /destinationPath\s*=\s*returnSurface/);
 	assert.match(routes.paymentReturn, /Location:\s*`\$\{destinationPath\}\?/);
 	assert.doesNotMatch(routes.paymentReturn, /new URL\([^)]*request\.url/);
-	assert.match(routes.paymentReturn, /fetchV3Backend/);
+  assert.match(routes.paymentReturn, /fetchV3Backend/);
+  assert.match(routes.adminConfig, /platform-admin\/billing\/config/);
+  assert.match(routes.adminPlans, /platform-admin\/billing\/plans/);
+  assert.match(routes.adminPayments, /platform-admin\/billing\/payments/);
+  assert.match(
+    routes.adminSubscriptions,
+    /platform-admin\/billing\/subscriptions/,
+  );
+  assert.match(routes.adminAudit, /platform-admin\/billing\/audit/);
+  for (const route of [
+    routes.adminConfig,
+    routes.adminPlans,
+    routes.adminPayments,
+    routes.adminSubscriptions,
+    routes.adminAudit,
+  ]) {
+    assert.match(route, /proxyV3JsonRequest/);
+    assert.match(route, /method:\s*["']GET["']/);
+  }
   assert.match(combined, /proxyV3JsonRequest/);
   assert.doesNotMatch(
     combined,
@@ -76,9 +101,11 @@ test("billing account UI follows the server-backed hosted checkout", () => {
 	);
 
 	assert.match(client, /["']Idempotency-Key["']/);
+	assert.match(client, /returnSurface/);
 	assert.match(client, /paymentUrl/);
 	assert.match(state, /sessionStorage/);
 	assert.match(state, /window\.location\.assign\(nextPayment\.paymentUrl\)/);
+	assert.match(state, /returnSurface/);
 	assert.match(state, /getBillingPayment/);
 	assert.match(section, /Оплата пока не подключена/);
 	assert.match(section, /без автоматического продления/);

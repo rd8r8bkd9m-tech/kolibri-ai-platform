@@ -9,10 +9,11 @@ from urllib.parse import parse_qs, urlsplit
 import httpx
 import pytest
 from app.billing.config import TBankSettings
-from app.billing.service import _provider_payload
+from app.billing.service import _provider_payload, _target_status
 from app.billing.tbank import (
     TBankGateway,
     TBankProtocolError,
+    VerifiedNotification,
     make_token,
     verify_notification,
 )
@@ -183,6 +184,9 @@ def test_tbank_configuration_fences_real_charges_and_redacts_secret() -> None:
     assert "not-visible-in-repr" not in repr(settings)
     assert settings.base_url == "https://rest-api-test.tinkoff.ru/v2"
 
+    with pytest.raises(ValueError, match="credentials are incomplete"):
+        TBankSettings.for_testing(password="x" * 21)
+
     with pytest.raises(ValueError, match="real charges are not confirmed"):
         TBankSettings(
             enabled=True,
@@ -271,6 +275,21 @@ def test_required_receipt_uses_approved_minor_units_and_fiscal_fields() -> None:
     assert make_token(payload, gateway.settings.password) == make_token(
         without_receipt, gateway.settings.password
     )
+
+
+@pytest.mark.parametrize("status", ["PARTIAL_REVERSED", "PARTIAL_REFUNDED"])
+def test_partial_reversal_is_not_misclassified_as_canceled(status: str) -> None:
+    notification = VerifiedNotification(
+        terminal_key="TestMerchantTerminal",
+        order_id="order",
+        payment_id="1",
+        status=status,
+        success=True,
+        error_code="0",
+        amount_minor=19900,
+        event_digest="a" * 64,
+    )
+    assert _target_status(notification) == "partially_refunded"
 
 
 def test_billing_migration_is_append_only_empty_catalog_and_fenced(
@@ -363,6 +382,13 @@ def test_hosted_payment_webhook_replay_refund_and_admin_contracts(
             json={"planCode": "kolibri.pro.monthly"},
         )
         assert no_csrf.status_code == 403
+
+        invalid_key = customer.post(
+            "/v1/billing/payment-intents",
+            headers=_mutation_headers(customer, key="billing key with spaces"),
+            json={"planCode": "kolibri.pro.monthly"},
+        )
+        assert invalid_key.status_code == 422
 
         initialized = customer.post(
             "/v1/billing/payment-intents",
@@ -576,6 +602,7 @@ def test_hosted_payment_webhook_replay_refund_and_admin_contracts(
             email="other@example.com",
             name="Other tenant",
         )
+        assert another_tenant.get("/v1/platform-admin/billing/plans").status_code == 403
         hidden = another_tenant.get(
             f"/v1/billing/payment-intents/{payment['id']}"
         )
@@ -592,6 +619,15 @@ def test_hosted_payment_webhook_replay_refund_and_admin_contracts(
             "receiptMode": "disabled",
             "productionConfirmed": False,
         }
+        catalog = owner.get("/v1/platform-admin/billing/plans")
+        assert catalog.status_code == 200
+        assert catalog.headers["cache-control"] == "no-store"
+        assert [item["code"] for item in catalog.json()["items"]] == [
+            "kolibri.pro.monthly",
+            "kolibri.team.monthly",
+        ]
+        assert catalog.json()["items"][0]["active"] is True
+        assert catalog.json()["items"][0]["entitlementActive"] is True
         payments = owner.get("/v1/platform-admin/billing/payments")
         assert payments.status_code == 200
         [admin_payment] = payments.json()["items"]

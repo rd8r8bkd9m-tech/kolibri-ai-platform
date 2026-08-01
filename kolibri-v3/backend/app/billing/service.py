@@ -57,11 +57,16 @@ _FAILED_PROVIDER_STATUSES = frozenset(
     {"REJECTED", "AUTH_FAIL", "DEADLINE_EXPIRED"}
 )
 _CANCELED_PROVIDER_STATUSES = frozenset(
-    {"CANCELED", "REVERSED", "PARTIAL_REVERSED"}
+    {"CANCELED", "REVERSED"}
 )
 _SUCCESS_PROVIDER_STATUSES = frozenset({"AUTHORIZED", "CONFIRMED"})
 _REFUND_PROVIDER_STATUSES = frozenset(
-    {"REFUNDING", "PARTIAL_REFUNDED", "REFUNDED"}
+    {
+        "REFUNDING",
+        "PARTIAL_REVERSED",
+        "PARTIAL_REFUNDED",
+        "REFUNDED",
+    }
 )
 
 
@@ -208,6 +213,63 @@ def plan_views(database: sqlite3.Connection) -> list[dict[str, Any]]:
             "durationSeconds": int(row["duration_seconds"]),
             "entitlement": str(row["entitlement_code"]),
             "revision": int(row["revision"]),
+        }
+        for row in rows
+    ]
+
+
+def admin_plan_views(database: sqlite3.Connection) -> list[dict[str, Any]]:
+    """Return the complete server-owned catalog for the platform owner.
+
+    The public catalog intentionally hides inactive and unapproved rows.  The
+    owner view needs those rows to explain why checkout is unavailable and to
+    audit a revision before an operator publishes it.  It never includes a
+    provider secret or a payment URL, and it remains read-only: commercial
+    terms are changed through an append-only, reviewed operation.
+    """
+
+    rows = database.execute(
+        """
+        SELECT
+            plan.code,
+            plan.display_name,
+            plan.amount_minor,
+            plan.currency,
+            plan.duration_seconds,
+            plan.entitlement_code,
+            entitlement.active AS entitlement_active,
+            plan.receipt_item_name,
+            plan.receipt_tax,
+            plan.receipt_payment_method,
+            plan.receipt_payment_object,
+            plan.active,
+            plan.revision,
+            plan.created_at,
+            plan.updated_at
+        FROM billing_plans AS plan
+        JOIN billing_entitlement_catalog AS entitlement
+          ON entitlement.code = plan.entitlement_code
+        ORDER BY plan.code, plan.revision DESC
+        LIMIT 100
+        """
+    ).fetchall()
+    return [
+        {
+            "code": str(row["code"]),
+            "name": str(row["display_name"]),
+            "amountMinor": int(row["amount_minor"]),
+            "currency": str(row["currency"]),
+            "durationSeconds": int(row["duration_seconds"]),
+            "entitlement": str(row["entitlement_code"]),
+            "entitlementActive": bool(row["entitlement_active"]),
+            "receiptItemName": str(row["receipt_item_name"]),
+            "receiptTax": str(row["receipt_tax"]),
+            "receiptPaymentMethod": str(row["receipt_payment_method"]),
+            "receiptPaymentObject": str(row["receipt_payment_object"]),
+            "active": bool(row["active"]),
+            "revision": int(row["revision"]),
+            "createdAt": int(row["created_at"]),
+            "updatedAt": int(row["updated_at"]),
         }
         for row in rows
     ]
@@ -637,9 +699,15 @@ def _target_status(notification: VerifiedNotification) -> str | None:
         return "failed"
     if provider_status in _CANCELED_PROVIDER_STATUSES:
         return "canceled"
+    # T-Bank uses PARTIAL_REVERSED for a partial cancellation of an
+    # AUTHORIZED payment and PARTIAL_REFUNDED for a partial refund of a
+    # CONFIRMED payment. Both are financial reversals, not a canceled order:
+    # preserving the partial state keeps the subscription grant alive until
+    # the operator receives a full REFUNDED event (or another subscription
+    # covers the same entitlement).
     if provider_status == "REFUNDING":
         return "succeeded"
-    if provider_status == "PARTIAL_REFUNDED":
+    if provider_status in {"PARTIAL_REVERSED", "PARTIAL_REFUNDED"}:
         return "partially_refunded"
     if provider_status == "REFUNDED":
         return "refunded"

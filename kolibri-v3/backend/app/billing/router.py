@@ -19,6 +19,7 @@ from .config import TBankSettings
 from .service import (
     BillingError,
     admin_audit_views,
+    admin_plan_views,
     admin_payment_views,
     apply_notification,
     create_payment,
@@ -42,7 +43,12 @@ OwnerDependency = Annotated[UserSession, Depends(require_owner)]
 MutationDependency = Annotated[None, Depends(require_mutation_auth)]
 IdempotencyDependency = Annotated[
     str,
-    Header(alias="Idempotency-Key", min_length=16, max_length=128),
+    Header(
+        alias="Idempotency-Key",
+        min_length=16,
+        max_length=128,
+        pattern=r"^[A-Za-z0-9._:-]{16,128}$",
+    ),
 ]
 _INTENT_ID = re.compile(r"^payment_intent_[0-9a-f]{32}$")
 _MAX_NOTIFICATION_BYTES = 65_536
@@ -73,6 +79,28 @@ class BillingPlanView(APIModel):
 
 class BillingPlanListView(APIModel):
     items: list[BillingPlanView]
+
+
+class BillingAdminPlanView(APIModel):
+    code: str
+    name: str
+    amount_minor: int = Field(alias="amountMinor")
+    currency: Literal["RUB"]
+    duration_seconds: int = Field(alias="durationSeconds")
+    entitlement: str
+    entitlement_active: bool = Field(alias="entitlementActive")
+    receipt_item_name: str = Field(alias="receiptItemName")
+    receipt_tax: str = Field(alias="receiptTax")
+    receipt_payment_method: str = Field(alias="receiptPaymentMethod")
+    receipt_payment_object: str = Field(alias="receiptPaymentObject")
+    active: bool
+    revision: int
+    created_at: int = Field(alias="createdAt")
+    updated_at: int = Field(alias="updatedAt")
+
+
+class BillingAdminPlanListView(APIModel):
+    items: list[BillingAdminPlanView]
 
 
 class CreatePaymentRequest(APIModel):
@@ -444,6 +472,21 @@ def billing_configuration(
         "receiptMode": settings.receipt_mode,
         "productionConfirmed": settings.production_confirmed,
     }
+
+
+@router.get(
+    "/v1/platform-admin/billing/plans",
+    response_model=BillingAdminPlanListView,
+)
+def admin_billing_plans(
+    response: Response,
+    database: DatabaseDependency,
+    _owner: OwnerDependency,
+) -> dict[str, object]:
+    """Expose the complete catalog to the owner without enabling mutations."""
+
+    _no_store(response)
+    return {"items": admin_plan_views(database)}
 
 
 @router.get(

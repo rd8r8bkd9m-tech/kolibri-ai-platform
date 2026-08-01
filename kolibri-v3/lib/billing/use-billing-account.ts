@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
 	type BillingPaymentIntent,
 	type BillingPlan,
+	type BillingReturnSurface,
 	type BillingSubscription,
 	createBillingIdempotencyKey,
 	createBillingPayment,
@@ -30,12 +31,28 @@ type CheckoutDraft = {
 	idempotencyKey: string;
 	intentId?: string;
 	planCode: string;
+	returnSurface: BillingReturnSurface;
 };
+
+type BillingAccountOptions = {
+	returnSurface?: BillingReturnSurface;
+};
+
+function detectReturnSurface(): BillingReturnSurface {
+	if (typeof window === "undefined") return "web";
+	const url = new URL(window.location.href);
+	return url.pathname === "/account" || url.searchParams.get("client") === "mobile"
+		? "pwa"
+		: "web";
+}
 
 function readDraft(): CheckoutDraft | null {
 	try {
 		const value = JSON.parse(sessionStorage.getItem(DRAFT_KEY) ?? "null");
 		const age = Date.now() - Number(value?.createdAt);
+		// Drafts created before the PWA return-surface field are still safe to
+		// resume: the backend default was the desktop/web landing path.
+		const returnSurface = value?.returnSurface ?? "web";
 		if (
 			typeof value !== "object" ||
 			value === null ||
@@ -47,13 +64,14 @@ function readDraft(): CheckoutDraft | null {
 			!SAFE_IDEMPOTENCY_KEY.test(value.idempotencyKey) ||
 			typeof value.planCode !== "string" ||
 			!SAFE_PLAN_CODE.test(value.planCode) ||
+			(returnSurface !== "web" && returnSurface !== "pwa") ||
 			(value.intentId !== undefined &&
 				(typeof value.intentId !== "string" ||
 					!SAFE_INTENT_ID.test(value.intentId)))
 		) {
 			return null;
 		}
-		return value as CheckoutDraft;
+		return { ...value, returnSurface } as CheckoutDraft;
 	} catch {
 		return null;
 	}
@@ -84,7 +102,8 @@ function errorMessage(error: unknown) {
 		: "Сервис оплаты временно недоступен.";
 }
 
-export function useBillingAccount() {
+export function useBillingAccount(options: BillingAccountOptions = {}) {
+	const returnSurface = options.returnSurface ?? detectReturnSurface();
 	const checkoutInFlight = useRef(false);
 	const [plans, setPlans] = useState<BillingPlan[]>([]);
 	const [subscriptions, setSubscriptions] = useState<BillingSubscription[]>([]);
@@ -193,18 +212,21 @@ export function useBillingAccount() {
 		setPaymentError(null);
 		const previous = readDraft();
 		const draft =
-			previous?.planCode === planCode
+			previous?.planCode === planCode &&
+			previous.returnSurface === returnSurface
 				? previous
 				: {
 						createdAt: Date.now(),
 						idempotencyKey: createBillingIdempotencyKey(),
 						planCode,
+						returnSurface,
 					};
 		writeDraft(draft);
 		try {
 			const nextPayment = await createBillingPayment(
 				planCode,
 				draft.idempotencyKey,
+				returnSurface,
 			);
 			writeDraft({ ...draft, intentId: nextPayment.id });
 			setPayment(nextPayment);

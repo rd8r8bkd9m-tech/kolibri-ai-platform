@@ -115,7 +115,7 @@ class TBankSettings:
             terminal_key is None
             or len(terminal_key) > 64
             or password is None
-            or len(password) > 256
+            or len(password) > 20
         ):
             raise ValueError("T-Bank server credentials are incomplete")
         object.__setattr__(self, "terminal_key", terminal_key)

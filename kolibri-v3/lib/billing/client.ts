@@ -11,6 +11,8 @@ export type BillingPaymentStatus =
 	| "partially_refunded"
 	| "refunded";
 
+export type BillingReturnSurface = "web" | "pwa";
+
 export type BillingPlan = {
 	code: string;
 	name: string;
@@ -277,15 +279,20 @@ export async function getBillingSubscriptions(signal?: AbortSignal) {
 export async function createBillingPayment(
 	planCode: string,
 	idempotencyKey: string,
+	returnSurface: BillingReturnSurface = "web",
 ) {
-	if (!PLAN_CODE.test(planCode) || idempotencyKey.length < 16) {
+	if (
+		!PLAN_CODE.test(planCode) ||
+		idempotencyKey.length < 16 ||
+		(returnSurface !== "web" && returnSurface !== "pwa")
+	) {
 		throw new BillingApiError(422, "billing_request_invalid", "Тариф не выбран.");
 	}
 	const payment = sanitizePayment(
 		await requestJson("/api/v3/billing/payment-intents", {
 			method: "POST",
-			headers: { "Idempotency-Key": idempotencyKey },
-			body: JSON.stringify({ planCode }),
+		headers: { "Idempotency-Key": idempotencyKey },
+			body: JSON.stringify({ planCode, returnSurface }),
 		}),
 	);
 	if (!payment) {

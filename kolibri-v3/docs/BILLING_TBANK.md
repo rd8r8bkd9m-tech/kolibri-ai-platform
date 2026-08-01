@@ -83,10 +83,11 @@ security boundary токена.
 - entitlement связан с теми же `tenant_id` и `user_id`.
 
 Повтор одного notification digest возвращает `OK`, но не повторяет эффект.
-Запоздалый `AUTHORIZED` не откатывает `CONFIRMED`; `REFUNDED` является более
-поздним состоянием и отзывает только grant с источником `subscription_policy`,
-если нет другой действующей подписки. Частичный возврат помечается отдельно и
-не отзывает весь доступ автоматически. Истекший период перестает
+Запоздалый `AUTHORIZED` не откатывает `CONFIRMED`; частичная отмена
+`PARTIAL_REVERSED` и частичный возврат `PARTIAL_REFUNDED` сохраняют отдельное
+состояние `partially_refunded` и не отзывают grant автоматически. `REFUNDED`
+является более поздним состоянием и отзывает только grant с источником
+`subscription_policy`, если нет другой действующей подписки. Истекший период перестает
 проецироваться в browser/mobile session даже до фоновой уборки строки.
 
 `SuccessURL` и `FailURL` содержат отдельный HMAC-derived nonce. Landing endpoint
@@ -132,6 +133,8 @@ entitlement не активен.
 Platform owner получает redacted read models (payment URL исключен):
 
 - `GET /v1/platform-admin/billing/config`;
+- `GET /v1/platform-admin/billing/plans` — полный серверный каталог, включая
+  неактивные тарифы, текущие ревизии и состояние entitlement (только чтение);
 - `GET /v1/platform-admin/billing/payments`;
 - `GET /v1/platform-admin/billing/subscriptions`;
 - `GET /v1/platform-admin/billing/audit`.
