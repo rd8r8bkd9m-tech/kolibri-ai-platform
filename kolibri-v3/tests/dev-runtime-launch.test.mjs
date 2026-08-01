@@ -147,7 +147,7 @@ test("dev stack restarts only the canonical backend launcher", () => {
   );
   assert.match(
     stackSupervisor,
-    /agentRuntimeContract = "kolibri\.agent-runtime@1\.0"/,
+    /agentRuntimeContract = "kolibri\.agent-runtime@1\.1"/,
   );
   assert.match(
     stackSupervisor,
@@ -226,7 +226,7 @@ test("persistent development delegates only to the canonical supervisor", () => 
   assert.match(persistentLauncher, /'"instanceId":"'/);
   assert.match(
     persistentLauncher,
-    /'"agentRuntimeContract":"kolibri\.agent-runtime@1\.0"'/,
+    /'"agentRuntimeContract":"kolibri\.agent-runtime@1\.1"'/,
   );
   assert.match(persistentLauncher, /\\"sourceRoot\\":\\"\$\{v3_root\}\\"/);
   assert.match(persistentLauncher, /session_process_group/);

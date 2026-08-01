@@ -27,7 +27,7 @@ runtime_ready() {
     "${backend_payload}" == *'"status":"ok"'* &&
     "${backend_payload}" == *'"service":"kolibri-v3"'* &&
     "${backend_payload}" == *'"instanceId":"'* &&
-    "${backend_payload}" == *'"agentRuntimeContract":"kolibri.agent-runtime@1.0"'* &&
+    "${backend_payload}" == *'"agentRuntimeContract":"kolibri.agent-runtime@1.1"'* &&
     "${backend_payload}" == *"\"sourceRoot\":\"${v3_root}\""*
   ]] && [[ "${app_status}" == "200" ]]
 }
