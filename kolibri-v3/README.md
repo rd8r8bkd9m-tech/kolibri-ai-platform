@@ -5,6 +5,21 @@
 новым изолированным V3 backend. Старый `kolibri-backend` не является upstream
 или fallback для этого приложения.
 
+## Каноническая структура
+
+Весь активный продукт расположен внутри этой папки:
+
+- browser desktop/PWA: `app/`, `components/`, `lib/`;
+- React Native / Expo: `apps/kolibri-mobile/`;
+- backend и миграции: `backend/`;
+- Rust-ядра: `packages/`;
+- deploy: `deploy/`;
+- документация и release evidence: `docs/`, `release/`.
+
+См. [`docs/SOURCE_OF_TRUTH.md`](docs/SOURCE_OF_TRUTH.md) и
+[`docs/PROJECT_MAP.md`](docs/PROJECT_MAP.md). Родительские приложения не
+являются частью V3.
+
 Основная рабочая поверхность:
 
 - слева — проекты, задачи и история диалогов;
@@ -126,11 +141,13 @@ Authority. V3 backend и браузер получают только безоп
 ## Проверки
 
 ```bash
-PYTHONPATH=backend backend/venv/bin/python -m pytest -q backend/tests
-npm run typecheck
-npm test
-npm run build
+npm run verify
+npm run verify:full
 ```
+
+Единые требования к TypeScript, Python, Rust, тестам и форматированию
+зафиксированы в
+[`docs/DEVELOPMENT_STANDARDS.md`](docs/DEVELOPMENT_STANDARDS.md).
 
 ## Production-деплой
 

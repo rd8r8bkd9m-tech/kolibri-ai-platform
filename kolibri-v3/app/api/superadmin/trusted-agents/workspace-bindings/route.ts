@@ -4,18 +4,18 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 export function GET(request: Request) {
-  const query = new URL(request.url).search;
-  return proxyV3JsonRequest(
-    request,
-    `/v1/platform-admin/trusted-agents/workspace-bindings${query}`,
-    { method: "GET" },
-  );
+	const query = new URL(request.url).search;
+	return proxyV3JsonRequest(
+		request,
+		`/v1/platform-admin/trusted-agents/workspace-bindings${query}`,
+		{ method: "GET" },
+	);
 }
 
 export function POST(request: Request) {
-  return proxyV3JsonRequest(
-    request,
-    "/v1/platform-admin/trusted-agents/workspace-bindings",
-    { method: "POST", maxRequestBytes: 1_024 },
-  );
+	return proxyV3JsonRequest(
+		request,
+		"/v1/platform-admin/trusted-agents/workspace-bindings",
+		{ method: "POST", maxRequestBytes: 1_024 },
+	);
 }

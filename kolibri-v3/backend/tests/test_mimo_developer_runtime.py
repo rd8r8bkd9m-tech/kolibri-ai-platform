@@ -12,6 +12,7 @@ import pytest
 from app.mimo_developer_runtime import (
     MimoDeveloperRuntimeError,
     MimoDeveloperServerRuntime,
+    _MimoPresentationAdapter,
 )
 
 
@@ -20,6 +21,41 @@ def _fake_auth_file(tmp_path: Path) -> Path:
     auth_file.write_bytes(b'{"opaque":"test-login"}')
     auth_file.chmod(0o600)
     return auth_file
+
+
+def test_presentation_adapter_exposes_builtin_web_search_as_web_activity(
+    tmp_path: Path,
+) -> None:
+    activities: list[tuple[str, dict[str, Any]]] = []
+    adapter = _MimoPresentationAdapter(
+        workspace_root=tmp_path,
+        on_delta=lambda _delta: None,
+        on_activity=lambda phase, item: activities.append((phase, item)),
+    )
+
+    adapter.feed_line(
+        json.dumps(
+            {
+                "part": {
+                    "type": "tool",
+                    "tool": "websearch",
+                    "callID": "call_web_01",
+                    "state": {
+                        "status": "completed",
+                        "title": "Latest official release",
+                        "input": {"query": "latest official release"},
+                        "output": "Official result",
+                    },
+                }
+            }
+        ).encode("utf-8")
+    )
+
+    assert [phase for phase, _item in activities] == ["started", "completed"]
+    assert activities[0][1]["type"] == "webSearch"
+    assert activities[0][1]["status"] == "inProgress"
+    assert activities[1][1]["query"] == "latest official release"
+    assert activities[1][1]["action"] == {"type": "search"}
 
 
 def _attached_runtime(
@@ -212,12 +248,7 @@ print(json.dumps({
         / "mimo-runtime/home/.local/share/mimocode/auth.json"
     ).read_bytes() == b'{"opaque":"test-login"}'
     assert deltas == ["MiMo completed.", "MiMo completed."]
-    assert [phase for phase, _item in activities] == [
-        "started",
-        "completed",
-        "started",
-        "completed",
-    ]
+    assert activities == []
     assert runtime.inspect() == {
         "server_url": "http://127.0.0.1:49291",
         "server_pid": None,
@@ -233,6 +264,71 @@ print(json.dumps({
             "tenant:test-thread": "ses_persistent_test_01",
         },
     }
+
+
+def test_mimo_jsonl_is_normalized_to_codex_style_live_events(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runtime, _observation, _aborts = _attached_runtime(
+        tmp_path,
+        monkeypatch,
+        script_body="""
+import json
+import sys
+
+sys.stdin.read()
+session_id = "ses_presentation_adapter_01"
+print(json.dumps({
+    "type": "tool_use",
+    "sessionID": session_id,
+    "part": {
+        "type": "tool",
+        "tool": "bash",
+        "callID": "call_pwd_01",
+        "state": {
+            "status": "completed",
+            "input": {"command": "pwd"},
+            "metadata": {"exit": 0},
+            "time": {"start": 1000, "end": 1025},
+        },
+    },
+}), flush=True)
+print(json.dumps({
+    "type": "text",
+    "sessionID": session_id,
+    "part": {"type": "text", "text": "NORMALIZED_OK"},
+}), flush=True)
+""",
+    )
+    deltas: list[str] = []
+    activities: list[tuple[str, dict[str, object]]] = []
+
+    result = runtime.complete(
+        workspace_root=tmp_path,
+        prompt="Run pwd.",
+        run_id="run-presentation-adapter-01",
+        conversation_key="tenant:presentation-thread",
+        timeout=10,
+        access_mode="full",
+        on_delta=deltas.append,
+        on_activity=lambda phase, item: activities.append((phase, item)),
+    )
+
+    assert result.text == "NORMALIZED_OK"
+    assert deltas == ["NORMALIZED_OK"]
+    assert [phase for phase, _item in activities] == [
+        "started",
+        "completed",
+    ]
+    started = activities[0][1]
+    completed = activities[1][1]
+    assert started["type"] == completed["type"] == "commandExecution"
+    assert started["command"] == completed["command"] == "pwd"
+    assert started["status"] == "inProgress"
+    assert completed["status"] == "completed"
+    assert completed["exitCode"] == 0
+    assert completed["durationMs"] == 25
 
 
 def test_runtime_starts_one_server_for_its_lifespan(
@@ -282,7 +378,8 @@ time.sleep(30)
         for line in observation.read_text(encoding="utf-8").splitlines()
     ]
     assert len(records) == 1
-    assert records[0]["argv"][:2] == ["serve", "--pure"]
+    assert records[0]["argv"][:2] == ["serve", "--hostname"]
+    assert "--pure" not in records[0]["argv"]
 
 
 @pytest.mark.parametrize(

@@ -38,7 +38,7 @@ export KOLIBRI_V3_DEVELOPER_AGENT_ENABLED=true
 export KOLIBRI_V3_DEVELOPER_WORKSPACE_ROOT="${v3_root}"
 export KOLIBRI_V3_PROVIDER_EXECUTION_ENABLED=false
 export KOLIBRI_V3_COOKIE_SECURE=false
-export KOLIBRI_V3_ALLOWED_ORIGINS='http://127.0.0.1:3103,http://localhost:3103'
+export KOLIBRI_V3_ALLOWED_ORIGINS='http://127.0.0.1:3103,http://localhost:3103,http://127.0.0.1:4103,http://localhost:4103'
 export KOLIBRI_V3_SESSION_COOKIE_NAME='kolibri_v3_session'
 export KOLIBRI_V3_CSRF_COOKIE_NAME='kolibri_v3_csrf'
 unset KOLIBRI_V3_CSRF_SECRET
@@ -57,5 +57,7 @@ printf 'Kolibri V3 dev backend: %s/var/kolibri-v3.db (%s:%s)\n' \
 
 exec "${python_bin}" -m uvicorn app.main:app \
   --app-dir "${v3_root}/backend" \
+  --reload \
+  --reload-dir "${v3_root}/backend" \
   --host "${backend_host}" \
   --port "${backend_port}"

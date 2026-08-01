@@ -1,262 +1,296 @@
 "use client";
 
-import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
-import { cn } from "@/lib/utils";
 import { ThreadListPrimitive } from "@assistant-ui/react";
 import {
-  Check,
-  ChevronDown,
-  Folder,
-  FolderOpen,
-  LayoutDashboard,
-  PanelLeft,
-  SquarePen,
+	ArrowLeft,
+	Check,
+	Folder,
+	FolderOpen,
+	PanelLeft,
+	PanelRight,
+	Search,
+	SquarePen,
 } from "lucide-react";
-import type { WorkspaceProject } from "./workspace-sidebar";
+import { ChromeActionButton } from "@/components/kolibri-shell/chrome-action-button";
+import {
+	SHELL_DESKTOP_HEADER_ICON_WRAPPER,
+	SHELL_HEADER_ICON_BUTTON_CLASS,
+	SHELL_ICON_SIZE_CLASS,
+	SHELL_ICON_STROKE_WIDTH,
+} from "@/components/kolibri-shell/header-design-system";
+import { Button } from "@/components/ui/button";
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuLabel,
+	DropdownMenuSeparator,
+	DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+	Tooltip,
+	TooltipContent,
+	TooltipProvider,
+	TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
+import type { WorkspaceProject } from "@/lib/workspace-types";
+import { uiClassTokens } from "@/components/ui/class-names";
 
 export type WorkspaceHeaderProps = {
-  activeProjectId?: string | null;
-  canvasOpen: boolean;
-  className?: string;
-  navigationOpen: boolean;
-  onNavigationPreviewEnter?: () => void;
-  onNavigationPreviewLeave?: () => void;
-  onOpenDesktop: () => void;
-  onProjectSelect?: (project: WorkspaceProject) => void;
-  onToggleNavigation: () => void;
-  projectName?: string;
-  projects?: readonly WorkspaceProject[];
-  threadTitle?: string;
+	activeProjectId?: string | null;
+	contextPanelOpen: boolean;
+	className?: string;
+	navigationOpen: boolean;
+	onBack?: () => void;
+	onNavigationPreviewEnter?: () => void;
+	onNavigationPreviewLeave?: () => void;
+	onOpenCommandPalette: () => void;
+	onToggleContextPanel: () => void;
+	onProjectSelect?: (project: WorkspaceProject) => void;
+	onToggleNavigation: () => void;
+	projectName?: string;
+	projects?: readonly WorkspaceProject[];
+	threadTitle?: string;
 };
 
 export function WorkspaceHeader({
-  activeProjectId,
-  canvasOpen,
-  className,
-  navigationOpen,
-  onNavigationPreviewEnter,
-  onNavigationPreviewLeave,
-  onOpenDesktop,
-  onProjectSelect,
-  onToggleNavigation,
-  projectName,
-  projects = [],
-  threadTitle = "Новая задача",
+	activeProjectId,
+	contextPanelOpen,
+	className,
+	navigationOpen,
+	onBack,
+	onNavigationPreviewEnter,
+	onNavigationPreviewLeave,
+	onOpenCommandPalette,
+	onToggleContextPanel,
+	onProjectSelect,
+	onToggleNavigation,
+	projectName,
+	projects = [],
+	threadTitle = "Новая задача",
 }: WorkspaceHeaderProps) {
-  const projectLabel = projectName?.trim() || null;
+	const projectLabel = projectName?.trim() || null;
 
-  return (
-    <TooltipProvider delayDuration={350}>
-      <header
-        className={cn(
-          "bg-background @container flex h-12 shrink-0 items-center gap-1.5 border-b px-3",
-          className,
-        )}
-      >
-        {!navigationOpen ? (
-          <>
-            <HeaderIconButton
-              label="Переключить боковую панель"
-              shortcut="⌘B"
-              aria-controls="workspace-project-navigation"
-              aria-expanded={false}
-              onClick={onToggleNavigation}
-              onMouseEnter={onNavigationPreviewEnter}
-              onMouseLeave={onNavigationPreviewLeave}
-              className="relative"
-            >
-              <PanelLeft aria-hidden="true" />
-              <span
-                aria-hidden="true"
-                className="absolute top-0.5 right-0.5 size-1.5 rounded-full bg-[#339cff]"
-              />
-            </HeaderIconButton>
-            <HeaderNewThreadButton />
-            <span
-              aria-hidden="true"
-              className="bg-border mx-1 h-6 w-px shrink-0"
-            />
-          </>
-        ) : null}
+	return (
+		<TooltipProvider delayDuration={350}>
+			<header
+				className={cn(
+					uiClassTokens.workspaceHeaderRoot,
+					className,
+				)}
+			>
+				{!navigationOpen ? (
+					<>
+						<ChromeActionButton
+							label="Переключить боковую панель"
+							shortcut="⌘B"
+							iconOnly
+							size="icon-xs"
+							aria-controls="workspace-project-navigation"
+							aria-expanded={false}
+							onClick={onToggleNavigation}
+							onMouseEnter={onNavigationPreviewEnter}
+							onMouseLeave={onNavigationPreviewLeave}
+							className={cn(SHELL_HEADER_ICON_BUTTON_CLASS, "relative")}
+							iconWrapperClassName={cn(
+								SHELL_DESKTOP_HEADER_ICON_WRAPPER,
+								"items-center justify-center",
+							)}
+						>
+							<PanelLeft
+								className={SHELL_ICON_SIZE_CLASS}
+								aria-hidden="true"
+								strokeWidth={SHELL_ICON_STROKE_WIDTH}
+							/>
+							<span
+								aria-hidden="true"
+								className="absolute top-0.5 right-0.5 size-1.5 rounded-full bg-[#339cff]"
+							/>
+						</ChromeActionButton>
+						<HeaderNewThreadButton />
+						<span
+							aria-hidden="true"
+							className={uiClassTokens.workspaceHeaderDivider}
+						/>
+					</>
+				) : null}
 
-        <Folder
-          className="text-muted-foreground ml-0.5 size-[17px] shrink-0"
-          aria-hidden="true"
-        />
-        <p className="min-w-0 truncate text-[15px] font-semibold tracking-[-0.01em]">
-          {threadTitle}
-        </p>
+				{onBack ? (
+					<ChromeActionButton
+						label="Назад к диалогу"
+						iconOnly
+						size="icon-xs"
+						data-slot="workspace-header-back"
+						className={SHELL_HEADER_ICON_BUTTON_CLASS}
+						iconWrapperClassName={SHELL_DESKTOP_HEADER_ICON_WRAPPER}
+						onClick={onBack}
+					>
+						<ArrowLeft
+							className={SHELL_ICON_SIZE_CLASS}
+							aria-hidden="true"
+							strokeWidth={SHELL_ICON_STROKE_WIDTH}
+						/>
+					</ChromeActionButton>
+				) : null}
 
-        <div className="ml-auto flex shrink-0 items-center gap-1">
-          <DropdownMenu>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="h-7 max-w-44 gap-1.5 rounded-[10px] px-2.5 shadow-none"
-                    aria-label={
-                      projectLabel
-                        ? `Выбрать проект. Текущий проект: ${projectLabel}`
-                        : "Выбрать проект"
-                    }
-                    disabled={projects.length === 0}
-                  >
-                    <FolderOpen className="size-4 shrink-0" aria-hidden="true" />
-                    {projectLabel ? (
-                      <span className="hidden min-w-0 truncate text-xs @min-[720px]:inline">
-                        {projectLabel}
-                      </span>
-                    ) : (
-                      <span className="hidden min-w-0 truncate text-xs text-muted-foreground @min-[720px]:inline">
-                        Проект не выбран
-                      </span>
-                    )}
-                    <ChevronDown
-                      className="text-muted-foreground size-3.5 shrink-0"
-                      aria-hidden="true"
-                    />
-                  </Button>
-                </DropdownMenuTrigger>
-              </TooltipTrigger>
-              <TooltipContent side="bottom" sideOffset={8}>
-                {projects.length === 0
-                  ? "Проекты появятся после сохранения"
-                  : projectLabel
-                    ? `Проект: ${projectLabel}`
-                    : "Выбрать проект"}
-              </TooltipContent>
-            </Tooltip>
-            <DropdownMenuContent align="end" className="w-72">
-              <DropdownMenuLabel className="text-xs">
-                Текущий проект
-              </DropdownMenuLabel>
-              <DropdownMenuSeparator />
-              {projects.map((project) => {
-                const active = project.id === activeProjectId;
-                return (
-                  <DropdownMenuItem
-                    key={project.id}
-                    onSelect={() => onProjectSelect?.(project)}
-                    className="min-h-10"
-                  >
-                    <FolderOpen aria-hidden="true" />
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-xs font-medium">
-                        {project.name}
-                      </span>
-                      <span className="text-muted-foreground block truncate text-[10px]">
-                        {project.updatedAt?.trim() || `…${project.id.slice(-8)}`}
-                      </span>
-                    </span>
-                    {active ? <Check aria-hidden="true" /> : null}
-                  </DropdownMenuItem>
-                );
-              })}
-            </DropdownMenuContent>
-          </DropdownMenu>
+				<Folder
+					className={`text-muted-foreground ml-0.5 ${SHELL_ICON_SIZE_CLASS} shrink-0`}
+					aria-hidden="true"
+					strokeWidth={SHELL_ICON_STROKE_WIDTH}
+				/>
+				<p className={uiClassTokens.workspaceHeaderThreadTitle}>
+					{threadTitle}
+				</p>
 
-          <HeaderIconButton
-            label={
-              canvasOpen
-                ? "Скрыть рабочую область"
-                : "Открыть рабочий стол"
-            }
-            data-canvas-launcher="header"
-            aria-controls="workspace-canvas"
-            aria-expanded={canvasOpen}
-            aria-pressed={canvasOpen}
-            className={cn(
-              canvasOpen && "bg-muted text-foreground",
-            )}
-            onClick={onOpenDesktop}
-          >
-            <LayoutDashboard aria-hidden="true" />
-          </HeaderIconButton>
-        </div>
-      </header>
-    </TooltipProvider>
-  );
+				<div className="ml-auto flex shrink-0 items-center gap-1">
+					<ChromeActionButton
+						label="Команды и поиск"
+						shortcut="⌘K"
+						iconOnly
+						size="icon-xs"
+						data-command-palette-launcher="header"
+						className={SHELL_HEADER_ICON_BUTTON_CLASS}
+						iconWrapperClassName={SHELL_DESKTOP_HEADER_ICON_WRAPPER}
+						onClick={onOpenCommandPalette}
+					>
+						<Search
+							className={`${SHELL_ICON_SIZE_CLASS} shrink-0`}
+							aria-hidden="true"
+							strokeWidth={SHELL_ICON_STROKE_WIDTH}
+						/>
+					</ChromeActionButton>
+					<DropdownMenu>
+						<Tooltip>
+							<TooltipTrigger asChild>
+								<DropdownMenuTrigger asChild>
+									<Button
+										type="button"
+										variant="ghost"
+										size="icon-xs"
+										className={cn(
+											SHELL_HEADER_ICON_BUTTON_CLASS,
+											activeProjectId && "bg-muted/65 text-foreground",
+										)}
+										aria-label={
+											projectLabel
+												? `Выбрать проект. Текущий проект: ${projectLabel}`
+												: "Выбрать проект"
+										}
+										disabled={projects.length === 0}
+									>
+										<FolderOpen
+											className={`${SHELL_ICON_SIZE_CLASS} shrink-0`}
+											aria-hidden="true"
+											strokeWidth={SHELL_ICON_STROKE_WIDTH}
+										/>
+										<span className="sr-only">
+											{projectLabel ?? "Проект не выбран"}
+										</span>
+									</Button>
+								</DropdownMenuTrigger>
+							</TooltipTrigger>
+							<TooltipContent side="bottom" sideOffset={8}>
+								{projects.length === 0
+									? "Проекты появятся после сохранения"
+									: projectLabel
+										? `Проект: ${projectLabel}`
+										: "Выбрать проект"}
+							</TooltipContent>
+						</Tooltip>
+						<DropdownMenuContent align="end" className="w-72">
+							<DropdownMenuLabel className="text-xs">
+								Текущий проект
+							</DropdownMenuLabel>
+							<DropdownMenuSeparator />
+							{projects.map((project) => {
+								const active = project.id === activeProjectId;
+								return (
+									<DropdownMenuItem
+										key={project.id}
+										onSelect={() => onProjectSelect?.(project)}
+										className="min-h-10"
+									>
+										<FolderOpen
+											className={`${SHELL_ICON_SIZE_CLASS} shrink-0`}
+											aria-hidden="true"
+											strokeWidth={SHELL_ICON_STROKE_WIDTH}
+										/>
+										<span className="min-w-0 flex-1">
+											<span className={uiClassTokens.workspaceHeaderMenuItemMeta}>
+												{project.name}
+											</span>
+											<span className={uiClassTokens.workspaceHeaderMenuItemSub}>
+												{project.updatedAt?.trim() ||
+													`…${project.id.slice(-8)}`}
+											</span>
+										</span>
+										{active ? (
+											<Check
+												className={`${SHELL_ICON_SIZE_CLASS} shrink-0`}
+												aria-hidden="true"
+												strokeWidth={SHELL_ICON_STROKE_WIDTH}
+											/>
+										) : null}
+									</DropdownMenuItem>
+								);
+							})}
+						</DropdownMenuContent>
+					</DropdownMenu>
+
+					<ChromeActionButton
+						label={contextPanelOpen ? "Скрыть контекст" : "Показать контекст"}
+						iconOnly
+						size="icon-xs"
+						data-context-launcher="header"
+						aria-controls="workspace-canvas"
+						aria-expanded={contextPanelOpen}
+						aria-pressed={contextPanelOpen}
+						className={cn(
+							SHELL_HEADER_ICON_BUTTON_CLASS,
+							contextPanelOpen && "bg-muted text-foreground",
+						)}
+						iconWrapperClassName={cn(
+							SHELL_DESKTOP_HEADER_ICON_WRAPPER,
+							"items-center justify-center",
+						)}
+						onClick={onToggleContextPanel}
+					>
+						<PanelRight
+							className={`${SHELL_ICON_SIZE_CLASS} shrink-0`}
+							aria-hidden="true"
+							strokeWidth={SHELL_ICON_STROKE_WIDTH}
+						/>
+					</ChromeActionButton>
+				</div>
+			</header>
+		</TooltipProvider>
+	);
 }
 
 function HeaderNewThreadButton() {
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <ThreadListPrimitive.New asChild>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-xs"
-            className="text-muted-foreground hover:text-foreground size-7 rounded-lg"
-            aria-label="Новая задача"
-          >
-            <SquarePen aria-hidden="true" />
-          </Button>
-        </ThreadListPrimitive.New>
-      </TooltipTrigger>
-      <TooltipContent side="bottom" sideOffset={8}>
-        Новая задача
-      </TooltipContent>
-    </Tooltip>
-  );
-}
-
-type HeaderIconButtonProps = React.ComponentProps<typeof Button> & {
-  label: string;
-  shortcut?: string;
-};
-
-function HeaderIconButton({
-  children,
-  className,
-  label,
-  shortcut,
-  ...props
-}: HeaderIconButtonProps) {
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-xs"
-          className={cn(
-            "text-muted-foreground hover:text-foreground size-7 rounded-lg",
-            className,
-          )}
-          {...props}
-        >
-          {children}
-          <span className="sr-only">{label}</span>
-        </Button>
-      </TooltipTrigger>
-      <TooltipContent side="bottom" sideOffset={8}>
-        <span className="flex items-center gap-3">
-          <span>{label}</span>
-          {shortcut ? (
-            <kbd className="bg-muted text-muted-foreground rounded px-1.5 py-0.5 font-sans text-[11px] leading-none">
-              {shortcut}
-            </kbd>
-          ) : null}
-        </span>
-      </TooltipContent>
-    </Tooltip>
-  );
+	return (
+		<Tooltip>
+			<TooltipTrigger asChild>
+				<ThreadListPrimitive.New asChild>
+					<Button
+						type="button"
+						variant="ghost"
+						size="icon-xs"
+						className={SHELL_HEADER_ICON_BUTTON_CLASS}
+						aria-label="Новая задача"
+					>
+						<SquarePen
+							className={`${SHELL_ICON_SIZE_CLASS} shrink-0`}
+							aria-hidden="true"
+							strokeWidth={SHELL_ICON_STROKE_WIDTH}
+						/>
+					</Button>
+				</ThreadListPrimitive.New>
+			</TooltipTrigger>
+			<TooltipContent side="bottom" sideOffset={8}>
+				Новая задача
+			</TooltipContent>
+		</Tooltip>
+	);
 }

@@ -64,15 +64,34 @@ test("the welcome surface uses four desktop and three mobile assistant-ui prompt
 });
 
 test("the compact shell matches the mobile chat contract and persists theme choice", async () => {
-  const [shell, header, sidebar, thread, threadList, theme, layout, css] = await Promise.all([
+  const [
+    shell,
+    header,
+    sidebar,
+    sidebarControls,
+    sidebarBrand,
+    sidebarProfileFooter,
+    sidebarNavigation,
+    thread,
+    threadList,
+    theme,
+    layout,
+    css,
+    runtimeProvider,
+  ] = await Promise.all([
     readSource("components/kolibri-shell/workspace-shell.tsx"),
     readSource("components/kolibri-shell/mobile-workspace-header.tsx"),
     readSource("components/kolibri-shell/workspace-sidebar.tsx"),
-    readSource("components/assistant-ui/thread.tsx"),
+    readSource("components/kolibri-shell/sidebar/sidebar-controls.tsx"),
+    readSource("components/kolibri-shell/sidebar/sidebar-brand.tsx"),
+    readSource("components/kolibri-shell/sidebar/workspace-sidebar-profile-footer.tsx"),
+    readSource("components/kolibri-shell/sidebar/workspace-sidebar-navigation.tsx"),
+    readSource("components/assistant-ui/thread/parts/thread-layout.tsx"),
     readSource("components/assistant-ui/thread-list.tsx"),
     readSource("components/theme/kolibri-theme-provider.tsx"),
     readSource("app/layout.tsx"),
     readSource("app/globals.css"),
+    readSource("app/MyRuntimeProvider.tsx"),
   ]);
 
   assert.match(shell, /isDesktop\s*\?\s*\([\s\S]*<WorkspaceHeader\b/);
@@ -85,11 +104,16 @@ test("the compact shell matches the mobile chat contract and persists theme choi
   assert.match(header, /data-slot=["']mobile-hamburger-icon["']/);
   assert.match(header, /data-slot=["']mobile-editor-back["']/);
   assert.match(header, /aria-label=["']На основной экран["']/);
-  assert.match(sidebar, /previewDisabled=\{isOverlay\}/);
+  assert.match(sidebar, /const\s+previewDisabled\s*=\s*isOverlay/);
+  assert.match(sidebar, /isOverlay=\{previewDisabled\}/);
   assert.match(
-    sidebar,
-    /if\s*\(previewDisabled\)\s*return\s+destinationButton/,
+    sidebarBrand,
+    /data-slot=["']workspace-sidebar-brand["'][\s\S]{0,240}Колибри/,
   );
+  assert.match(sidebarNavigation, /data-slot=["']workspace-sidebar-body["']/);
+  assert.match(sidebarNavigation, /previewDisabled=\{isOverlay\}/);
+  assert.match(sidebarControls, /if\s*\(previewDisabled\)\s*return\s+destinationButton/);
+  assert.match(sidebarProfileFooter, /data-slot=["']workspace-profile-footer["']/);
   assert.match(shell, /data-slot=["']mobile-account-sheet["']/);
   assert.match(shell, /top-\[env\(safe-area-inset-top\)\]/);
   assert.match(shell, /rounded-r-\[2\.5rem\]/);
@@ -107,10 +131,6 @@ test("the compact shell matches the mobile chat contract and persists theme choi
   assert.match(
     shell,
     /if\s*\(!isDesktop\)\s*\{[\s\S]{0,120}setCanvasMaximized\(false\)/,
-  );
-  assert.match(
-    shell,
-    /maximized:\s*isDesktop\s*&&[\s\S]{0,180}\bstoredPrimaryTab\b/,
   );
   assert.doesNotMatch(
     shell,
@@ -133,8 +153,8 @@ test("the compact shell matches the mobile chat contract and persists theme choi
       .length,
     2,
   );
-  assert.match(header, /aria-label=["']Chat\. Выбрать раздел["']/);
-  assert.match(header, /Рабочий стол/);
+  assert.match(header, /aria-label=\{`\$\{CHAT_DESTINATION_LABEL\}\. Выбрать раздел`\}/);
+  assert.match(header, /CHAT_DESTINATION_LABEL/);
   assert.match(header, /onOpenDestination/);
   assert.doesNotMatch(header, /AgentProfileSelector/);
   assert.match(thread, /aui-composer-mobile-model/);
@@ -158,7 +178,7 @@ test("the compact shell matches the mobile chat contract and persists theme choi
   );
   assert.match(threadList, /navigator\.vibrate\?\.\(10\)/);
   assert.match(threadList, /side=\{compactThreadMenu\s*\?\s*["']bottom["']\s*:\s*["']right["']\}/);
-  assert.match(sidebar, /shouldCloseThreadDrawerForClick/);
+  assert.match(sidebarNavigation, /shouldCloseThreadDrawerForClick/);
   assert.match(css, /\[data-slot=["']workspace-file-category-tabs["']\]/);
   assert.doesNotMatch(css, /\.border-border\\\/80\.flex\.gap-1/);
   assert.match(theme, /KOLIBRI_THEME_STORAGE_KEY\s*=\s*["']kolibri-theme["']/);
@@ -173,6 +193,12 @@ test("the compact shell matches the mobile chat contract and persists theme choi
   assert.doesNotMatch(thread, /aui-composer-voice-submit-icon/);
   assert.match(thread, /composerEmpty\s*\|\|/);
   assert.match(thread, /Голосовой ввод недоступен/);
+  assert.match(
+    runtimeProvider,
+    /WebSpeechDictationAdapter\.isSupported\(\)/,
+  );
+  assert.match(runtimeProvider, /language:\s*["']ru-RU["']/);
+  assert.match(runtimeProvider, /\bdictation,\s*\n\s*feedback:/);
 });
 
 test("mobile runtime uses iOS and Android viewport primitives", async () => {
@@ -280,7 +306,7 @@ test("chat and task navigation are composed from assistant-ui primitives", async
 
   assert.match(threadList, /\bThreadListPrimitive\b/);
   assert.match(threadList, /\bThreadListItemPrimitive\b/);
-  assert.match(shell, /<Thread[\s\S]{0,180}\bonOpenDesktop=/);
+  assert.match(shell, /<Thread[\s\S]{0,180}\bonOpenContextPanel=/);
   assert.match(shell, /<WorkspaceSidebar\b/);
 });
 
@@ -302,11 +328,12 @@ test("the official assistant-ui composer is unconditionally docked at the bottom
   assert.doesNotMatch(thread, /!isEmpty[\s\S]{0,120}\bsticky\b/);
 });
 
-test("primary product sections replace chat while assistant-ui stays available as a pinnable widget", async () => {
-  const [shell, sidebar, widget] = await Promise.all([
+test("desktop product sections use reusable canvases while chat stays mounted", async () => {
+  const [shell, sidebar, canvas, frame] = await Promise.all([
     readSource("components/kolibri-shell/workspace-shell.tsx"),
     readSource("components/kolibri-shell/workspace-sidebar.tsx"),
-    readSource("components/assistant-ui/assistant-chat-widget.tsx"),
+    readSource("components/kolibri-workspace/canvas-workspace.tsx"),
+    readSource("components/kolibri-workspace/canvas-frame.tsx"),
   ]);
 
   for (const view of ["projects", "documents", "references"]) {
@@ -321,14 +348,12 @@ test("primary product sections replace chat while assistant-ui stays available a
     assert.ok(sidebar.includes(callback), `missing navigation callback: ${callback}`);
   }
 
-  assert.match(widget, /\bAssistantModalPrimitive\b/);
-  assert.match(widget, /<AssistantModalPrimitive\.Root\b/);
-  assert.match(widget, /<AssistantModalPrimitive\.Trigger\b/);
-  assert.match(widget, /<AssistantModalPrimitive\.Content\b/);
-  assert.match(widget, /\bPinIcon\b/);
-  assert.match(widget, /\bPinOffIcon\b/);
-  assert.match(widget, /<Thread\b[^>]*\/>/);
-  assert.match(widget, /\bonOpenDesktop\b/);
+  assert.doesNotMatch(shell, /<WorkspaceContextSidebar\b|desktopContextOpen/);
+  assert.match(shell, /<main[^>]*>[\s\S]{0,80}\{primaryPane\}[\s\S]{0,40}<\/main>/);
+  assert.match(shell, /id=["']auxiliary-canvas["']/);
+  assert.match(canvas, /<CanvasFrame\b/);
+  assert.match(frame, /data-slot=["']canvas-frame["']/);
+  assert.doesNotMatch(shell, /AssistantChatWidget|CanvasAssistantPane/);
 });
 
 test("workspace resizing uses the official assistant-ui registry primitive", async () => {
@@ -355,21 +380,23 @@ test("workspace resizing uses the official assistant-ui registry primitive", asy
 });
 
 test("every Canvas tool shares one state-preserving fullscreen control", async () => {
-  const [shell, canvas, contextPanel] = await Promise.all([
+  const [shell, canvas, frame, contextPanel] = await Promise.all([
     readSource("components/kolibri-shell/workspace-shell.tsx"),
     readSource("components/kolibri-workspace/canvas-workspace.tsx"),
+    readSource("components/kolibri-workspace/canvas-frame.tsx"),
     readSource("components/kolibri-workspace/context-panel.tsx"),
   ]);
 
-  assert.match(canvas, /data-slot=["']canvas-fullscreen-toggle["']/);
-  assert.match(canvas, /label=\{maximized\s*\?\s*["']Вернуть в панель["']\s*:\s*["']На весь экран["']\}/);
-  assert.match(canvas, /aria-pressed=\{maximized\}/);
-  assert.match(canvas, /data-canvas-fullscreen=\{maximized\}/);
+  assert.match(frame, /data-slot=["']canvas-fullscreen-toggle["']/);
+  assert.match(frame, /label=\{maximized\s*\?\s*["']Вернуть в панель["']\s*:\s*["']На весь экран["']\}/);
+  assert.match(frame, /aria-pressed=\{maximized\}/);
+  assert.match(frame, /data-canvas-fullscreen=\{maximized\}/);
   assert.ok(
-    canvas.indexOf('data-slot="canvas-fullscreen-toggle"') <
-      canvas.indexOf('id="canvas-active-tabpanel"'),
+    frame.indexOf('data-slot="canvas-fullscreen-toggle"') <
+      frame.indexOf('role="tabpanel"'),
     "fullscreen control must wrap every file, tool, and Canvas view",
   );
+  assert.match(canvas, /<CanvasFrame\b/);
 
   const singletonSurfaces =
     shell.match(/data-canvas-surface=["']singleton["']/g) ?? [];
@@ -419,23 +446,23 @@ test("small browser zoom changes do not flip the workspace into modal mode", asy
 });
 
 test("profile and settings have one stable entry in the sidebar footer", async () => {
-  const [shell, sidebar, header, canvas] = await Promise.all([
+  const [shell, sidebarProfileFooter, header, canvas] = await Promise.all([
     readSource("components/kolibri-shell/workspace-shell.tsx"),
-    readSource("components/kolibri-shell/workspace-sidebar.tsx"),
+    readSource("components/kolibri-shell/sidebar/workspace-sidebar-profile-footer.tsx"),
     readSource("components/kolibri-shell/workspace-header.tsx"),
     readSource("components/kolibri-workspace/canvas-workspace.tsx"),
   ]);
 
-  assert.match(sidebar, /data-slot=["']workspace-profile-footer["']/);
+  assert.match(sidebarProfileFooter, /data-slot=["']workspace-profile-footer["']/);
   assert.match(
-    sidebar,
+    sidebarProfileFooter,
     /workspace-profile-footer[\s\S]{0,220}\bsticky\b[\s\S]{0,100}\bbottom-0\b/,
   );
   assert.match(
-    sidebar,
+    sidebarProfileFooter,
     /aria-label=["']Открыть меню личного кабинета["']/,
   );
-  assert.match(sidebar, /Суперадминистратор/);
+  assert.match(sidebarProfileFooter, /Суперадминистратор/);
 
   assert.doesNotMatch(header, /\bonOpenProfileSettings\b/);
   assert.doesNotMatch(
@@ -801,49 +828,47 @@ test("documents reuse one primary Canvas surface and minimized work is restorabl
   assert.match(shell, /\bminimizeCanvasTab\b/);
   assert.match(shell, /\brestoreCanvasTab\b/);
   assert.match(shell, /<WorkspaceTaskShelf\b/);
-  assert.match(session, /kind:\s*["']desktop["']/);
+  assert.doesNotMatch(session, /kind:\s*["']desktop["']/);
   assert.match(session, /kind:\s*["']files["']/);
   assert.match(shelf, /aria-label=\{`Восстановить вкладку/);
 });
 
-test("the single desktop is discoverable from navigation, header, Canvas, and chat", async () => {
-  const [shell, sidebar, header, canvas, thread] = await Promise.all([
+test("desktop navigation removes the old route and exposes an auxiliary canvas", async () => {
+  const [shell, sidebarConstants, sidebarNavigation, header, canvas, thread] = await Promise.all([
     readSource("components/kolibri-shell/workspace-shell.tsx"),
-    readSource("components/kolibri-shell/workspace-sidebar.tsx"),
+    readSource("components/kolibri-shell/sidebar/constants.ts"),
+    readSource("components/kolibri-shell/sidebar/workspace-sidebar-navigation.tsx"),
     readSource("components/kolibri-shell/workspace-header.tsx"),
     readSource("components/kolibri-workspace/canvas-workspace.tsx"),
-    readSource("components/assistant-ui/thread.tsx"),
+    readSource("components/assistant-ui/thread/parts/thread-layout.tsx"),
   ]);
 
   assert.match(shell, /const PRIMARY_CANVAS_TAB_ID\s*=\s*["']workspace-primary["']/);
-  assert.match(
-    shell,
-    /storedPrimaryTab\?\.content\.kind\s*===\s*["']desktop["'][\s\S]{0,100}storedPrimaryTab\.maximized[\s\S]{0,50}:\s*true/,
-  );
+  assert.doesNotMatch(shell, /kind:\s*["']desktop["']|Рабочий стол/);
   assert.match(shell, /data-workspace-mode=["']immersive["']/);
-  assert.match(sidebar, /label:\s*["']Рабочий стол["']/);
-  assert.match(sidebar, /\bonOpenDesktop\b/);
-  assert.match(
-    header,
-    /canvasOpen\s*\?\s*["']Скрыть рабочую область["']\s*:\s*["']Открыть рабочий стол["']/,
-  );
-  assert.match(canvas, /data-slot=["']canvas-open-desktop["']/);
-  assert.match(thread, /aui-composer-open-desktop/);
+  assert.doesNotMatch(sidebarConstants, /label:\s*["']Рабочий стол["']/);
+  assert.doesNotMatch(sidebarNavigation, /onOpenDesktop/);
+  assert.match(header, /contextPanelOpen\s*\?\s*["']Скрыть контекст["']\s*:\s*["']Показать контекст["']/);
+  assert.match(header, /aria-controls=["']workspace-canvas["']/);
+  assert.doesNotMatch(shell, /<WorkspaceContextSidebar\b|desktopContextOpen/);
+  assert.match(shell, /id=["']auxiliary-canvas["']/);
+  assert.doesNotMatch(canvas, /data-slot=["']canvas-open-desktop["']/);
+  assert.match(thread, /aui-composer-open-context/);
   assert.match(thread, /<ComposerPrimitive\.Root\b/);
 });
 
 test("immersive Canvas keeps minimized work recoverable and manages focus", async () => {
-  const [shell, sidebar, header, canvas, thread] = await Promise.all([
+  const [shell, sidebarControls, header, canvas, thread] = await Promise.all([
     readSource("components/kolibri-shell/workspace-shell.tsx"),
-    readSource("components/kolibri-shell/workspace-sidebar.tsx"),
+    readSource("components/kolibri-shell/sidebar/sidebar-controls.tsx"),
     readSource("components/kolibri-shell/workspace-header.tsx"),
     readSource("components/kolibri-workspace/canvas-workspace.tsx"),
-    readSource("components/assistant-ui/thread.tsx"),
+		readSource("components/assistant-ui/thread/parts/thread-layout.tsx"),
   ]);
 
   assert.match(
     shell,
-    /if\s*\(canvasOpen\s*&&\s*canvasMaximized\)[\s\S]{0,900}<WorkspaceTaskShelf\b/,
+    /if\s*\(!isDesktop\s*&&\s*canvasOpen\s*&&\s*canvasMaximized\)[\s\S]{0,900}<WorkspaceTaskShelf\b/,
   );
   assert.match(
     shell,
@@ -852,8 +877,8 @@ test("immersive Canvas keeps minimized work recoverable and manages focus", asyn
   assert.match(shell, /canvasReturnFocusLauncherRef/);
   assert.match(shell, /\[data-canvas-launcher="\$\{launcherId\}"\]/);
 
-  assert.match(sidebar, /data-canvas-launcher=\{launcherId\}/);
-  assert.match(header, /data-canvas-launcher=["']header["']/);
-  assert.match(canvas, /data-canvas-launcher=["']canvas["']/);
-  assert.match(thread, /data-canvas-launcher=["']composer["']/);
+  assert.match(sidebarControls, /data-canvas-launcher=\{normalizedLauncherId\}/);
+  assert.match(header, /data-context-launcher=["']header["']/);
+	assert.doesNotMatch(canvas, /data-canvas-launcher=["']canvas["']/);
+  assert.match(thread, /data-context-launcher=["']composer["']/);
 });

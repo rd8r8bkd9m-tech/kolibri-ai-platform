@@ -396,8 +396,15 @@ def test_migration_38_backfills_running_direct_as_expired_lease(
 
     database = connect_database(settings.database_url)
     try:
+        database.execute("DROP TABLE billing_audit_events")
+        database.execute("DROP TABLE billing_notification_events")
+        database.execute("DROP TABLE billing_subscriptions")
+        database.execute("DROP TABLE billing_payment_intents")
+        database.execute("DROP TABLE billing_plans")
+        database.execute("DROP TABLE billing_entitlement_catalog")
         database.execute("DROP TABLE direct_run_outbox")
         database.execute("DROP TABLE runtime_worker_heartbeats")
+        database.execute("DROP TABLE agent_runtime_session_cache")
         database.execute("PRAGMA user_version = 38")
     finally:
         database.close()

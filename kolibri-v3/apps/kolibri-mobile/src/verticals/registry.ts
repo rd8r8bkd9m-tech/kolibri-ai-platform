@@ -1,7 +1,7 @@
 import { CONSTRUCTION_ESTIMATES_NAVIGATION } from "@/src/verticals/construction-estimates/registration";
 import type {
-  CapabilitySnapshot,
-  VerticalNavigationRegistration,
+	CapabilitySnapshot,
+	VerticalNavigationRegistration,
 } from "@/src/verticals/contracts";
 
 /**
@@ -9,20 +9,20 @@ import type {
  * entry already present here; they cannot download UI or arbitrary actions.
  */
 export const VERTICAL_NAVIGATION_ALLOWLIST: readonly VerticalNavigationRegistration[] =
-  [CONSTRUCTION_ESTIMATES_NAVIGATION];
+	[CONSTRUCTION_ESTIMATES_NAVIGATION];
 
 export const availableVerticalNavigation = ({
-  capabilities,
-  entitlements,
-  rendererKeys,
+	capabilities,
+	entitlements,
+	rendererKeys,
 }: CapabilitySnapshot) => {
-  const enabledCapabilities = new Set(capabilities);
-  const enabledEntitlements = new Set(entitlements);
-  const bundledRenderers = new Set(rendererKeys);
-  return VERTICAL_NAVIGATION_ALLOWLIST.filter(
-    ({ capability, entitlement, rendererKey }) =>
-      enabledCapabilities.has(capability) &&
-      enabledEntitlements.has(entitlement) &&
-      bundledRenderers.has(rendererKey),
-  );
+	const enabledCapabilities = new Set(capabilities);
+	const enabledEntitlements = new Set(entitlements);
+	const bundledRenderers = new Set(rendererKeys);
+	return VERTICAL_NAVIGATION_ALLOWLIST.filter(
+		({ capability, entitlement, rendererKey }) =>
+			enabledCapabilities.has(capability) &&
+			enabledEntitlements.has(entitlement) &&
+			bundledRenderers.has(rendererKey),
+	);
 };

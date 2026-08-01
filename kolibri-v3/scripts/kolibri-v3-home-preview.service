@@ -1,0 +1,18 @@
+[Unit]
+Description=Kolibri V3 agent worktree frontend preview
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/kolibri-v3/workspaces/v3-current/kolibri-v3
+Environment=NODE_ENV=development
+Environment=KOLIBRI_HOME_PREVIEW_CONFIRM=production-backend-read-only-binding
+ExecStart=/usr/bin/node scripts/home-preview-frontend.mjs
+Restart=always
+RestartSec=2
+TimeoutStopSec=15
+
+[Install]
+WantedBy=default.target

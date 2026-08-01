@@ -69,6 +69,21 @@ test("portable Nginx probes the application instead of returning static health",
   assert.match(installer, /--no-access-log/);
 });
 
+test("portable Nginx serves a mobile-compatible HTTP2 TLS edge", async () => {
+  const installer = await readFile(
+    path.join(APP_ROOT, "deploy/portable/install.sh"),
+    "utf8",
+  );
+
+  assert.match(installer, /listen 443 ssl http2;/);
+  assert.match(installer, /listen \[::\]:443 ssl http2;/);
+  assert.match(installer, /server_name \$KOLIBRI_DOMAIN www[.]\$KOLIBRI_DOMAIN;/);
+  assert.match(installer, /ssl_protocols TLSv1[.]2 TLSv1[.]3;/);
+  assert.match(installer, /ssl_session_cache shared:KolibriSSL:10m;/);
+  assert.match(installer, /ssl_session_tickets off;/);
+  assert.match(installer, /proxy_set_header Connection "";/);
+});
+
 test("portable release installs fail-closed monitoring and verified backup timers", async () => {
   const installer = await readFile(
     path.join(APP_ROOT, "deploy/portable/install.sh"),

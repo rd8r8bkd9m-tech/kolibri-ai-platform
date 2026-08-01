@@ -4,26 +4,27 @@ import { Platform } from "react-native";
 const enabled = Platform.OS === "ios" || Platform.OS === "android";
 
 export const haptics = {
-  selection() {
-    if (enabled) void Haptics.selectionAsync();
-  },
-  light() {
-    if (enabled) {
-      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    }
-  },
-  success() {
-    if (enabled) {
-      void Haptics.notificationAsync(
-        Haptics.NotificationFeedbackType.Success,
-      );
-    }
-  },
-  error() {
-    if (enabled) {
-      void Haptics.notificationAsync(
-        Haptics.NotificationFeedbackType.Error,
-      );
-    }
-  },
+	selection() {
+		if (enabled) void Haptics.selectionAsync();
+	},
+	light() {
+		if (enabled) {
+			void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+		}
+	},
+	medium() {
+		if (enabled) {
+			void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+		}
+	},
+	success() {
+		if (enabled) {
+			void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+		}
+	},
+	error() {
+		if (enabled) {
+			void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+		}
+	},
 };

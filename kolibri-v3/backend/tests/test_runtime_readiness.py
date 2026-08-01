@@ -35,7 +35,9 @@ def test_migration_044_adds_strict_release_bound_worker_heartbeat(
     initialize_database(database_path)
     migrated = connect_database(database_path)
     try:
-        assert migrated.execute("PRAGMA user_version").fetchone()[0] == 44
+        assert migrated.execute("PRAGMA user_version").fetchone()[0] == int(
+            migration_paths()[-1].name.split("_", 1)[0]
+        )
         columns = {
             str(row["name"])
             for row in migrated.execute(

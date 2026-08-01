@@ -1,13 +1,14 @@
 """Persistent Codex App Server client for the local Kolibri V3 runtime.
 
 The backend owns exactly one app-server process for its lifetime. Product chat
-history remains authoritative in Kolibri's database; Codex threads are
-ephemeral acceleration state and are never treated as product persistence.
+history remains authoritative in Kolibri's database; materialized Codex
+threads and their durable mappings are disposable acceleration state.
 """
 
 from __future__ import annotations
 
 import json
+import logging
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -16,6 +17,18 @@ import subprocess
 import threading
 import time
 from typing import Any, Callable, Sequence
+
+from .agent_runtime_session_cache import (
+    AgentRuntimeSessionCacheError,
+    AgentRuntimeSessionCacheProtocol,
+    AgentRuntimeSessionEntry,
+    AgentRuntimeSessionScope,
+    canonical_history_hash,
+    stable_hash,
+)
+
+
+logger = logging.getLogger(__name__)
 
 
 class CodexAppServerError(RuntimeError):
@@ -116,6 +129,13 @@ class _TurnState:
         default_factory=list
     )
     error: str | None = None
+    first_delta_at: float | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class _ProductThreadBinding:
+    provider_thread_id: str
+    canonical_history_hash: str | None
 
 
 class CodexAppServerRuntime:
@@ -125,6 +145,8 @@ class CodexAppServerRuntime:
         "codex",
         "app-server",
         "--stdio",
+        "-c",
+        'web_search="live"',
         "-c",
         "plugins={}",
         "-c",
@@ -160,6 +182,7 @@ class CodexAppServerRuntime:
         command: Sequence[str] | None = None,
         model: str | None = None,
         effort: str | None = None,
+        session_cache: AgentRuntimeSessionCacheProtocol | None = None,
     ) -> None:
         self._runtime_root = runtime_root.resolve()
         self._command = tuple(command or self._DEFAULT_COMMAND)
@@ -173,6 +196,7 @@ class CodexAppServerRuntime:
             if effort is not None
             else os.getenv("KOLIBRI_V3_CODEX_EFFORT", "low").strip()
         )
+        self._session_cache = session_cache
         self._process: subprocess.Popen[str] | None = None
         self._reader: threading.Thread | None = None
         self._initialized = False
@@ -182,11 +206,10 @@ class CodexAppServerRuntime:
         self._pending: dict[int, _PendingResponse] = {}
         self._turns: dict[str, _TurnState] = {}
         self._product_threads: dict[
-            tuple[str, str, str, str, str, str, str, str, str], str
+            AgentRuntimeSessionScope, _ProductThreadBinding
         ] = {}
         self._product_thread_locks: dict[
-            tuple[str, str, str, str, str, str, str, str, str],
-            threading.Lock,
+            AgentRuntimeSessionScope, threading.Lock
         ] = {}
         self._start_lock = threading.Lock()
         self._lifecycle_lock = threading.RLock()
@@ -639,9 +662,16 @@ class CodexAppServerRuntime:
         self,
         *,
         tenant_id: str,
+        user_id: str,
+        project_id: str,
         product_thread_id: str,
+        credential_tenant_id: str,
+        runtime_profile: str,
+        runtime_id: str,
+        runtime_mode: str,
         initial_prompt: str,
         followup_prompt: str,
+        canonical_messages: Sequence[tuple[str, str]] | None,
         output_schema: dict[str, Any] | None,
         instructions: str,
         timeout: float,
@@ -657,34 +687,82 @@ class CodexAppServerRuntime:
         approvals_reviewer: str | None = None,
         cancellation_signal: threading.Event | None = None,
     ) -> str:
-        """Run one model turn on the product chat's ephemeral Codex thread."""
+        """Run one turn, resuming only a fully bound provider session."""
 
-        self.start()
-        resolved_workspace = (
-            workspace_root.resolve()
-            if workspace_root is not None
-            else self._runtime_root
-        )
-        selected_model = model if model is not None else self._model
-        key = (
-            tenant_id,
-            product_thread_id,
-            execution_profile,
-            str(resolved_workspace),
-            selected_model or "",
-            service_tier or "",
-            sandbox,
-            approval_policy,
-            approvals_reviewer or "",
-        )
-        lock = self._product_thread_lock(key)
-        with lock:
-            self._require_account(timeout=min(timeout, 10.0))
-            with self._state_lock:
-                codex_thread_id = self._product_threads.get(key)
-            prompt = followup_prompt
-            if codex_thread_id is None:
-                codex_thread_id = self._start_thread(
+        call_started_at = time.monotonic()
+        process_ready_at: float | None = None
+        lock_requested_at: float | None = None
+        lock_ready_at: float | None = None
+        account_ready_at: float | None = None
+        session_ready_at: float | None = None
+        turn_requested_at: float | None = None
+        turn_accepted_at: float | None = None
+        first_delta_at: float | None = None
+        turn_id: str | None = None
+        outcome = "error"
+        session_source = "unresolved"
+        scope: AgentRuntimeSessionScope | None = None
+        binding: _ProductThreadBinding | None = None
+        try:
+            self.start()
+            process_ready_at = time.monotonic()
+            resolved_workspace = (
+                workspace_root.resolve()
+                if workspace_root is not None
+                else self._runtime_root
+            )
+            selected_model = model if model is not None else self._model
+            selected_effort = effort if effort is not None else self._effort
+            scope = AgentRuntimeSessionScope(
+                tenant_id=tenant_id,
+                user_id=user_id,
+                project_id=project_id,
+                product_thread_id=product_thread_id,
+                credential_tenant_id=credential_tenant_id,
+                runtime_profile=runtime_profile,
+                runtime_id=runtime_id,
+                runtime_mode=runtime_mode,
+                execution_profile=execution_profile,
+                workspace_fingerprint=stable_hash(
+                    {"root": str(resolved_workspace)}
+                ),
+                model_id=selected_model or "",
+                reasoning_effort=selected_effort or "",
+                service_tier=service_tier or "default",
+                sandbox_profile=sandbox,
+                approval_policy=approval_policy,
+                approvals_reviewer=approvals_reviewer or "",
+                instructions_hash=stable_hash(instructions),
+                output_schema_hash=stable_hash(output_schema),
+            )
+            canonical_snapshot = (
+                tuple(canonical_messages)
+                if canonical_messages is not None
+                else None
+            )
+            expected_history_hash: str | None = None
+            if canonical_snapshot is not None:
+                if (
+                    not canonical_snapshot
+                    or canonical_snapshot[-1][0] != "user"
+                    or canonical_snapshot[-1][1] != followup_prompt
+                ):
+                    raise CodexAppServerError(
+                        "Canonical product history is invalid for this turn."
+                    )
+                expected_history_hash = canonical_history_hash(
+                    canonical_snapshot[:-1]
+                )
+
+            lock_requested_at = time.monotonic()
+            lock = self._product_thread_lock(scope)
+            with lock:
+                lock_ready_at = time.monotonic()
+                self._require_account(timeout=min(timeout, 10.0))
+                account_ready_at = time.monotonic()
+                binding, session_source = self._resolve_product_thread(
+                    scope=scope,
+                    expected_history_hash=expected_history_hash,
                     instructions=instructions,
                     timeout=timeout,
                     model=selected_model,
@@ -694,94 +772,311 @@ class CodexAppServerRuntime:
                     approvals_reviewer=approvals_reviewer,
                     service_tier=service_tier,
                 )
-                with self._state_lock:
-                    self._product_threads[key] = codex_thread_id
-                prompt = initial_prompt
-            try:
-                turn_params: dict[str, object] = {
-                    "threadId": codex_thread_id,
-                    "input": [{"type": "text", "text": prompt}],
-                    "effort": (
-                        effort
-                        if effort is not None
-                        else self._effort or None
-                    ),
-                    "approvalPolicy": approval_policy,
-                }
-                if approvals_reviewer is not None:
-                    turn_params["approvalsReviewer"] = approvals_reviewer
-                if output_schema is not None:
-                    turn_params["outputSchema"] = output_schema
-                if service_tier is not None:
-                    turn_params["serviceTier"] = service_tier
-                response = self._request(
-                    "turn/start",
-                    turn_params,
-                    timeout=timeout,
-                )
-                turn_id = self._nested_id(response, "turn")
-                with self._state_lock:
-                    turn = self._turns.setdefault(turn_id, _TurnState())
-                    turn.on_delta = on_delta
-                    turn.on_activity = on_activity
-                    pending_delta = turn.delta_text[turn.streamed_length :]
-                    turn.streamed_length = len(turn.delta_text)
-                    pending_activities = tuple(turn.pending_activities)
-                    turn.pending_activities.clear()
-                if pending_delta and on_delta is not None:
-                    on_delta(pending_delta)
-                if on_activity is not None:
-                    for phase, item in pending_activities:
-                        on_activity(phase, item)
-                deadline = time.monotonic() + timeout
-                while not turn.event.wait(
-                    max(0.0, min(0.1, deadline - time.monotonic()))
-                ):
-                    if (
-                        cancellation_signal is not None
-                        and cancellation_signal.is_set()
-                    ):
-                        self._interrupt_turn(
-                            codex_thread_id,
-                            turn_id,
-                            timeout=min(timeout, 5.0),
-                        )
-                        raise CodexAppServerError(
-                            "Codex app-server turn was cancelled."
-                        )
-                    if time.monotonic() >= deadline:
-                        self._interrupt_turn(
-                            codex_thread_id,
-                            turn_id,
-                            timeout=min(timeout, 5.0),
-                        )
-                        raise CodexAppServerError(
-                            "Codex app-server turn timed out."
-                        )
-                if turn.error is not None:
-                    raise CodexAppServerError(turn.error)
-                text = (
-                    turn.delta_text
-                    if on_delta is not None and turn.delta_text
-                    else turn.final_text or turn.delta_text
-                ).strip()
-                if not text:
-                    raise CodexAppServerError(
-                        "Codex app-server returned an empty response."
+                prompt = followup_prompt
+                if binding is None:
+                    cold_reason = session_source
+                    provider_thread_id = self._start_thread(
+                        instructions=instructions,
+                        timeout=timeout,
+                        model=selected_model,
+                        workspace_root=resolved_workspace,
+                        sandbox=sandbox,
+                        approval_policy=approval_policy,
+                        approvals_reviewer=approvals_reviewer,
+                        service_tier=service_tier,
                     )
-                return text
-            except CodexAppServerError:
-                with self._state_lock:
-                    self._product_threads.pop(key, None)
-                raise
-            finally:
-                if "turn_id" in locals():
+                    binding = _ProductThreadBinding(
+                        provider_thread_id=provider_thread_id,
+                        canonical_history_hash=expected_history_hash,
+                    )
+                    session_source = f"new:{cold_reason}"
+                    prompt = initial_prompt
+                session_ready_at = time.monotonic()
+                try:
+                    codex_thread_id = binding.provider_thread_id
+                    turn_params: dict[str, object] = {
+                        "threadId": codex_thread_id,
+                        "input": [{"type": "text", "text": prompt}],
+                        "effort": selected_effort or None,
+                        "approvalPolicy": approval_policy,
+                        "serviceTier": service_tier,
+                    }
+                    if approvals_reviewer is not None:
+                        turn_params["approvalsReviewer"] = approvals_reviewer
+                    if output_schema is not None:
+                        turn_params["outputSchema"] = output_schema
+                    turn_requested_at = time.monotonic()
+                    response = self._request(
+                        "turn/start",
+                        turn_params,
+                        timeout=timeout,
+                    )
+                    turn_id = self._nested_id(response, "turn")
+                    turn_accepted_at = time.monotonic()
                     with self._state_lock:
-                        self._turns.pop(turn_id, None)
+                        turn = self._turns.setdefault(turn_id, _TurnState())
+                        turn.on_delta = on_delta
+                        turn.on_activity = on_activity
+                        pending_delta = turn.delta_text[turn.streamed_length :]
+                        turn.streamed_length = len(turn.delta_text)
+                        pending_activities = tuple(turn.pending_activities)
+                        turn.pending_activities.clear()
+                    if pending_delta and on_delta is not None:
+                        on_delta(pending_delta)
+                    if on_activity is not None:
+                        for phase, item in pending_activities:
+                            on_activity(phase, item)
+                    deadline = time.monotonic() + timeout
+                    while not turn.event.wait(
+                        max(0.0, min(0.1, deadline - time.monotonic()))
+                    ):
+                        if (
+                            cancellation_signal is not None
+                            and cancellation_signal.is_set()
+                        ):
+                            self._interrupt_turn(
+                                codex_thread_id,
+                                turn_id,
+                                timeout=min(timeout, 5.0),
+                            )
+                            raise CodexAppServerError(
+                                "Codex app-server turn was cancelled."
+                            )
+                        if time.monotonic() >= deadline:
+                            self._interrupt_turn(
+                                codex_thread_id,
+                                turn_id,
+                                timeout=min(timeout, 5.0),
+                            )
+                            raise CodexAppServerError(
+                                "Codex app-server turn timed out."
+                            )
+                    if turn.error is not None:
+                        raise CodexAppServerError(turn.error)
+                    text = (
+                        turn.delta_text
+                        if on_delta is not None and turn.delta_text
+                        else turn.final_text or turn.delta_text
+                    ).strip()
+                    if not text:
+                        raise CodexAppServerError(
+                            "Codex app-server returned an empty response."
+                        )
+                    next_history_hash: str | None = None
+                    if canonical_snapshot is not None:
+                        next_history_hash = canonical_history_hash(
+                            (
+                                *canonical_snapshot,
+                                ("assistant", text[:200_000]),
+                            )
+                        )
+                    completed_binding = _ProductThreadBinding(
+                        provider_thread_id=codex_thread_id,
+                        canonical_history_hash=next_history_hash,
+                    )
+                    with self._state_lock:
+                        self._product_threads[scope] = completed_binding
+                    if next_history_hash is not None:
+                        self._store_cached_binding(
+                            scope,
+                            completed_binding,
+                        )
+                    outcome = "success"
+                    return text
+                except Exception:
+                    with self._state_lock:
+                        current = self._product_threads.get(scope)
+                        if (
+                            current is not None
+                            and current.provider_thread_id
+                            == binding.provider_thread_id
+                        ):
+                            self._product_threads.pop(scope, None)
+                    self._evict_cached_binding(scope, binding)
+                    raise
+                finally:
+                    if turn_id is not None:
+                        with self._state_lock:
+                            finished_turn = self._turns.pop(turn_id, None)
+                        if finished_turn is not None:
+                            first_delta_at = finished_turn.first_delta_at
+        finally:
+            self._log_stage_timings(
+                scope=scope,
+                outcome=outcome,
+                session_source=session_source,
+                call_started_at=call_started_at,
+                process_ready_at=process_ready_at,
+                lock_requested_at=lock_requested_at,
+                lock_ready_at=lock_ready_at,
+                account_ready_at=account_ready_at,
+                session_ready_at=session_ready_at,
+                turn_requested_at=turn_requested_at,
+                turn_accepted_at=turn_accepted_at,
+                first_delta_at=first_delta_at,
+            )
+
+    def _resolve_product_thread(
+        self,
+        *,
+        scope: AgentRuntimeSessionScope,
+        expected_history_hash: str | None,
+        instructions: str,
+        timeout: float,
+        model: str | None,
+        workspace_root: Path,
+        sandbox: str,
+        approval_policy: str,
+        approvals_reviewer: str | None,
+        service_tier: str | None,
+    ) -> tuple[_ProductThreadBinding | None, str]:
+        with self._state_lock:
+            memory_binding = self._product_threads.get(scope)
+        if memory_binding is not None:
+            if memory_binding.canonical_history_hash == expected_history_hash:
+                return memory_binding, "memory"
+            with self._state_lock:
+                current = self._product_threads.get(scope)
+                if current == memory_binding:
+                    self._product_threads.pop(scope, None)
+            self._evict_cached_binding(scope, memory_binding)
+            return None, "history-mismatch"
+
+        if expected_history_hash is None or self._session_cache is None:
+            return None, "cache-disabled"
+        try:
+            cached = self._session_cache.lookup(scope)
+        except AgentRuntimeSessionCacheError as exc:
+            logger.warning(
+                "Codex session cache lookup failed scope=%s: %s",
+                scope.scope_key[7:19],
+                exc,
+            )
+            return None, "cache-error"
+        if cached is None:
+            return None, "cache-miss"
+        binding = _ProductThreadBinding(
+            provider_thread_id=cached.provider_thread_id,
+            canonical_history_hash=cached.canonical_history_hash,
+        )
+        if binding.canonical_history_hash != expected_history_hash:
+            self._evict_cached_binding(scope, binding)
+            return None, "history-mismatch"
+        try:
+            provider_thread_id = self._resume_thread(
+                cached,
+                instructions=instructions,
+                timeout=timeout,
+                model=model,
+                workspace_root=workspace_root,
+                sandbox=sandbox,
+                approval_policy=approval_policy,
+                approvals_reviewer=approvals_reviewer,
+                service_tier=service_tier,
+            )
+        except CodexAppServerError as exc:
+            logger.info(
+                "Codex cached session rejected scope=%s; using DB history: %s",
+                scope.scope_key[7:19],
+                exc,
+            )
+            self._evict_cached_binding(scope, binding)
+            return None, "resume-rejected"
+        resumed = _ProductThreadBinding(
+            provider_thread_id=provider_thread_id,
+            canonical_history_hash=expected_history_hash,
+        )
+        with self._state_lock:
+            self._product_threads[scope] = resumed
+        return resumed, "resumed"
+
+    def _store_cached_binding(
+        self,
+        scope: AgentRuntimeSessionScope,
+        binding: _ProductThreadBinding,
+    ) -> None:
+        if (
+            self._session_cache is None
+            or binding.canonical_history_hash is None
+        ):
+            return
+        try:
+            self._session_cache.store(
+                scope,
+                provider_thread_id=binding.provider_thread_id,
+                history_hash=binding.canonical_history_hash,
+            )
+        except (AgentRuntimeSessionCacheError, ValueError) as exc:
+            logger.warning(
+                "Codex session cache update failed scope=%s: %s",
+                scope.scope_key[7:19],
+                exc,
+            )
+
+    def _evict_cached_binding(
+        self,
+        scope: AgentRuntimeSessionScope,
+        binding: _ProductThreadBinding,
+    ) -> None:
+        if self._session_cache is None:
+            return
+        try:
+            self._session_cache.evict_if_matches(
+                scope,
+                provider_thread_id=binding.provider_thread_id,
+            )
+        except (AgentRuntimeSessionCacheError, ValueError) as exc:
+            logger.warning(
+                "Codex session cache eviction failed scope=%s: %s",
+                scope.scope_key[7:19],
+                exc,
+            )
+
+    @staticmethod
+    def _milliseconds(
+        start: float | None,
+        end: float | None,
+    ) -> int:
+        if start is None or end is None:
+            return -1
+        return max(0, round((end - start) * 1000))
+
+    def _log_stage_timings(
+        self,
+        *,
+        scope: AgentRuntimeSessionScope | None,
+        outcome: str,
+        session_source: str,
+        call_started_at: float,
+        process_ready_at: float | None,
+        lock_requested_at: float | None,
+        lock_ready_at: float | None,
+        account_ready_at: float | None,
+        session_ready_at: float | None,
+        turn_requested_at: float | None,
+        turn_accepted_at: float | None,
+        first_delta_at: float | None,
+    ) -> None:
+        finished_at = time.monotonic()
+        logger.info(
+            "Codex app-server stages scope=%s outcome=%s session=%s "
+            "process_ready_ms=%d lock_wait_ms=%d account_ms=%d "
+            "session_ms=%d turn_start_ms=%d ttft_ms=%d total_ms=%d",
+            scope.scope_key[7:19] if scope is not None else "unresolved",
+            outcome,
+            session_source,
+            self._milliseconds(call_started_at, process_ready_at),
+            self._milliseconds(lock_requested_at, lock_ready_at),
+            self._milliseconds(lock_ready_at, account_ready_at),
+            self._milliseconds(account_ready_at, session_ready_at),
+            self._milliseconds(turn_requested_at, turn_accepted_at),
+            self._milliseconds(call_started_at, first_delta_at),
+            self._milliseconds(call_started_at, finished_at),
+        )
 
     def _product_thread_lock(
         self,
-        key: tuple[str, str, str, str, str, str, str, str, str],
+        key: AgentRuntimeSessionScope,
     ) -> threading.Lock:
         with self._state_lock:
             return self._product_thread_locks.setdefault(
@@ -824,22 +1119,121 @@ class CodexAppServerRuntime:
             "cwd": str(workspace_root),
             "approvalPolicy": approval_policy,
             "sandbox": sandbox,
-            "ephemeral": True,
+            "ephemeral": False,
             "baseInstructions": instructions,
             "developerInstructions": instructions,
             "dynamicTools": [],
             "selectedCapabilityRoots": [],
             "runtimeWorkspaceRoots": [str(workspace_root)],
+            "serviceTier": service_tier,
         }
         selected_model = model if model is not None else self._model
         if selected_model:
             params["model"] = selected_model
         if approvals_reviewer is not None:
             params["approvalsReviewer"] = approvals_reviewer
-        if service_tier is not None:
-            params["serviceTier"] = service_tier
         response = self._request("thread/start", params, timeout=timeout)
-        return self._nested_id(response, "thread")
+        return self._validated_thread_response(
+            response,
+            expected_thread_id=None,
+            model=selected_model,
+            workspace_root=workspace_root,
+            sandbox=sandbox,
+            approval_policy=approval_policy,
+            approvals_reviewer=approvals_reviewer,
+            service_tier=service_tier,
+        )
+
+    def _resume_thread(
+        self,
+        cached: AgentRuntimeSessionEntry,
+        *,
+        instructions: str,
+        timeout: float,
+        model: str | None,
+        workspace_root: Path,
+        sandbox: str,
+        approval_policy: str,
+        approvals_reviewer: str | None,
+        service_tier: str | None,
+    ) -> str:
+        params: dict[str, object] = {
+            "threadId": cached.provider_thread_id,
+            "cwd": str(workspace_root),
+            "approvalPolicy": approval_policy,
+            "sandbox": sandbox,
+            "baseInstructions": instructions,
+            "developerInstructions": instructions,
+            "excludeTurns": True,
+            "runtimeWorkspaceRoots": [str(workspace_root)],
+            "serviceTier": service_tier,
+        }
+        selected_model = model if model is not None else self._model
+        if selected_model:
+            params["model"] = selected_model
+        if approvals_reviewer is not None:
+            params["approvalsReviewer"] = approvals_reviewer
+        response = self._request("thread/resume", params, timeout=timeout)
+        return self._validated_thread_response(
+            response,
+            expected_thread_id=cached.provider_thread_id,
+            model=selected_model,
+            workspace_root=workspace_root,
+            sandbox=sandbox,
+            approval_policy=approval_policy,
+            approvals_reviewer=approvals_reviewer,
+            service_tier=service_tier,
+        )
+
+    @classmethod
+    def _validated_thread_response(
+        cls,
+        response: object,
+        *,
+        expected_thread_id: str | None,
+        model: str | None,
+        workspace_root: Path,
+        sandbox: str,
+        approval_policy: str,
+        approvals_reviewer: str | None,
+        service_tier: str | None,
+    ) -> str:
+        if not isinstance(response, dict):
+            raise CodexAppServerError(
+                "Codex app-server returned invalid thread metadata."
+            )
+        thread_id = cls._nested_id(response, "thread")
+        thread = response.get("thread")
+        sandbox_value = response.get("sandbox")
+        expected_sandbox_type = {
+            "read-only": "readOnly",
+            "workspace-write": "workspaceWrite",
+            "danger-full-access": "dangerFullAccess",
+        }.get(sandbox)
+        expected_reviewer = approvals_reviewer or "user"
+        expected_service_tier = service_tier or "default"
+        expected_workspace = str(workspace_root)
+        checks = (
+            expected_thread_id is None or thread_id == expected_thread_id,
+            isinstance(thread, dict) and thread.get("ephemeral") is False,
+            isinstance(thread, dict)
+            and thread.get("cwd") == expected_workspace,
+            response.get("cwd") == expected_workspace,
+            model is None
+            or response.get("model") == model,
+            response.get("approvalPolicy") == approval_policy,
+            response.get("approvalsReviewer") == expected_reviewer,
+            response.get("serviceTier") == expected_service_tier,
+            response.get("runtimeWorkspaceRoots") == [expected_workspace],
+            isinstance(sandbox_value, dict)
+            and sandbox_value.get("type") == expected_sandbox_type,
+        )
+        if not all(checks):
+            raise CodexAppServerError(
+                "Codex app-server thread metadata did not match the "
+                "frozen execution scope."
+            )
+        return thread_id
 
     def _interrupt_turn(
         self,
@@ -988,7 +1382,11 @@ class CodexAppServerRuntime:
             item = params.get("item")
             if isinstance(turn_id, str) and isinstance(item, dict):
                 item_type = item.get("type")
-                if item_type in {"commandExecution", "fileChange"}:
+                if item_type in {
+                    "commandExecution",
+                    "fileChange",
+                    "webSearch",
+                }:
                     phase = (
                         "started"
                         if method == "item/started"
@@ -1019,6 +1417,8 @@ class CodexAppServerRuntime:
             if isinstance(turn_id, str) and isinstance(delta, str):
                 with self._state_lock:
                     turn = self._turns.setdefault(turn_id, _TurnState())
+                    if turn.first_delta_at is None:
+                        turn.first_delta_at = time.monotonic()
                     turn.delta_text += delta
                     callback = turn.on_delta
                     if callback is not None:
@@ -1107,6 +1507,8 @@ class CodexAppServerRuntime:
         self._fail_waiters(
             CodexAppServerError("Codex app-server connection was lost.")
         )
+        with self._state_lock:
+            self._product_threads.clear()
 
     def _stop_process(self, error: CodexAppServerError) -> None:
         with self._lifecycle_lock:

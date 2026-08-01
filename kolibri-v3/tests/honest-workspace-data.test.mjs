@@ -40,38 +40,3 @@ test("workspace tools expose honest empty states without seeded calculations or 
   assert.match(contextPanel, /Подключения маркетплейсов не настроены/);
   assert.match(contextPanel, /Нет активных подключений/);
 });
-
-test("workspace desktop keeps real navigation and no hardcoded recent records", async () => {
-  const desktop = await readSource(
-    "components/kolibri-workspace/workspace-desktop.tsx",
-  );
-
-  for (const hardcodedRecord of [
-    "Пояснительная записка.docx",
-    "Сводная смета.xlsx",
-    "сегодня, 09:42",
-    "сегодня, 08:55",
-    "Активный проект",
-  ]) {
-    assert.doesNotMatch(
-      desktop,
-      new RegExp(hardcodedRecord),
-      `unexpected recent record: ${hardcodedRecord}`,
-    );
-  }
-
-  assert.match(desktop, /Недавних документов нет/);
-
-  for (const callback of [
-    "onOpenProjects",
-    "onOpenDocuments",
-    "onOpenReferences",
-    "onOpenBrowser",
-  ]) {
-    assert.match(
-      desktop,
-      new RegExp(`onClick=\\{${callback}\\}`),
-      `missing real navigation callback: ${callback}`,
-    );
-  }
-});

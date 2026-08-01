@@ -4,5 +4,5 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 export async function GET(request: Request) {
-  return proxyV3JsonRequest(request, "/v1/documents");
+	return proxyV3JsonRequest(request, "/v1/documents");
 }

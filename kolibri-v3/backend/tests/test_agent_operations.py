@@ -369,6 +369,7 @@ def test_agent_operations_is_owner_capability_gated_paginated_and_redacted(
                 "activityEvents": True,
                 "persistentSessions": True,
                 "modelCatalog": False,
+                "capabilityIds": [],
             }
         ]
         [provider] = first_payload["availability"]["providers"]

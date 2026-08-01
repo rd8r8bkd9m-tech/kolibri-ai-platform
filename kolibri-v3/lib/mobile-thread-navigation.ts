@@ -3,33 +3,31 @@ export const THREAD_LONG_PRESS_MOVE_TOLERANCE_PX = 8;
 export const THREAD_LONG_PRESS_CLICK_SUPPRESSION_MS = 1_500;
 
 export function canStartThreadLongPress({
-  isDraft,
-  pointerType,
+	isDraft,
+	pointerType,
 }: {
-  isDraft: boolean;
-  pointerType: string;
+	isDraft: boolean;
+	pointerType: string;
 }) {
-  return (
-    !isDraft && (pointerType === "touch" || pointerType === "pen")
-  );
+	return !isDraft && (pointerType === "touch" || pointerType === "pen");
 }
 
 export function shouldCloseThreadDrawerForClick({
-  isThreadTrigger,
-  longPressConsumed,
+	isThreadTrigger,
+	longPressConsumed,
 }: {
-  isThreadTrigger: boolean;
-  longPressConsumed: boolean;
+	isThreadTrigger: boolean;
+	longPressConsumed: boolean;
 }) {
-  return isThreadTrigger && !longPressConsumed;
+	return isThreadTrigger && !longPressConsumed;
 }
 
 export function shouldIgnoreThreadMenuCloseRequest({
-  open,
-  longPressClickPending,
+	open,
+	longPressClickPending,
 }: {
-  open: boolean;
-  longPressClickPending: boolean;
+	open: boolean;
+	longPressClickPending: boolean;
 }) {
-  return !open && longPressClickPending;
+	return !open && longPressClickPending;
 }

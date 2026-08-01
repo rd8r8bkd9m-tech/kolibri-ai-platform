@@ -69,7 +69,7 @@ release_migration_max="$(
   echo "smoke_error=release_identity_invalid" >&2
   exit 3
 }
-(( 10#$release_migration_max >= 44 )) || {
+(( 10#$release_migration_max >= 47 )) || {
   echo "smoke_error=required_release_migrations_missing" >&2
   exit 3
 }

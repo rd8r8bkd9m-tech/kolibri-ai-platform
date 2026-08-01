@@ -140,6 +140,8 @@ def validate_rendered_worker(
         f"WantedBy={backend_service}" not in payload
         or "RestartPreventExitStatus=73 75 78" not in payload
         or "LoadCredential=" not in payload
+        or "--materialize-credentials" not in payload
+        or "%d/" in payload
     ):
         raise InstallContractError(
             f"durable_worker_not_fail_closed unit={name}"
@@ -184,6 +186,7 @@ def render_workers(arguments: argparse.Namespace) -> None:
         "@SERVICE_USER@": arguments.service_user,
         "@SERVICE_GROUP@": arguments.service_group,
         "@BACKEND_SERVICE@": arguments.backend_service,
+        "@INSTANCE@": arguments.instance,
     }
     for template_name, unit_role in WORKER_TEMPLATES.items():
         template_path = source_root / template_name
@@ -275,8 +278,8 @@ def validate_operation_unit(name: str, payload: str) -> None:
         required = (
             "Type=oneshot",
             "-m app.release_monitor",
-            "--public-url https://",
-            "CapabilityBoundingSet=CAP_DAC_READ_SEARCH",
+            "--public-url ",
+            "CapabilityBoundingSet=",
             "ReadOnlyPaths=",
         )
     elif name.endswith("release-monitor.timer"):
@@ -319,6 +322,12 @@ def render_operations(arguments: argparse.Namespace) -> None:
         raise InstallContractError("operation_release_id_invalid")
     if not RELEASE_COMMIT_PATTERN.fullmatch(arguments.release_commit):
         raise InstallContractError("operation_release_commit_invalid")
+    if not ACCOUNT_PATTERN.fullmatch(arguments.service_user):
+        raise InstallContractError("operation_service_user_invalid")
+    if not ACCOUNT_PATTERN.fullmatch(arguments.service_group):
+        raise InstallContractError("operation_service_group_invalid")
+    if arguments.service_uid < 0:
+        raise InstallContractError("operation_service_uid_invalid")
 
     output_root = absolute_canonical_directory(
         arguments.output_dir,
@@ -361,8 +370,8 @@ StartLimitIntervalSec=0
 
 [Service]
 Type=oneshot
-User=root
-Group=root
+User={arguments.service_user}
+Group={arguments.service_group}
 Environment=HOME=/nonexistent
 Environment=PYTHONDONTWRITEBYTECODE=1
 Environment=PYTHONUNBUFFERED=1
@@ -370,7 +379,7 @@ WorkingDirectory={current_link}/backend
 ExecStart={current_link}/backend/venv/bin/python -m app.release_monitor \\
  --database {data_root}/kolibri-v3.db \\
  --backup-root {backup_root} \\
- --backup-owner-uid 0 \\
+ --backup-owner-uid {arguments.service_uid} \\
  --backend-url http://127.0.0.1:{arguments.backend_port}/v1/ready \\
  --frontend-url http://127.0.0.1:{arguments.frontend_port}/api/health \\
  --public-url {public_origin}/readyz \\
@@ -402,11 +411,12 @@ RestrictSUIDSGID=true
 RestrictNamespaces=true
 RestrictRealtime=true
 LockPersonality=true
-CapabilityBoundingSet=CAP_DAC_READ_SEARCH
-AmbientCapabilities=CAP_DAC_READ_SEARCH
+CapabilityBoundingSet=
+AmbientCapabilities=
 SystemCallArchitectures=native
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
-ReadOnlyPaths={current_link} {data_root} {backup_root}
+ReadOnlyPaths={current_link} {backup_root}
+ReadWritePaths={data_root}
 """,
         f"{instance}-release-monitor.timer": f"""\
 [Unit]
@@ -432,8 +442,8 @@ StartLimitIntervalSec=0
 
 [Service]
 Type=oneshot
-User=root
-Group=root
+User={arguments.service_user}
+Group={arguments.service_group}
 Environment=HOME=/nonexistent
 Environment=PYTHONDONTWRITEBYTECODE=1
 Environment=PYTHONUNBUFFERED=1
@@ -464,12 +474,12 @@ RestrictSUIDSGID=true
 RestrictNamespaces=true
 RestrictRealtime=true
 LockPersonality=true
-CapabilityBoundingSet=CAP_DAC_READ_SEARCH
-AmbientCapabilities=CAP_DAC_READ_SEARCH
+CapabilityBoundingSet=
+AmbientCapabilities=
 SystemCallArchitectures=native
 RestrictAddressFamilies=AF_UNIX
-ReadOnlyPaths={current_link} {data_root} {database_helper}
-ReadWritePaths={backup_root}
+ReadOnlyPaths={current_link} {database_helper}
+ReadWritePaths={data_root} {backup_root}
 """,
         f"{instance}-database-backup.timer": f"""\
 [Unit]
@@ -775,6 +785,9 @@ def parser() -> argparse.ArgumentParser:
     operation_parser.add_argument("--output-dir", required=True)
     operation_parser.add_argument("--instance", required=True)
     operation_parser.add_argument("--current-link", required=True)
+    operation_parser.add_argument("--service-user", required=True)
+    operation_parser.add_argument("--service-group", required=True)
+    operation_parser.add_argument("--service-uid", required=True, type=int)
     operation_parser.add_argument("--data-root", required=True)
     operation_parser.add_argument("--backup-root", required=True)
     operation_parser.add_argument("--backend-port", required=True, type=int)

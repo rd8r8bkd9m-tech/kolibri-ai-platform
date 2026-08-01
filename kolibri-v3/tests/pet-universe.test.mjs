@@ -5,196 +5,223 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
-const APP_ROOT = path.resolve(
-  path.dirname(fileURLToPath(import.meta.url)),
-  "..",
-);
+import { PET_CATALOG } from "../lib/pets/catalog.ts";
+import {
+	PET_ACTIVITY_EVENT_TYPE,
+	PET_ATLAS_LAYOUT,
+	PET_MOTION_CLIPS,
+	createPetMotionModel,
+	derivePetActivityFromRuntime,
+	getPetFrameAtElapsedMs,
+	parsePetActivityEventV1,
+	reducePetMotion,
+} from "../lib/pets/motion.ts";
+
+const APP_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const readSource = (relativePath) =>
-  readFile(path.join(APP_ROOT, relativePath), "utf8");
-
+	readFile(path.join(APP_ROOT, relativePath), "utf8");
 const fileFromPublicUrl = (url) =>
-  path.join(APP_ROOT, "public", url.replace(/^\//, ""));
+	path.join(APP_ROOT, "public", url.replace(/^\//, ""));
 
-test("the pet roster ships ten original characters with versioned assets", async () => {
-  const manifest = JSON.parse(
-    await readSource("public/pets/manifest-v1.json"),
-  );
+test("the reviewed pet roster and its versioned static fallbacks are complete", async () => {
+	const manifest = JSON.parse(await readSource("public/pets/manifest-v1.json"));
 
-  assert.equal(manifest.version, 1);
-  assert.equal(manifest.pets.length, 10);
-  assert.equal(new Set(manifest.pets.map((pet) => pet.id)).size, 10);
-  assert.equal(new Set(manifest.pets.map((pet) => pet.name)).size, 10);
-  assert.equal(new Set(manifest.pets.map((pet) => pet.assetSlug)).size, 10);
+	assert.equal(manifest.version, 1);
+	assert.equal(manifest.pets.length, 10);
+	assert.deepEqual(
+		manifest.pets.map((pet) => pet.id),
+		PET_CATALOG.map((pet) => pet.id),
+	);
+	assert.equal(new Set(PET_CATALOG.map((pet) => pet.assetSlug)).size, 10);
+	assert.equal(PET_CATALOG[0].motionAssetVersion, "v2");
+	assert.equal(
+		PET_CATALOG.filter((pet) => pet.motionAssetVersion !== null).length,
+		1,
+	);
 
-  for (const pet of manifest.pets) {
-    for (const field of [
-      "name",
-      "personality",
-      "role",
-      "animation",
-      "master",
-      "active",
-      "thumbnail",
-    ]) {
-      assert.ok(pet[field], `${pet.id} is missing ${field}`);
-    }
-
-    assert.match(pet.master, /\/pets\/masters\/[a-z-]+-v1\.png$/);
-    assert.match(pet.active, /\/pets\/active\/[a-z-]+-v1\.webp$/);
-    assert.match(pet.thumbnail, /\/pets\/thumbs\/[a-z-]+-v1\.webp$/);
-
-    const [master, active, thumbnail] = await Promise.all([
-      stat(fileFromPublicUrl(pet.master)),
-      stat(fileFromPublicUrl(pet.active)),
-      stat(fileFromPublicUrl(pet.thumbnail)),
-    ]);
-    assert.ok(master.size > 100_000, `${pet.id} master is unexpectedly small`);
-    assert.ok(active.size < 80_000, `${pet.id} active asset is too heavy`);
-    assert.ok(thumbnail.size < 12_000, `${pet.id} thumbnail is too heavy`);
-  }
+	for (const pet of manifest.pets) {
+		for (const field of [
+			"name",
+			"personality",
+			"role",
+			"master",
+			"active",
+			"thumbnail",
+		]) {
+			assert.ok(pet[field], `${pet.id} is missing ${field}`);
+		}
+		const [master, active, thumbnail] = await Promise.all([
+			stat(fileFromPublicUrl(pet.master)),
+			stat(fileFromPublicUrl(pet.active)),
+			stat(fileFromPublicUrl(pet.thumbnail)),
+		]);
+		assert.ok(master.size > 100_000, `${pet.id} master is unexpectedly small`);
+		assert.ok(active.size < 80_000, `${pet.id} active fallback is too heavy`);
+		assert.ok(thumbnail.size < 12_000, `${pet.id} thumbnail is too heavy`);
+	}
 });
 
-test("the original Kolibri remains byte-identical in the versioned master", async () => {
-  const copiedMaster = await readFile(
-    path.join(APP_ROOT, "public/pets/masters/kolibri-v1.png"),
-  );
-
-  assert.equal(
-    createHash("sha256").update(copiedMaster).digest("hex"),
-    "6f30357f75c963e5e4d85b464b10eadb2545d2a6b40aced54861571c4322c3d7",
-  );
-  assert.equal(copiedMaster.readUInt32BE(16), 1254);
-  assert.equal(copiedMaster.readUInt32BE(20), 1254);
-  assert.equal(copiedMaster[25], 6, "source PNG must remain RGBA");
+test("the original Kolibri master remains immutable", async () => {
+	const master = await readFile(
+		path.join(APP_ROOT, "public/pets/masters/kolibri-v1.png"),
+	);
+	assert.equal(
+		createHash("sha256").update(master).digest("hex"),
+		"6f30357f75c963e5e4d85b464b10eadb2545d2a6b40aced54861571c4322c3d7",
+	);
+	assert.equal(master.readUInt32BE(16), 1254);
+	assert.equal(master.readUInt32BE(20), 1254);
+	assert.equal(master[25], 6, "source PNG must remain RGBA");
 });
 
-test("one existing pet component owns selection, movement, hiding and previews", async () => {
-  const [pet, settings] = await Promise.all([
-    readSource("components/kolibri-shell/kolibri-pet.tsx"),
-    readSource("components/kolibri-shell/profile-settings-surface.tsx"),
-  ]);
-
-  assert.equal((pet.match(/export function KolibriPet\b/g) ?? []).length, 1);
-  assert.equal((pet.match(/export function PetAvatar\b/g) ?? []).length, 1);
-  assert.match(pet, /KOLIBRI_PET_SELECTION_KEY\s*=\s*["']kolibri\.ui\.pet-id["']/);
-  assert.match(pet, /KOLIBRI_PET_VISIBILITY_KEY\s*=\s*["']kolibri\.ui\.pet-visible["']/);
-  assert.match(pet, /setPointerCapture/);
-  assert.match(pet, /event\.key === ["']ArrowLeft["']/);
-  assert.match(pet, /event\.key === ["']ArrowRight["']/);
-  assert.match(pet, /event\.key === ["']ArrowUp["']/);
-  assert.match(pet, /event\.key === ["']ArrowDown["']/);
-  assert.match(pet, /aria-describedby=\{PET_MOVEMENT_INSTRUCTIONS_ID\}/);
-  assert.match(pet, /Клавиши со стрелками перемещают питомца/);
-  assert.match(pet, /Shift \+ стрелка перемещает[\s\S]*на большой шаг/);
-  assert.match(pet, /const useThumbnail = compact \|\| reducedData/);
-  assert.match(pet, /loading=\{useThumbnail \? ["']lazy["'] : ["']eager["']\}/);
-  assert.match(pet, /src=\{useThumbnail \? pet\.thumbnail : pet\.asset\}/);
-  assert.match(pet, /fetchPriority=\{useThumbnail \? ["']low["'] : ["']high["']\}/);
-  assert.match(pet, /matchMedia\(["']\(prefers-reduced-data: reduce\)["']\)/);
-  assert.match(pet, /dataConnection\?\.saveData/);
-
-  const reducedDataSync = pet.indexOf("syncReducedData();");
-  const firstMountedRender = pet.indexOf("setMounted(true);");
-  assert.ok(reducedDataSync >= 0);
-  assert.ok(firstMountedRender > reducedDataSync);
-
-  assert.match(pet, /pendingFocusRef\.current = ["']restore["']/);
-  assert.match(pet, /pendingFocusRef\.current = ["']collapse["']/);
-  assert.match(pet, /restoreButtonRef\.current[\s\S]*collapseButtonRef\.current/);
-  assert.match(pet, /target\?\.focus\(\)/);
-  assert.match(
-    pet,
-    /group\/collapse[\s\S]*size-11[\s\S]*<span className=["'][^"']*size-7/,
-  );
-
-  assert.match(settings, /role=["']group["']/);
-  assert.match(settings, /data-pet-option=\{pet\.id\}/);
-  assert.match(settings, /aria-pressed=\{selected\}/);
-  assert.match(settings, /\{pet\.personality\}/);
-  assert.match(settings, /\{pet\.role\}/);
-  assert.match(settings, /Реакция:\s*\{pet\.animation\}/);
-  assert.match(
-    settings,
-    /aria-label=\{`Выбрать питомца \$\{pet\.name\}\. Роль: \$\{pet\.role\}\. Характер: \$\{pet\.personality\}\.[\s\S]*Реакция: \$\{pet\.animation\}\.`\}/,
-  );
-  assert.doesNotMatch(settings, /\b(Lock|Crown|Gem)\b/);
+test("the Koli v2 atlas is validated once and shipped byte-identically", async () => {
+	const [releaseAtlas, webAtlas, nativeAtlas, validation] = await Promise.all([
+		readFile(path.join(APP_ROOT, "release/assets/pets/kolibri-v2/spritesheet.webp")),
+		readFile(path.join(APP_ROOT, "public/pets/atlases/kolibri-v2.webp")),
+		readFile(
+			path.join(
+				APP_ROOT,
+				"apps/kolibri-mobile/assets/pets/atlases/kolibri-v2.webp",
+			),
+		),
+		readSource(
+			"release/assets/pets/kolibri-v2/hatch-run/final/validation.json",
+		).then(JSON.parse),
+	]);
+	const checksum = (bytes) =>
+		createHash("sha256").update(bytes).digest("hex");
+	assert.equal(
+		checksum(releaseAtlas),
+		"34ecd7fddd2e1360c4a869140fb31b92a1c50e9f5f05d7213964bbe9ab866ae6",
+	);
+	assert.equal(checksum(webAtlas), checksum(releaseAtlas));
+	assert.equal(checksum(nativeAtlas), checksum(releaseAtlas));
+	assert.equal(validation.ok, true);
+	assert.equal(validation.width, 1536);
+	assert.equal(validation.height, 1872);
+	assert.equal(validation.mode, "RGBA");
+	assert.equal(validation.transparent_rgb_residue_pixels, 0);
+	assert.deepEqual(validation.errors, []);
+	assert.deepEqual(validation.warnings, []);
 });
 
-test("each character has a distinct interaction and motion/data reductions", async () => {
-  const css = await readSource("app/globals.css");
+test("one portable contract owns semantic state, ordered events and atlas timing", () => {
+	assert.deepEqual(PET_ATLAS_LAYOUT, {
+		columns: 8,
+		rows: 9,
+		cellWidth: 192,
+		cellHeight: 208,
+		width: 1536,
+		height: 1872,
+	});
+	assert.equal(PET_MOTION_CLIPS.idle.row, 0);
+	assert.equal(PET_MOTION_CLIPS.running.row, 7);
+	assert.equal(PET_MOTION_CLIPS.review.row, 8);
+	assert.equal(getPetFrameAtElapsedMs(PET_MOTION_CLIPS.idle, 280), 1);
+	assert.equal(
+		getPetFrameAtElapsedMs(PET_MOTION_CLIPS.success, 999_999),
+		4,
+	);
 
-  for (const petId of [
-    "kolibri",
-    "lumi",
-    "fini",
-    "spark",
-    "dewdrop",
-    "owl",
-    "sprout",
-    "nimbi",
-    "klik",
-    "zumi",
-  ]) {
-    assert.ok(
-      css.includes(`data-pet-id="${petId}"`),
-      `missing motion contract for ${petId}`,
-    );
-  }
+	assert.equal(
+		derivePetActivityFromRuntime({
+			approvalRequired: true,
+			isRunning: true,
+			lastMessageRole: "assistant",
+			lastMessageStatus: "running",
+			toolIsRunning: false,
+			toolRequiresAction: true,
+		}),
+		"approval",
+	);
+	assert.equal(
+		derivePetActivityFromRuntime({
+			approvalRequired: false,
+			isRunning: true,
+			lastMessageRole: "assistant",
+			lastMessageStatus: "running",
+			toolIsRunning: true,
+			toolRequiresAction: false,
+		}),
+		"running",
+	);
 
-  for (const animation of [
-    "react-wing",
-    "react-unfold",
-    "react-ears",
-    "react-dash",
-    "react-gills",
-    "react-review",
-    "react-grow",
-    "react-wave",
-    "react-coil",
-    "react-buzz",
-  ]) {
-    assert.ok(css.includes(animation), `missing animation ${animation}`);
-  }
-
-  assert.match(css, /@media \(prefers-reduced-motion: reduce\)/);
-  assert.match(css, /@media \(prefers-reduced-data: reduce\)/);
-  assert.match(
-    css,
-    /\.kolibri-pet-art__idle,[\s\S]*\.kolibri-pet-art__reaction[\s\S]*animation:\s*none !important/,
-  );
+	const activity = parsePetActivityEventV1({
+		type: PET_ACTIVITY_EVENT_TYPE,
+		threadId: "thread_pet_01",
+		runId: "run_pet_01",
+		sequence: 3,
+		occurredAt: "2026-08-01T12:00:00Z",
+		state: "review",
+	});
+	assert.ok(activity);
+	let model = reducePetMotion(createPetMotionModel(0), {
+		type: "server.activity",
+		activeThreadId: "thread_pet_01",
+		activity,
+		atMs: 100,
+	});
+	assert.equal(model.state, "review");
+	const stale = { ...activity, sequence: 2, state: "error" };
+	model = reducePetMotion(model, {
+		type: "server.activity",
+		activeThreadId: "thread_pet_01",
+		activity: stale,
+		atMs: 200,
+	});
+	assert.equal(model.state, "review", "stale server events must be ignored");
+	assert.equal(parsePetActivityEventV1({ ...activity, sequence: -1 }), null);
 });
 
-test("the web pet is a persistent assistant bound to the active Product Chat", async () => {
-  const [pet, shell, sidebar, css] = await Promise.all([
-    readSource("components/kolibri-shell/kolibri-pet.tsx"),
-    readSource("components/kolibri-shell/workspace-shell.tsx"),
-    readSource("components/kolibri-shell/workspace-sidebar.tsx"),
-    readSource("app/globals.css"),
-  ]);
+test("desktop and mobile render the same living entity without another runtime", async () => {
+	const [
+		desktop,
+		desktopHost,
+		webSprite,
+		webMotion,
+		mobile,
+		mobileSprite,
+		mobileMotion,
+		mobileThread,
+		mobileWebAssets,
+	] = await Promise.all([
+		readSource("components/kolibri-shell/kolibri-pet.tsx"),
+		readSource(
+			"components/kolibri-shell/desktop-workspace/desktop-workspace-view.tsx",
+		),
+		readSource("components/kolibri-shell/pet/pet-sprite.tsx"),
+		readSource("components/kolibri-shell/pet/use-web-pet-motion.ts"),
+		readSource("apps/kolibri-mobile/components/pet/pet-mini-assistant.tsx"),
+		readSource("apps/kolibri-mobile/components/pet/pet-sprite.tsx"),
+		readSource("apps/kolibri-mobile/components/pet/use-pet-motion.ts"),
+		readSource("apps/kolibri-mobile/components/assistant-ui/thread.tsx"),
+		readSource("apps/kolibri-mobile/src/pets/assets.web.ts"),
+	]);
 
-  assert.match(pet, /export function KolibriPetHost/);
-  assert.match(shell, /<KolibriPetHost \/>/);
-  assert.doesNotMatch(sidebar, /<KolibriPet\b/);
-  assert.match(pet, /ComposerPrimitive\.Root/);
-  assert.match(pet, /ComposerPrimitive\.Input/);
-  assert.match(pet, /ComposerPrimitive\.Send/);
-  assert.match(pet, /ComposerPrimitive\.Cancel/);
-  assert.match(pet, /useAuiState/);
-  assert.match(pet, /state\.thread\.isRunning/);
-  assert.match(pet, /(?:state|value)\.composer\.isEmpty/);
-  assert.match(pet, /role="dialog"/);
-  assert.match(pet, /aria-live="polite"/);
-  assert.match(pet, /data-pet-run-state=\{runState\}/);
-  assert.match(pet, /"idle" \| "thinking" \| "success" \| "error"/);
-  assert.match(pet, /prefers-reduced-motion: reduce/);
-  assert.doesNotMatch(pet, /\bfetch\s*\(/);
-  assert.doesNotMatch(pet, /setTimeout\([^)]*(fake|mock)|mock response/i);
+	assert.match(desktopHost, /<KolibriPetHost \/>/);
+	assert.match(desktop, /WebPetSprite/);
+	assert.match(desktop, /pet\.motionAssetVersion/);
+	assert.match(desktop, /ComposerPrimitive\.Root/);
+	assert.match(desktop, /setPointerCapture/);
+	assert.match(desktop, /event\.key === "ArrowLeft"/);
+	assert.match(desktop, /prefers-reduced-motion: reduce/);
+	assert.match(webSprite, /PET_ATLAS_LAYOUT/);
+	assert.match(webSprite, /getPetFrameAtElapsedMs/);
+	assert.match(webMotion, /derivePetActivityFromRuntime/);
+	assert.doesNotMatch(desktop, /kolibri-pet-art__idle|kolibri-pet-art__reaction/);
 
-  for (const state of ["thinking", "success", "error"]) {
-    assert.ok(
-      css.includes(`data-pet-run-state="${state}"`),
-      `missing visual pet state ${state}`,
-    );
-  }
-  assert.match(css, /data-reduced-motion="true"/);
+	assert.match(mobile, /PetSprite/);
+	assert.match(mobile, /ComposerPrimitive\.Root/);
+	assert.match(mobileSprite, /PET_ATLAS_LAYOUT/);
+	assert.match(mobileMotion, /derivePetActivityFromRuntime/);
+	assert.match(mobileThread, /useDrawerStatus/);
+	assert.match(mobileThread, /drawerOpen \? null/);
+	assert.match(mobileWebAssets, /PET_CATALOG\.map/);
+	assert.match(mobileWebAssets, /\/pets\/active\//);
+	assert.match(mobileWebAssets, /pet\.motionAssetVersion/);
+	assert.doesNotMatch(mobileWebAssets, /require\s*\(|unstable_path/);
+
+	for (const source of [desktop, webSprite, webMotion, mobile, mobileSprite]) {
+		assert.doesNotMatch(source, /\bfetch\s*\(/);
+	}
 });

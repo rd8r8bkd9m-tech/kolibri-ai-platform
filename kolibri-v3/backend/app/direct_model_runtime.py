@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import ipaddress
 import logging
 import os
 from pathlib import Path
@@ -33,7 +34,9 @@ from .agent_runtime import (
     AgentToolCall,
     AgentWorkspace,
     DelegatingAgentRuntime,
+    LIVE_WEB_SEARCH_CAPABILITY_ID,
 )
+from .agent_runtime_session_cache import AgentRuntimeSessionCache
 from .codex_app_server import (
     CodexAppServerAuthenticationError,
     CodexAppServerError,
@@ -81,8 +84,13 @@ from .mimo_developer_runtime import (
 )
 from .product_widgets import (
     ProductWidget,
+    deterministic_estimate_revision_proposal,
+    deterministic_house_estimate_proposal,
+    has_estimate_scope_input,
     is_estimate_generation_prompt,
+    is_estimate_revision_prompt,
     materialize_engine_estimate_widget,
+    materialize_generated_estimate_widget,
     try_prepare_product_widget,
 )
 from .runtime_skills import (
@@ -157,6 +165,42 @@ GET_WEATHER_TOOL = {
     },
 }
 
+MIMO_WEB_SEARCH_TOOL: dict[str, Any] = {
+    "type": "web_search",
+    "max_keyword": 3,
+    "force_search": False,
+    "limit": 5,
+}
+
+_LIVE_SEARCH_INTENT = re.compile(
+    r"(?iu)\b(?:сегодня|сейчас|актуаль\w*|последн\w*|новост\w*|"
+    r"текущ\w*|свеж\w*|курс\w*|цена\w*|котиров\w*|публикац\w*|"
+    r"today|now|latest|current|recent|news|price|rate|quote)\b"
+)
+
+
+def _mimo_web_search_tool(messages: list[dict[str, str]]) -> dict[str, Any]:
+    """Force MiMo's native search for queries whose answer can go stale.
+
+    MiMo accepts the OpenAI-compatible ``web_search`` tool, but with
+    ``force_search=false`` it is allowed to answer from model memory.  That is
+    exactly the misleading "internet is unavailable" response users saw for
+    news questions.  Stable conversational turns keep the cheaper optional
+    search behavior; time-sensitive turns always get a live search request.
+    """
+
+    query = next(
+        (
+            item.get("content", "")
+            for item in reversed(messages)
+            if item.get("role") == "user"
+        ),
+        "",
+    )
+    tool = dict(MIMO_WEB_SEARCH_TOOL)
+    tool["force_search"] = _LIVE_SEARCH_INTENT.search(query) is not None
+    return tool
+
 CODEX_TURN_SCHEMA: dict[str, Any] = {
     "type": "object",
     "additionalProperties": False,
@@ -201,9 +245,140 @@ _CAPABILITY_WORDS = re.compile(
     r"возможности|help|помощь)\b"
 )
 _SIMPLE_ARITHMETIC = re.compile(r"^\s*(-?\d{1,12})\s*([+\-*/])\s*(-?\d{1,12})\s*$")
+_PROJECT_CONTEXT_QUERY = re.compile(
+    r"(?iu)\bчто\b.*\bзнаешь\b.*\b(?:о|про)\b.*\bпроект",
+)
+_PROJECT_SLOT_NAMES = {
+    "source-data": "исходные данные",
+    "estimate": "смета",
+    "commercial-proposal": "коммерческое предложение",
+    "contract": "договор",
+}
+_PROJECT_SLOT_EMPTY_STATUSES = {"empty"}
 
 
-def _try_local_conversational_answer(prompt: str) -> str | None:
+def _read_project_context(
+    *,
+    tenant_id: str,
+    project_id: str,
+    settings: Settings,
+) -> str | None:
+    database = connect_database(settings.database_url)
+    try:
+        project = database.execute(
+            """
+            SELECT title, status, created_at, updated_at
+            FROM projects
+            WHERE tenant_id = ? AND id = ?
+            LIMIT 1
+            """,
+            (tenant_id, project_id),
+        ).fetchone()
+        if project is None:
+            return None
+
+        object_row = database.execute(
+            """
+            SELECT name, name_source
+            FROM construction_objects
+            WHERE tenant_id = ? AND project_id = ?
+            LIMIT 1
+            """,
+            (tenant_id, project_id),
+        ).fetchone()
+
+        parties = database.execute(
+            """
+            SELECT links.role, links.is_primary,
+                   counterparties.display_name
+            FROM project_parties AS links
+            JOIN counterparties
+              ON counterparties.tenant_id = links.tenant_id
+             AND counterparties.id = links.counterparty_id
+            WHERE links.tenant_id = ? AND links.project_id = ?
+              AND links.status = 'active'
+            ORDER BY links.role, links.is_primary DESC, counterparties.display_name
+            """,
+            (tenant_id, project_id),
+        ).fetchall()
+
+        documents = database.execute(
+            """
+            SELECT slot_type, status
+            FROM document_slots
+            WHERE tenant_id = ? AND project_id = ?
+            ORDER BY slot_type
+            """,
+            (tenant_id, project_id),
+        ).fetchall()
+
+        summary = [
+            f"По текущему проекту я знаю: «{project['title']}», "
+            f"статус «{project['status']}»."
+        ]
+        if object_row is not None:
+            source_label = (
+                "указан заказчиком"
+                if str(object_row["name_source"]) == "user"
+                else "заглушка"
+            )
+            summary.append(
+                f"Объект: «{object_row['name']}» ({source_label})."
+            )
+        parties_by_role: dict[str, list[str]] = {
+            "client": [],
+            "contractor": [],
+        }
+        for party in parties:
+            role = str(party["role"])
+            name = str(party["display_name"]).strip()
+            if role in parties_by_role and name:
+                parties_by_role[role].append(name)
+        party_parts: list[str] = []
+        if parties_by_role["client"]:
+            party_parts.append(
+                "Заказчик: " + ", ".join(parties_by_role["client"])
+            )
+        if parties_by_role["contractor"]:
+            party_parts.append(
+                "Подрядчик: " + ", ".join(parties_by_role["contractor"])
+            )
+        summary.append(
+            "Участники: "
+            + (", ".join(party_parts) if party_parts else "пока не назначены")
+            + "."
+        )
+
+        non_empty_docs = []
+        for document in documents:
+            if str(document["status"]) in _PROJECT_SLOT_EMPTY_STATUSES:
+                continue
+            slot_label = _PROJECT_SLOT_NAMES.get(
+                str(document["slot_type"]),
+                str(document["slot_type"]),
+            )
+            status = str(document["status"])
+            non_empty_docs.append(f"{slot_label} ({status})")
+        summary.append(
+            "Документы: "
+            + (
+                ", ".join(non_empty_docs)
+                if non_empty_docs
+                else "сохранённые документы пока не заполнены"
+            )
+            + "."
+        )
+        return " ".join(summary)
+    finally:
+        database.close()
+
+
+def _try_local_conversational_answer(
+    prompt: str,
+    *,
+    accepted: AcceptedRunLike | None = None,
+    settings: Settings | None = None,
+) -> str | None:
     """Answer tiny context-breaking turns without replaying product workflows.
 
     These turns are intentionally resolved from the latest user message only.
@@ -245,6 +420,29 @@ def _try_local_conversational_answer(prompt: str) -> str | None:
         return (
             "Могу отвечать на вопросы, считать, помогать с проектами, "
             "сметами, технологическими картами, документами и проверками."
+        )
+    if (
+        _PROJECT_CONTEXT_QUERY.search(stripped) is not None
+        and accepted is not None
+        and settings is not None
+    ):
+        try:
+            project_overview = _read_project_context(
+                tenant_id=accepted.tenant_id,
+                project_id=accepted.project_id,
+                settings=settings,
+            )
+        except Exception:
+            logger.exception(
+                "Failed to read project context for user query in run=%s",
+                accepted.public_run_id,
+            )
+            project_overview = None
+        if project_overview is not None:
+            return project_overview
+        return (
+            "Не удалось загрузить данные текущего проекта. "
+            "Откройте проект и повторите запрос."
         )
     return None
 
@@ -336,6 +534,112 @@ def _redact_developer_text(value: object, *, limit: int) -> str:
     if not text:
         return ""
     return _SENSITIVE_ACTIVITY.sub("[REDACTED]", text)[:limit]
+
+
+def _safe_live_web_url(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    url = value.strip()
+    if (
+        not url
+        or len(url) > 2_048
+        or any(
+            ord(character) < 32
+            or character.isspace()
+            or character in {'<', '>', '"'}
+            for character in url
+        )
+    ):
+        return None
+    try:
+        parsed = urlsplit(url)
+        host = parsed.hostname
+    except ValueError:
+        return None
+    if (
+        parsed.scheme != "https"
+        or not host
+        or parsed.username is not None
+        or parsed.password is not None
+        or host == "localhost"
+        or host.endswith(".localhost")
+        or host.endswith(".local")
+    ):
+        return None
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        address = None
+    if address is not None and not address.is_global:
+        return None
+    return url
+
+
+def _safe_web_search_results(value: object) -> list[dict[str, str]]:
+    if not isinstance(value, list):
+        return []
+    results: list[dict[str, str]] = []
+    seen_urls: set[str] = set()
+    for raw_result in value:
+        if not isinstance(raw_result, dict) or len(results) >= 10:
+            continue
+        citation = raw_result.get("url_citation")
+        source = citation if isinstance(citation, dict) else raw_result
+        url = _safe_live_web_url(source.get("url") or source.get("link"))
+        if url is None or url in seen_urls:
+            continue
+        result = {"url": url}
+        for target, candidates, limit in (
+            ("title", ("title", "name"), 500),
+            ("summary", ("summary", "snippet", "text"), 2_000),
+            ("siteName", ("site_name", "siteName", "source"), 200),
+            (
+                "publishTime",
+                ("publish_time", "publishTime", "publishedAt"),
+                120,
+            ),
+        ):
+            raw_text = next(
+                (
+                    source.get(candidate)
+                    for candidate in candidates
+                    if isinstance(source.get(candidate), str)
+                ),
+                None,
+            )
+            text = _redact_developer_text(raw_text, limit=limit)
+            if text:
+                result[target] = " ".join(text.split())[:limit]
+        results.append(result)
+        seen_urls.add(url)
+    return results
+
+
+def _web_search_activity_payload(
+    item: dict[str, Any],
+    *,
+    phase: str,
+) -> tuple[str, dict[str, Any], dict[str, Any]]:
+    query = _redact_developer_text(item.get("query"), limit=2_000)
+    action = item.get("action")
+    action_type = (
+        _redact_developer_text(action.get("type"), limit=40)
+        if isinstance(action, dict)
+        else "search"
+    )
+    status = _redact_developer_text(item.get("status"), limit=40)
+    return (
+        "web_search",
+        {
+            "query": query,
+            "action": action_type or "search",
+        },
+        {
+            "status": status
+            or ("inProgress" if phase == "started" else "completed"),
+            "sources": _safe_web_search_results(item.get("results")),
+        },
+    )
 
 
 def _developer_path(
@@ -872,8 +1176,10 @@ def _mimo_response(
     *,
     tenant_id: str,
     messages: list[dict[str, str]],
+    instructions: str,
     runtime: MimoClientRuntime,
     on_delta: Callable[[str], None],
+    on_activity: Callable[[str, dict[str, Any]], None] | None = None,
     cancellation_signal: threading.Event | None = None,
 ) -> ModelTurn:
     try:
@@ -900,38 +1206,50 @@ def _mimo_response(
     try:
         request_payload: dict[str, Any] = {
             "model": chat_model,
-            "messages": messages,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": (
+                        instructions
+                        + "\n\n"
+                        + "Тебе доступен живой веб-поиск. Для актуальных, "
+                        "меняющихся или сегодняшних данных используй его, "
+                        "не отвечай по памяти и не утверждай, что доступа к "
+                        "интернету нет. В ответе называй источники. Сегодня "
+                        + datetime.now(timezone.utc).date().isoformat()
+                        + "."
+                    ),
+                },
+                *messages,
+            ],
             "stream": True,
             "thinking": {"type": "disabled"},
+            "tools": [_mimo_web_search_tool(messages)],
         }
         response = runtime.stream(
             f"{base_url}/chat/completions",
             api_key=api_key,
             payload=request_payload,
         )
-        if response.status_code in {400, 422}:
-            response.close()
-            request_payload = {
-                "model": chat_model,
-                "messages": messages,
-                "stream": True,
-                "thinking": {"type": "disabled"},
-            }
-            response = runtime.stream(
-                f"{base_url}/chat/completions",
-                api_key=api_key,
-                payload=request_payload,
-            )
     except httpx.HTTPError:
         raise DirectModelError(
             "mimo_request_failed",
             "MiMo Code сейчас недоступен. Повторите запрос.",
         ) from None
-    if response.status_code in {401, 403}:
+    if response.status_code == 401:
         response.close()
         raise DirectModelError(
             "mimo_api_key_rejected",
             "MiMo отклонил ключ. Подключите его повторно в личном кабинете.",
+        )
+    if response.status_code in {400, 403, 422}:
+        response.close()
+        raise DirectModelError(
+            "mimo_web_search_unavailable",
+            (
+                "MiMo не разрешил живой веб-поиск для текущего подключения. "
+                "Проверьте доступ Web Search Plugin или переподключите MiMo."
+            ),
         )
     if response.status_code != 200:
         status_code = response.status_code
@@ -944,6 +1262,53 @@ def _mimo_response(
     text_parts: list[str] = []
     tool_name = ""
     tool_argument_parts: list[str] = []
+    search_query = next(
+        (
+            item["content"]
+            for item in reversed(messages)
+            if item.get("role") == "user"
+        ),
+        messages[-1]["content"],
+    )
+    search_activity_id = new_id("web")
+    search_sources: list[dict[str, str]] = []
+    search_activity_started = False
+    search_activity_completed = False
+    search_error_message = ""
+
+    def emit_search_activity(phase: str, *, status: str) -> None:
+        nonlocal search_activity_started, search_activity_completed
+        if phase == "started":
+            if search_activity_started:
+                return
+            search_activity_started = True
+        elif search_activity_completed:
+            return
+        else:
+            search_activity_completed = True
+        if on_activity is None:
+            return
+        on_activity(
+            phase,
+            {
+                "id": search_activity_id,
+                "type": "webSearch",
+                "query": _redact_developer_text(
+                    search_query,
+                    limit=2_000,
+                ),
+                "action": {
+                    "type": "search",
+                    "query": _redact_developer_text(
+                        search_query,
+                        limit=2_000,
+                    ),
+                },
+                "results": list(search_sources),
+                "status": status,
+            },
+        )
+
     try:
         for line in response.iter_lines():
             if (
@@ -966,6 +1331,18 @@ def _mimo_response(
                 continue
             if not isinstance(delta, dict):
                 continue
+            error_message = delta.get("error_message")
+            if isinstance(error_message, str) and error_message.strip():
+                search_error_message = error_message.strip()[:500]
+                emit_search_activity("started", status="inProgress")
+            annotations = delta.get("annotations")
+            if isinstance(annotations, list):
+                seen_urls = {source["url"] for source in search_sources}
+                for source in _safe_web_search_results(annotations):
+                    if source["url"] not in seen_urls and len(search_sources) < 10:
+                        search_sources.append(source)
+                        seen_urls.add(source["url"])
+                emit_search_activity("started", status="inProgress")
             content = delta.get("content")
             if isinstance(content, str) and content:
                 text_parts.append(content)
@@ -983,13 +1360,28 @@ def _mimo_response(
                     tool_name = name
                 if isinstance(arguments, str) and arguments:
                     tool_argument_parts.append(arguments)
+    except DirectModelError:
+        if search_activity_started:
+            emit_search_activity("completed", status="failed")
+        raise
     except (httpx.HTTPError, UnicodeError):
+        if search_activity_started:
+            emit_search_activity("completed", status="failed")
         raise DirectModelError(
             "mimo_request_failed",
             "Поток MiMo Code был прерван. Повторите запрос.",
         ) from None
     finally:
         response.close()
+
+    if search_error_message:
+        emit_search_activity("completed", status="failed")
+        raise DirectModelError(
+            "mimo_web_search_failed",
+            "Живой веб-поиск MiMo завершился ошибкой. Повторите запрос.",
+        )
+    if search_activity_started:
+        emit_search_activity("completed", status="completed")
 
     if tool_name:
         if text_parts:
@@ -1009,6 +1401,24 @@ def _mimo_response(
     text = "".join(text_parts)
     if not text.strip():
         raise DirectModelError("mimo_response_empty", "MiMo Code вернул пустой ответ.")
+    if search_sources and not any(
+        source["url"] in text for source in search_sources
+    ):
+        source_lines = []
+        for source in search_sources[:10]:
+            label = (
+                source.get("title")
+                or source.get("siteName")
+                or urlsplit(source["url"]).hostname
+                or "Источник"
+            )
+            source_lines.append(f"- {label}: <{source['url']}>")
+        source_suffix = "\n\nИсточники:\n" + "\n".join(source_lines)
+        remaining = 200_000 - len(text)
+        if remaining > 0:
+            source_suffix = source_suffix[:remaining]
+            text += source_suffix
+            on_delta(source_suffix)
     return ModelTurn(text=text.strip()[:200_000])
 
 
@@ -1191,6 +1601,11 @@ def _codex_plastering_intake(
     messages: list[dict[str, str]],
     runtime: CodexAppServerRuntime,
     tenant_id: str,
+    user_id: str,
+    project_id: str,
+    credential_tenant_id: str,
+    runtime_profile: str,
+    runtime_id: str,
     product_thread_id: str,
     runtime_guidance: str,
     model: str | None,
@@ -1209,9 +1624,19 @@ def _codex_plastering_intake(
     try:
         text = runtime.complete(
             tenant_id=tenant_id,
+            user_id=user_id,
+            project_id=project_id,
             product_thread_id=product_thread_id,
+            credential_tenant_id=credential_tenant_id,
+            runtime_profile=runtime_profile,
+            runtime_id=runtime_id,
+            runtime_mode="structured",
             initial_prompt=initial_prompt,
             followup_prompt=messages[-1]["content"],
+            canonical_messages=tuple(
+                (item["role"], item["content"])
+                for item in messages
+            ),
             output_schema=PLASTERING_INTAKE_SCHEMA,
             instructions=plastering_intake_instructions(
                 today=datetime.now(timezone.utc).date().isoformat(),
@@ -1262,9 +1687,16 @@ def _codex_estimate_response(
     try:
         text = runtime.complete(
             tenant_id=tenant_id,
+            user_id=f"legacy:{tenant_id}",
+            project_id=f"legacy:{product_thread_id}",
             product_thread_id=product_thread_id,
+            credential_tenant_id=tenant_id,
+            runtime_profile="codex-cli",
+            runtime_id="codex-app-server",
+            runtime_mode="structured",
             initial_prompt=initial_prompt,
             followup_prompt=messages[-1]["content"],
+            canonical_messages=None,
             output_schema=ESTIMATE_PROPOSAL_SCHEMA,
             instructions=estimate_proposal_instructions(
                 today=datetime.now(timezone.utc).date().isoformat(),
@@ -1321,9 +1753,16 @@ def _codex_response(
     try:
         text = runtime.complete(
             tenant_id=tenant_id,
+            user_id=f"legacy:{tenant_id}",
+            project_id=f"legacy:{product_thread_id}",
             product_thread_id=product_thread_id,
+            credential_tenant_id=tenant_id,
+            runtime_profile="codex-cli",
+            runtime_id="codex-app-server",
+            runtime_mode="chat",
             initial_prompt=initial_prompt,
             followup_prompt=followup_prompt,
+            canonical_messages=None,
             output_schema=None,
             instructions=AGENT_CHAT_INSTRUCTIONS,
             timeout=settings.direct_model_timeout_seconds,
@@ -1470,10 +1909,57 @@ def _developer_activity_callback(
 
     def persist_activity(phase: str, item: dict[str, Any]) -> None:
         item_id = _redact_developer_text(item.get("id"), limit=160)
-        tool_name, arguments, result = _developer_activity_payload(
+        if item.get("type") == "webSearch":
+            tool_name, arguments, result = _web_search_activity_payload(
+                item,
+                phase=phase,
+            )
+        else:
+            tool_name, arguments, result = _developer_activity_payload(
+                item,
+                phase=phase,
+                workspace_root=workspace_root,
+            )
+        if phase == "started":
+            activity_tools[item_id] = _start_tool_stage(
+                settings,
+                accepted,
+                tool_name=tool_name,
+                arguments=arguments,
+            )
+            return
+        tool_call_id = activity_tools.pop(item_id, None)
+        if tool_call_id is None:
+            tool_call_id = _start_tool_stage(
+                settings,
+                accepted,
+                tool_name=tool_name,
+                arguments=arguments,
+            )
+        _finish_tool_stage(
+            settings,
+            accepted,
+            tool_call_id=tool_call_id,
+            result=result,
+        )
+
+    return persist_activity
+
+
+def _web_search_activity_callback(
+    settings: Settings,
+    *,
+    accepted: AcceptedRunLike,
+) -> Callable[[str, dict[str, Any]], None]:
+    activity_tools: dict[str, str] = {}
+
+    def persist_activity(phase: str, item: dict[str, Any]) -> None:
+        if item.get("type") != "webSearch":
+            return
+        item_id = _redact_developer_text(item.get("id"), limit=160)
+        tool_name, arguments, result = _web_search_activity_payload(
             item,
             phase=phase,
-            workspace_root=workspace_root,
         )
         if phase == "started":
             activity_tools[item_id] = _start_tool_stage(
@@ -1541,9 +2027,16 @@ def _codex_developer_response(
     try:
         text = runtime.complete(
             tenant_id=accepted.tenant_id,
+            user_id=f"legacy:{accepted.tenant_id}",
+            project_id=accepted.project_id,
             product_thread_id=accepted.thread_id,
+            credential_tenant_id=accepted.tenant_id,
+            runtime_profile="codex-cli",
+            runtime_id="codex-app-server",
+            runtime_mode="developer",
             initial_prompt=initial_prompt,
             followup_prompt=messages[-1]["content"],
+            canonical_messages=None,
             output_schema=None,
             instructions=AGENT_DEVELOPER_INSTRUCTIONS,
             timeout=settings.developer_agent_timeout_seconds,
@@ -2093,6 +2586,7 @@ def _codex_runtime_adapter(
             activity_events=True,
             persistent_sessions=True,
             model_catalog=True,
+            capability_ids=frozenset({LIVE_WEB_SEARCH_CAPABILITY_ID}),
         ),
     )
 
@@ -2123,6 +2617,11 @@ def _codex_runtime_adapter(
                     messages=_runtime_messages(request),
                     runtime=transport,  # type: ignore[arg-type]
                     tenant_id=request.tenant_id,
+                    user_id=request.user_id,
+                    project_id=request.project_id,
+                    credential_tenant_id=request.credential_tenant_id,
+                    runtime_profile=descriptor.profile_id,
+                    runtime_id=descriptor.runtime_id,
                     product_thread_id=request.thread_id,
                     runtime_guidance=request.guidance or "",
                     model=model,
@@ -2163,9 +2662,19 @@ def _codex_runtime_adapter(
         try:
             text = transport.complete(  # type: ignore[attr-defined]
                 tenant_id=request.tenant_id,
+                user_id=request.user_id,
+                project_id=request.project_id,
                 product_thread_id=request.thread_id,
+                credential_tenant_id=request.credential_tenant_id,
+                runtime_profile=descriptor.profile_id,
+                runtime_id=descriptor.runtime_id,
+                runtime_mode=request.mode,
                 initial_prompt=request.initial_prompt,
                 followup_prompt=request.followup_prompt,
+                canonical_messages=tuple(
+                    (message.role, message.content)
+                    for message in request.messages
+                ),
                 output_schema=None,
                 instructions=request.instructions,
                 timeout=request.timeout_seconds,
@@ -2243,9 +2752,12 @@ def _mimo_runtime_adapter(
             modes=frozenset(supported_modes),  # type: ignore[arg-type]
             streaming=True,
             structured_output=True,
-            activity_events=developer_transport is not None,
+            activity_events=(
+                client_transport is not None or developer_transport is not None
+            ),
             persistent_sessions=developer_transport is not None,
             model_catalog=False,
+            capability_ids=frozenset({LIVE_WEB_SEARCH_CAPABILITY_ID}),
         ),
     )
 
@@ -2339,8 +2851,10 @@ def _mimo_runtime_adapter(
                 settings,
                 tenant_id=request.credential_tenant_id,
                 messages=_runtime_messages(request),
+                instructions=request.instructions,
                 runtime=client_transport,  # type: ignore[arg-type]
                 on_delta=request.on_delta or (lambda _delta: None),
+                on_activity=request.on_activity,
                 cancellation_signal=request.cancellation_signal,
             )
         except DirectModelError as exc:
@@ -2384,6 +2898,7 @@ def build_agent_runtime_registry(
     registry = AgentRuntimeRegistry()
     codex_transport = CodexAppServerRuntime(
         runtime_root=runtime_root / "codex-direct",
+        session_cache=AgentRuntimeSessionCache(settings.database_url),
     )
     mimo_client = MimoClientRuntime(
         timeout_seconds=settings.direct_model_timeout_seconds,
@@ -2430,6 +2945,7 @@ def _legacy_runtime_registry(
 def _agent_runtime_request(
     *,
     accepted: AcceptedRunLike,
+    user_id: str,
     mode: str,
     execution_profile: str,
     messages: list[dict[str, str]],
@@ -2448,6 +2964,8 @@ def _agent_runtime_request(
 ) -> AgentRuntimeRequest:
     return AgentRuntimeRequest(
         tenant_id=accepted.tenant_id,
+        user_id=user_id,
+        project_id=accepted.project_id,
         thread_id=accepted.thread_id,
         run_id=accepted.run_id,
         credential_tenant_id=credential_tenant_id,
@@ -2529,6 +3047,7 @@ def execute_direct_run(
         ):
             return
         messages = _history(database, accepted)
+        requested_by_user_id = str(run["requested_by_user_id"])
         selected_profile = str(run["selected_profile"])
         execution_context_present = run["context_run_id"] is not None
         frozen_model = str(run["model_id"]) if run["model_id"] is not None else None
@@ -2612,6 +3131,9 @@ def execute_direct_run(
     estimate_requested = is_estimate_generation_prompt(
         messages[-1]["content"],
     )
+    estimate_scope_present = has_estimate_scope_input(
+        messages[-1]["content"],
+    )
     text_stream: _TextRunStream | None = None
     try:
         accepted_execution_mode = getattr(
@@ -2689,6 +3211,7 @@ def execute_direct_run(
             )
             request = _agent_runtime_request(
                 accepted=accepted,
+                user_id=requested_by_user_id,
                 mode="developer",
                 execution_profile="developer",
                 messages=messages,
@@ -2796,22 +3319,63 @@ def execute_direct_run(
                 generated_image=prepared_image,
             )
             return
+        estimate_revision_requested = is_estimate_revision_prompt(
+            messages[-1]["content"]
+        )
+        estimate_revision = deterministic_estimate_revision_proposal(
+            settings,
+            accepted,
+            prompt=messages[-1]["content"],
+        )
+        if estimate_revision is not None:
+            widget = materialize_generated_estimate_widget(
+                settings,
+                accepted,
+                proposal=estimate_revision,
+                provider_profile="server-estimate-revision",
+                replace_existing=True,
+            )
+            _finish_success(
+                settings,
+                accepted,
+                (
+                    f"Смета пересчитана с учётом уточнения. "
+                    f"{widget.fallback_text}"
+                ),
+                widget=widget,
+            )
+            return
+        if estimate_revision_requested:
+            _finish_success(
+                settings,
+                accepted,
+                (
+                    "Смета не изменена: я не смог однозначно определить "
+                    "позицию или новый параметр. Укажите наименование позиции, "
+                    "количество, единицу и цену либо источник цены."
+                ),
+            )
+            return
         local_answer = (
             None
             if estimate_requested
-            else _try_local_conversational_answer(messages[-1]["content"])
+            else _try_local_conversational_answer(
+                messages[-1]["content"],
+                accepted=accepted,
+                settings=settings,
+            )
         )
         if local_answer is not None:
             _finish_success(settings, accepted, local_answer)
             return
         widget = (
-            None
-            if estimate_requested
-            else try_prepare_product_widget(
+            try_prepare_product_widget(
                 settings,
                 accepted,
                 prompt=messages[-1]["content"],
             )
+            if not estimate_requested or not estimate_scope_present
+            else None
         )
         if widget is not None:
             _finish_success(
@@ -2819,6 +3383,16 @@ def execute_direct_run(
                 accepted,
                 widget.fallback_text,
                 widget=widget,
+            )
+            return
+        if estimate_requested and not estimate_scope_present:
+            _finish_success(
+                settings,
+                accepted,
+                (
+                    "Чтобы составить новую интерактивную смету, укажите "
+                    "объект, объём или площадь и регион."
+                ),
             )
             return
         weather_query = try_parse_weather_query(messages[-1]["content"])
@@ -2854,6 +3428,22 @@ def execute_direct_run(
                     widget=widget,
                 )
                 return
+        # The canonical house BOQ is deterministic and provider-independent.
+        # Resolve it before requiring a model runtime so a valid estimate does
+        # not fail merely because an optional chat provider is unavailable.
+        canonical_house = deterministic_house_estimate_proposal(
+            messages[-1]["content"]
+        )
+        if estimate_requested and canonical_house is not None:
+            widget = materialize_generated_estimate_widget(
+                settings,
+                accepted,
+                proposal=canonical_house,
+                provider_profile="server-house-estimate",
+                replace_existing=True,
+            )
+            _finish_success(settings, accepted, widget.fallback_text, widget=widget)
+            return
         database = connect_database(settings.database_url)
         try:
             profile, credential_tenant_id = _connected_profile(
@@ -2897,6 +3487,7 @@ def execute_direct_run(
                 )
                 request = _agent_runtime_request(
                     accepted=accepted,
+                    user_id=requested_by_user_id,
                     mode="structured",
                     execution_profile="estimate-intake",
                     messages=messages,
@@ -3086,6 +3677,7 @@ def execute_direct_run(
         )
         request = _agent_runtime_request(
             accepted=accepted,
+            user_id=requested_by_user_id,
             mode="chat",
             execution_profile="chat",
             messages=messages,
@@ -3110,6 +3702,10 @@ def execute_direct_run(
             ),
             workspace=AgentWorkspace(reference="none"),
             on_delta=text_stream.append,
+            on_activity=_web_search_activity_callback(
+                settings,
+                accepted=accepted,
+            ),
             cancellation_signal=cancellation_signal,
         )
         try:

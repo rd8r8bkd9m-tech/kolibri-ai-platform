@@ -61,6 +61,32 @@ def require_persisted_product_entitlement(
           AND user_id = ?
           AND entitlement_code = ?
           AND status = 'active'
+          AND (
+              source != 'subscription_policy'
+              OR NOT EXISTS (
+                  SELECT 1
+                  FROM billing_subscriptions AS any_subscription
+                  WHERE any_subscription.tenant_id =
+                        product_entitlement_grants.tenant_id
+                    AND any_subscription.user_id =
+                        product_entitlement_grants.user_id
+                    AND any_subscription.entitlement_code =
+                        product_entitlement_grants.entitlement_code
+              )
+              OR EXISTS (
+                  SELECT 1
+                  FROM billing_subscriptions AS active_subscription
+                  WHERE active_subscription.tenant_id =
+                        product_entitlement_grants.tenant_id
+                    AND active_subscription.user_id =
+                        product_entitlement_grants.user_id
+                    AND active_subscription.entitlement_code =
+                        product_entitlement_grants.entitlement_code
+                    AND active_subscription.status = 'active'
+                    AND active_subscription.current_period_start <= unixepoch()
+                    AND active_subscription.current_period_end > unixepoch()
+              )
+          )
         LIMIT 1
         """,
         (tenant_id, user_id, entitlement_code),
@@ -91,6 +117,32 @@ def bind_product_entitlements(
         WHERE tenant_id = ?
           AND user_id = ?
           AND status = 'active'
+          AND (
+              source != 'subscription_policy'
+              OR NOT EXISTS (
+                  SELECT 1
+                  FROM billing_subscriptions AS any_subscription
+                  WHERE any_subscription.tenant_id =
+                        product_entitlement_grants.tenant_id
+                    AND any_subscription.user_id =
+                        product_entitlement_grants.user_id
+                    AND any_subscription.entitlement_code =
+                        product_entitlement_grants.entitlement_code
+              )
+              OR EXISTS (
+                  SELECT 1
+                  FROM billing_subscriptions AS active_subscription
+                  WHERE active_subscription.tenant_id =
+                        product_entitlement_grants.tenant_id
+                    AND active_subscription.user_id =
+                        product_entitlement_grants.user_id
+                    AND active_subscription.entitlement_code =
+                        product_entitlement_grants.entitlement_code
+                    AND active_subscription.status = 'active'
+                    AND active_subscription.current_period_start <= unixepoch()
+                    AND active_subscription.current_period_end > unixepoch()
+              )
+          )
         ORDER BY entitlement_code
         """,
         (identity.tenant_id, identity.user_id),

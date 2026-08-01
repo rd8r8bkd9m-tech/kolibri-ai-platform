@@ -5,26 +5,26 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 export async function PATCH(
-  request: Request,
-  context: { params: Promise<{ threadId: string }> },
+	request: Request,
+	context: { params: Promise<{ threadId: string }> },
 ) {
-  const { threadId } = await context.params;
-  if (!isSafeProductChatId(threadId)) {
-    return Response.json(
-      {
-        code: "thread_not_found",
-        message: "Диалог не найден.",
-      },
-      {
-        status: 404,
-        headers: { "Cache-Control": "no-store" },
-      },
-    );
-  }
+	const { threadId } = await context.params;
+	if (!isSafeProductChatId(threadId)) {
+		return Response.json(
+			{
+				code: "thread_not_found",
+				message: "Диалог не найден.",
+			},
+			{
+				status: 404,
+				headers: { "Cache-Control": "no-store" },
+			},
+		);
+	}
 
-  return proxyV3JsonRequest(
-    request,
-    `/v1/chat/threads/${encodeURIComponent(threadId)}`,
-    { maxRequestBytes: 1_024, method: "PATCH" },
-  );
+	return proxyV3JsonRequest(
+		request,
+		`/v1/chat/threads/${encodeURIComponent(threadId)}`,
+		{ maxRequestBytes: 1_024, method: "PATCH" },
+	);
 }

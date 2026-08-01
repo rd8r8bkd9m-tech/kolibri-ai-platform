@@ -4,10 +4,10 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 export function GET(request: Request) {
-  const query = new URL(request.url).search;
-  return proxyV3JsonRequest(
-    request,
-    `/v1/platform-admin/trusted-agents/audit${query}`,
-    { method: "GET" },
-  );
+	const query = new URL(request.url).search;
+	return proxyV3JsonRequest(
+		request,
+		`/v1/platform-admin/trusted-agents/audit${query}`,
+		{ method: "GET" },
+	);
 }

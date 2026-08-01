@@ -107,7 +107,7 @@ test("the conflict diff separates local, remote, and overlapping draft edits", (
 
 test("the estimate editor preserves the draft until an explicit conflict action", async () => {
   const source = await readSource(
-    "components/assistant-ui/product-widgets.tsx",
+    "components/assistant-ui/product-widgets/estimate-editor.tsx",
   );
 
   assert.match(source, /parseEstimateVersionConflict\(/);

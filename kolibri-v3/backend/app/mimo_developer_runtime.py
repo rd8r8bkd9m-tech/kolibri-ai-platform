@@ -52,6 +52,7 @@ class _ParsedClientOutput:
     text: str
     session_id: str | None
     error_message: str | None
+    text_streamed: bool = False
 
 
 class _ByteBuffer:
@@ -206,7 +207,177 @@ def _parse_client_output(raw: bytes) -> _ParsedClientOutput:
     )
 
 
-def _read_stream(stream: Any, destination: _ByteBuffer) -> None:
+class _MimoPresentationAdapter:
+    """Normalize MiMo JSONL into the same live UI events as Codex."""
+
+    _FILE_TOOLS = frozenset(
+        {"edit", "write", "patch", "apply_patch", "multiedit"}
+    )
+
+    def __init__(
+        self,
+        *,
+        workspace_root: Path,
+        on_delta: Callable[[str], None],
+        on_activity: Callable[[str, dict[str, Any]], None],
+    ) -> None:
+        self._workspace_root = workspace_root
+        self._on_delta = on_delta
+        self._on_activity = on_activity
+        self._seen_tools: set[str] = set()
+        self._text_parts: list[str] = []
+
+    @property
+    def streamed_text(self) -> str:
+        return "".join(self._text_parts).strip()
+
+    @staticmethod
+    def _text(value: object, *, limit: int) -> str:
+        return str(value or "").strip()[:limit]
+
+    @staticmethod
+    def _mapping(value: object) -> dict[str, Any]:
+        return dict(value) if isinstance(value, dict) else {}
+
+    def _tool_activity(self, part: dict[str, Any]) -> dict[str, Any] | None:
+        tool = self._text(part.get("tool"), limit=80)
+        call_id = self._text(part.get("callID") or part.get("id"), limit=160)
+        if not tool or not call_id or call_id in self._seen_tools:
+            return None
+        self._seen_tools.add(call_id)
+        state = self._mapping(part.get("state"))
+        inputs = self._mapping(state.get("input"))
+        metadata = self._mapping(state.get("metadata"))
+        status = self._text(state.get("status"), limit=40) or "completed"
+        activity_id = f"mimo-{call_id}"
+        normalized_tool = tool.lower().replace("_", "")
+
+        if normalized_tool in {"websearch", "webfetch"}:
+            query = self._text(
+                inputs.get("query")
+                or inputs.get("url")
+                or state.get("title"),
+                limit=2_000,
+            )
+            if not query:
+                return None
+            url = self._text(inputs.get("url"), limit=2_000)
+            output = self._text(state.get("output"), limit=2_000)
+            results = (
+                [
+                    {
+                        "url": url,
+                        "title": self._text(state.get("title"), limit=500),
+                        "summary": output,
+                    }
+                ]
+                if url
+                else []
+            )
+            return {
+                "id": activity_id,
+                "type": "webSearch",
+                "query": query,
+                "action": {
+                    "type": "openPage" if normalized_tool == "webfetch" else "search",
+                    **({"url": url} if url else {}),
+                },
+                "results": results,
+                "status": status,
+            }
+
+        if tool.lower() in self._FILE_TOOLS:
+            path = self._text(
+                inputs.get("filePath")
+                or inputs.get("path")
+                or inputs.get("file")
+                or inputs.get("filename"),
+                limit=2_000,
+            )
+            if not path:
+                return None
+            diff = self._text(
+                metadata.get("diff") or state.get("output"),
+                limit=12_000,
+            )
+            return {
+                "id": activity_id,
+                "type": "fileChange",
+                "status": status,
+                "changes": [
+                    {
+                        "path": path,
+                        "kind": "create" if tool.lower() == "write" else "update",
+                        "diff": diff,
+                    }
+                ],
+            }
+
+        command = self._text(inputs.get("command"), limit=800)
+        if not command:
+            title = self._text(state.get("title"), limit=300)
+            command = title or f"{tool}"
+        time_info = self._mapping(state.get("time"))
+        started = time_info.get("start")
+        ended = time_info.get("end")
+        duration_ms = (
+            int(ended) - int(started)
+            if isinstance(started, (int, float))
+            and isinstance(ended, (int, float))
+            and ended >= started
+            else None
+        )
+        exit_code = metadata.get("exit")
+        return {
+            "id": activity_id,
+            "type": "commandExecution",
+            "command": command,
+            "cwd": str(self._workspace_root),
+            "status": status,
+            "exitCode": exit_code,
+            "durationMs": duration_ms,
+        }
+
+    def feed_line(self, raw_line: bytes) -> None:
+        line = raw_line.strip()
+        if not line.startswith(b"{"):
+            return
+        try:
+            event = json.loads(line)
+        except (TypeError, ValueError, UnicodeError):
+            return
+        if not isinstance(event, dict):
+            return
+        part = event.get("part")
+        if not isinstance(part, dict):
+            return
+        if (
+            part.get("type") == "text"
+            and isinstance(part.get("text"), str)
+            and part["text"]
+        ):
+            delta = str(part["text"])
+            self._text_parts.append(delta)
+            self._on_delta(delta)
+            return
+        if part.get("type") != "tool":
+            return
+        item = self._tool_activity(part)
+        if item is None:
+            return
+        started = dict(item)
+        started["status"] = "inProgress"
+        self._on_activity("started", started)
+        self._on_activity("completed", item)
+
+
+def _read_stream(
+    stream: Any,
+    destination: _ByteBuffer,
+    *,
+    on_line: Callable[[bytes], None] | None = None,
+) -> None:
+    pending = bytearray()
     try:
         while True:
             # BufferedReader.read(size) may wait for the entire requested
@@ -220,8 +391,17 @@ def _read_stream(stream: Any, destination: _ByteBuffer) -> None:
                 else stream.read(65_536)
             )
             if not chunk:
+                if on_line is not None and pending:
+                    on_line(bytes(pending))
                 return
             destination.append(chunk)
+            if on_line is None:
+                continue
+            pending.extend(chunk)
+            while b"\n" in pending:
+                raw_line, _, remainder = pending.partition(b"\n")
+                pending = bytearray(remainder)
+                on_line(raw_line)
     except (OSError, ValueError):
         return
 
@@ -805,10 +985,14 @@ class MimoDeveloperServerRuntime:
             for _attempt in range(attempts):
                 port = self._configured_port or _available_loopback_port()
                 server_url = f"http://127.0.0.1:{port}"
+                # Keep the long-lived server in the normal MiMo tool plane.
+                # ``--pure`` disables external/built-in tool integrations,
+                # including the web tools that the owner runtime advertises.
+                # The server remains loopback-only and the client still
+                # applies the per-turn access policy below.
                 command = [
                     *self._command_prefix,
                     "serve",
-                    "--pure",
                     "--hostname",
                     "127.0.0.1",
                     "--port",
@@ -988,6 +1172,7 @@ class MimoDeveloperServerRuntime:
         session_id: str | None,
         timeout: float,
         access_mode: str,
+        on_delta: Callable[[str], None],
         on_activity: Callable[[str, dict[str, Any]], None],
         cancellation_signal: threading.Event | None = None,
     ) -> _ParsedClientOutput:
@@ -996,7 +1181,6 @@ class MimoDeveloperServerRuntime:
         command = [
             *self._command_prefix,
             "run",
-            "--pure",
             "--format",
             "json",
             "--attach",
@@ -1021,17 +1205,11 @@ class MimoDeveloperServerRuntime:
             # and replies "once"; the long-lived server is never globally
             # placed in bypass mode.
             command.append("--dangerously-skip-permissions")
-        activity_id = f"mimo-client-{run_id[:80]}"
         started_at = time.monotonic()
-        on_activity(
-            "started",
-            {
-                "id": activity_id,
-                "type": "commandExecution",
-                "command": "mimo run --attach",
-                "cwd": str(workspace_root),
-                "status": "inProgress",
-            },
+        presentation = _MimoPresentationAdapter(
+            workspace_root=workspace_root,
+            on_delta=on_delta,
+            on_activity=on_activity,
         )
         try:
             process = subprocess.Popen(
@@ -1060,6 +1238,7 @@ class MimoDeveloperServerRuntime:
             threading.Thread(
                 target=_read_stream,
                 args=(process.stdout, stdout),
+                kwargs={"on_line": presentation.feed_line},
                 daemon=True,
             ),
             threading.Thread(
@@ -1121,24 +1300,6 @@ class MimoDeveloperServerRuntime:
         ):
             failure_code = "mimo_developer_output_limit"
         return_code = process.poll()
-        on_activity(
-            "completed",
-            {
-                "id": activity_id,
-                "type": "commandExecution",
-                "command": "mimo run --attach",
-                "cwd": str(workspace_root),
-                "status": (
-                    "completed"
-                    if failure_code is None and return_code == 0
-                    else "failed"
-                ),
-                "exitCode": return_code,
-                "durationMs": int(
-                    (time.monotonic() - started_at) * 1000,
-                ),
-            },
-        )
         if failure_code == "mimo_developer_output_limit":
             raise MimoDeveloperRuntimeError(
                 failure_code,
@@ -1164,7 +1325,16 @@ class MimoDeveloperServerRuntime:
                 "mimo_developer_failed",
                 "MiMo Code не завершил задачу.",
             )
-        return _parse_client_output(stdout.bytes())
+        parsed = _parse_client_output(stdout.bytes())
+        return _ParsedClientOutput(
+            text=parsed.text,
+            session_id=parsed.session_id,
+            error_message=parsed.error_message,
+            text_streamed=(
+                bool(presentation.streamed_text)
+                and presentation.streamed_text == parsed.text
+            ),
+        )
 
     def complete(
         self,
@@ -1226,6 +1396,7 @@ class MimoDeveloperServerRuntime:
                     session_id=session_id,
                     timeout=timeout,
                     access_mode=access_mode,
+                    on_delta=on_delta,
                     on_activity=on_activity,
                     cancellation_signal=cancellation_signal,
                 )
@@ -1249,7 +1420,8 @@ class MimoDeveloperServerRuntime:
                         "mimo_developer_response_empty",
                         "MiMo Code завершился без итогового ответа.",
                     )
-                on_delta(parsed.text)
+                if not parsed.text_streamed:
+                    on_delta(parsed.text)
                 result = MimoDeveloperResult(
                     text=parsed.text,
                     session_id=resolved_session_id,

@@ -4,5 +4,5 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 export function GET(request: Request) {
-  return proxyV3JsonRequest(request, "/v1/chat/threads");
+	return proxyV3JsonRequest(request, "/v1/chat/threads");
 }

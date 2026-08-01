@@ -4,9 +4,8 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 export function POST(request: Request) {
-  return proxyV3JsonRequest(
-    request,
-    "/v1/platform-admin/storage/previews",
-    { method: "POST", maxRequestBytes: 4 * 1_024 },
-  );
+	return proxyV3JsonRequest(request, "/v1/platform-admin/storage/previews", {
+		method: "POST",
+		maxRequestBytes: 4 * 1_024,
+	});
 }

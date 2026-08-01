@@ -1,0 +1,156 @@
+.kp-public-shell {
+	--kp-ink: #10241d;
+	--kp-ink-soft: #213b31;
+	--kp-muted: #66756d;
+	--kp-warm: #f6f2df;
+	--kp-paper: #fffdf5;
+	--kp-white: #ffffff;
+	--kp-teal: #2fc6bd;
+	--kp-leaf: #61cb73;
+	--kp-sky: #7bdcf1;
+	--kp-violet: #a999ff;
+	--kp-coral: #ff8b68;
+	--kp-line: rgb(16 36 29 / 14%);
+	--kp-dark-line: rgb(255 255 255 / 13%);
+	--kp-shadow: 0 42px 100px rgb(8 26 20 / 20%);
+	--kp-radius-sm: 0.75rem;
+	--kp-radius-md: 1.125rem;
+	--kp-radius-lg: 1.875rem;
+	--kp-max: 75rem;
+	min-height: 100vh;
+	overflow-x: clip;
+	background: var(--kp-paper);
+	color: var(--kp-ink);
+	color-scheme: light;
+	font-family: Inter, Manrope, ui-sans-serif, -apple-system, BlinkMacSystemFont,
+		"Segoe UI", sans-serif;
+	font-size: 1rem;
+	line-height: 1.5;
+	text-rendering: optimizeLegibility;
+}
+
+.kp-public-shell *,
+.kp-public-shell *::before,
+.kp-public-shell *::after {
+	box-sizing: border-box;
+}
+
+.kp-public-shell a {
+	color: inherit;
+	text-decoration: none;
+}
+
+.kp-public-shell svg {
+	stroke-width: 1.8;
+}
+
+.kp-container {
+	width: min(calc(100% - 3rem), var(--kp-max));
+	margin-inline: auto;
+}
+
+.kp-section {
+	padding-block: clamp(4.5rem, 8vw, 7.5rem);
+}
+
+.kp-eyebrow {
+	display: flex;
+	align-items: center;
+	gap: 0.65rem;
+	margin: 0 0 1.25rem;
+	color: #8ee3dc;
+	font-family: "SFMono-Regular", "Roboto Mono", Consolas, monospace;
+	font-size: 0.72rem;
+	font-weight: 700;
+	letter-spacing: 0.12em;
+	line-height: 1.3;
+	text-transform: uppercase;
+}
+
+.kp-eyebrow > span {
+	width: 1.65rem;
+	height: 0.125rem;
+	border-radius: 999px;
+	background: currentColor;
+}
+
+.kp-eyebrow-dark {
+	color: #078c82;
+}
+
+.kp-button {
+	display: inline-flex;
+	min-height: 3.25rem;
+	align-items: center;
+	justify-content: center;
+	gap: 0.65rem;
+	border: 1px solid transparent;
+	border-radius: 0.9rem;
+	padding: 0.8rem 1.25rem;
+	font-size: 0.92rem;
+	font-weight: 750;
+	line-height: 1;
+	transition: transform 160ms ease, background-color 160ms ease, border-color 160ms ease;
+}
+
+.kp-button:hover {
+	transform: translateY(-1px);
+}
+
+.kp-button:focus-visible,
+.kp-public-shell a:focus-visible {
+	outline: 3px solid color-mix(in srgb, var(--kp-teal) 64%, white);
+	outline-offset: 3px;
+}
+
+.kp-button svg {
+	width: 1rem;
+	height: 1rem;
+}
+
+.kp-button-primary {
+	background: var(--kp-ink);
+	color: var(--kp-white) !important;
+}
+
+.kp-button-primary:hover {
+	background: #173d31;
+}
+
+.kp-button-secondary {
+	border-color: rgb(16 36 29 / 20%);
+	background: rgb(255 253 245 / 70%);
+}
+
+.kp-button-secondary:hover {
+	border-color: rgb(16 36 29 / 45%);
+	background: var(--kp-paper);
+}
+
+.kp-button-small {
+	min-height: 2.65rem;
+	border-radius: 0.75rem;
+	padding-inline: 1rem;
+	font-size: 0.82rem;
+}
+
+@media (max-width: 640px) {
+	.kp-container {
+		width: min(calc(100% - 2rem), var(--kp-max));
+	}
+
+	.kp-section {
+		padding-block: 4rem;
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.kp-public-shell *,
+	.kp-public-shell *::before,
+	.kp-public-shell *::after {
+		scroll-behavior: auto !important;
+		animation-duration: 0.01ms !important;
+		animation-iteration-count: 1 !important;
+		transition-duration: 0.01ms !important;
+	}
+}

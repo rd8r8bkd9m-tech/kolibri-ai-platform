@@ -1,6 +1,6 @@
 # Home and Primary access runbook
 
-Last live verification: 2026-07-30 14:02 MSK
+Last route pinning and live verification: 2026-08-01
 
 This is the canonical operator entry point for the two physical V3 runtime
 nodes. An agent must read this file before declaring either node unavailable.
@@ -11,8 +11,8 @@ reports.
 
 | Logical node | OS hostname | Preferred local command | Effective identity |
 |---|---|---|---|
-| Home | `plastilin` | `ssh home` | `ladik@192.168.88.210:22` |
-| Home privileged | `plastilin` | `ssh root@home` | `root@192.168.88.210:22` |
+| Home | `plastilin` | `ssh home` | `ladik@178.207.11.90:2222` |
+| Home VPN fallback | `plastilin` | `ssh home-vpn` | `ladik@10.99.0.1:22` through Primary |
 | Primary | `kolibri` | `ssh primary` | `root@78.17.4.108:22` |
 
 `ssh kolibri-primary-codex` is an equivalent Primary alias.
@@ -30,14 +30,17 @@ ssh -G primary |
        $1 == "identityfile" || $1 == "proxyjump" { print }'
 ```
 
-Both preferred aliases currently use `~/.ssh/id_ed25519`.
+The direct Home alias uses the operator key at
+`~/Desktop/Kolibri SSH Key/id_ed25519`. Primary uses
+`~/.ssh/id_ed25519`. Do not search for another Home key before resolving these
+two declared aliases.
 
 ## Confirmed mesh/VPN fallbacks
 
-These direct mesh routes were also verified on 2026-07-30:
+The declared mesh fallback is:
 
 ```bash
-ssh -i ~/.ssh/id_ed25519 ladik@10.99.0.1
+ssh home-vpn
 ssh -i ~/.ssh/id_ed25519 root@10.99.0.10
 ```
 
@@ -46,17 +49,9 @@ They resolve to the same physical hosts:
 - `10.99.0.1` → Home / `plastilin`;
 - `10.99.0.10` → Primary / `kolibri`.
 
-Home also accepts the separately provisioned shared operator key on the LAN
-route:
-
-```bash
-ssh -i ~/.ssh/ubuntu_home_shared_ed25519 ladik@192.168.88.210
-```
-
-The historical `ubuntu-home-wan-key` route
-`ladik@178.207.11.90:2222` timed out during the same verification. It is not a
-current primary path and must not be used as the sole basis for declaring Home
-unavailable.
+`ssh home` is always attempted first when the Mac is outside the Home LAN.
+Only a bounded WAN timeout permits `ssh home-vpn`; agents must not enumerate
+old addresses, keys, or legacy aliases.
 
 ## Required connection sequence
 
@@ -73,12 +68,76 @@ ssh -o BatchMode=yes -o ConnectTimeout=10 primary \
 If an alias probe fails:
 
 1. inspect it with `ssh -G`;
-2. try the confirmed mesh address for that same physical host;
+2. run the single declared fallback `ssh home-vpn`;
 3. distinguish timeout, host-key failure and authentication failure;
 4. record the exact failed route and timestamp.
 
 Only after both the preferred and mesh paths fail may an agent report the
 physical node as unreachable.
+
+## Direct public ingress invariant
+
+`kolibriai.ru` is a Home-owned public ingress. Its canonical path is:
+
+```text
+kolibriai.ru / www.kolibriai.ru
+  -> 178.207.11.90:80,443 (Home MikroTik PPPoE)
+  -> 192.168.88.210:80,443 (Home / plastilin)
+  -> Nginx HTTP/2 TLS edge
+  -> 127.0.0.1:3103 (Kolibri V3 portable frontend)
+```
+
+Primary must not proxy, terminate TLS for, or host the public
+`kolibriai.ru` application. It is permitted only as the declared bounded
+administrative VPN fallback when the operator's current network cannot reach
+Home directly.
+
+## Provider/runtime capability invariant
+
+The V3 backend owns the capability manifest at `GET /v1/capabilities` (the web
+BFF exposes it at `/api/v3/capabilities`). It is the only source of truth for
+the browser and native clients: a capability is advertised only when its
+server-side service or connected runtime is ready. The manifest currently
+covers live web search, weather, attachments, image generation, construction
+estimate workspaces/exports and owner-only developer execution.
+
+MiMo normal chat uses the long-lived `MimoClientRuntime` and its native
+`web_search` tool. Time-sensitive prompts force a live search; stable prompts
+may leave search optional. Owner developer mode uses one loopback MiMo server
+for the lifetime of the backend and intentionally does not pass `--pure`, so
+MiMo's web tools remain available while the runtime still enforces the stored
+per-run access policy.
+
+Production provider vault reads are an explicit transition only:
+`KOLIBRI_V3_LOCAL_PROVIDER_VAULT_READ_ENABLED=true` permits decrypting an
+already provisioned vault and master key, while key installation and Codex
+login remain development-only. A missing or unsafe master key fails closed;
+the public application never accepts provider secrets in request bodies.
+
+### RouterOS Wi-Fi/mesh audit (2026-08-01)
+
+The live read-only RouterOS audit checked the LAN bridge, wireless access and
+connect lists, WDS/mesh menus, ARP table, mangle rules and active routes. The
+result is not a client block:
+
+- no `/interface/wireless/access-list` or `connect-list` entries;
+- no `/interface/mesh` or WDS interfaces;
+- `wlan1` (2.4 GHz) and `wlan2` (5 GHz) are both enabled, share SSID `server`,
+  and are bridged into the LAN with `default-forwarding=true`;
+- no firewall address-list or raw drop rule is present;
+- the iPhone test in the supplied screenshot is on LTE, so the phone's Wi-Fi
+  MAC cannot appear in this router's client table at all.
+- Home has no global IPv6 address or IPv6 default route, and `kolibriai.ru`
+  has no `AAAA` record; the public service is intentionally IPv4-only.
+
+During the failed LTE attempt, Home packet capture and the public web
+destination-NAT counter did not move. That proves the request did not reach
+the Home WAN interface; changing a MikroTik port or mesh rule cannot repair a
+carrier-side route. Compare the iPhone on Home Wi-Fi with Wi-Fi disabled on
+the Android before changing the public edge.
+
+The direct SSH management rule is public TCP `2222` to
+`192.168.88.210:22`. Public TCP `22` is not the Home management endpoint.
 
 ## Authority and safety
 
@@ -116,9 +175,13 @@ The cleanup proof and current capacity are recorded in
 ## Last live proof
 
 ```text
-ssh home       -> node=home host=plastilin user=ladik uid=1000
+ssh home       -> 178.207.11.90:2222 host=plastilin user=ladik uid=1000
 ssh root@home  -> node=home-root host=plastilin user=root uid=0
 ssh primary    -> node=primary host=kolibri user=root uid=0
 Home mesh      -> host=plastilin user=ladik uid=1000
 Primary mesh   -> host=kolibri user=root uid=0
+
+https://kolibriai.ru/app    -> 178.207.11.90 HTTP/2 200
+https://kolibriai.ru/livez  -> 178.207.11.90 HTTP/2 200
+https://kolibriai.ru/readyz -> 178.207.11.90 HTTP/2 200
 ```

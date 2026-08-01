@@ -32,10 +32,15 @@ MutationAuthDependency = Annotated[None, Depends(require_mutation_auth)]
 PROJECT_ID = re.compile(r"^project_[A-Za-z0-9._~-]{8,96}$")
 
 
-def _error(status_code: int, code: str, message: str) -> HTTPException:
+def _error(
+    status_code: int,
+    code: str,
+    message: str,
+    **details: int,
+) -> HTTPException:
     return HTTPException(
         status_code=status_code,
-        detail={"code": code, "message": message},
+        detail={"code": code, "message": message, **details},
     )
 
 
@@ -255,6 +260,8 @@ def update_estimate(
                 status.HTTP_409_CONFLICT,
                 "estimate_version_conflict",
                 "Смета уже изменилась. Обновите данные перед сохранением.",
+                expected_version=payload.version,
+                current_version=int(row["version"]),
             )
         current = parse_estimate_document(
             row["content_json"],

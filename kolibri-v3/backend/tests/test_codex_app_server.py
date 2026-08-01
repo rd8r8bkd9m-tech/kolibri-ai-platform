@@ -7,6 +7,11 @@ import sys
 from app.codex_app_server import (
     CodexAppServerRuntime,
     _AUTHENTICATED_PREVIEW_MODELS,
+    _TurnState,
+)
+from app.agent_runtime_session_cache import (
+    AgentRuntimeSessionEntry,
+    AgentRuntimeSessionScope,
 )
 
 
@@ -16,8 +21,11 @@ from pathlib import Path
 import sys
 
 log_path = Path(sys.argv[1])
-thread_number = 0
-turn_number = 0
+state_path = log_path.with_suffix(".state.json")
+if state_path.exists():
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+else:
+    state = {"thread_number": 0, "turn_number": 0, "threads": {}}
 
 def emit(value):
     print(json.dumps(value, ensure_ascii=False, separators=(",", ":")), flush=True)
@@ -25,6 +33,50 @@ def emit(value):
 def record(value):
     with log_path.open("a", encoding="utf-8") as stream:
         stream.write(json.dumps(value, ensure_ascii=False) + "\n")
+
+def save_state():
+    state_path.write_text(
+        json.dumps(state, ensure_ascii=False, separators=(",", ":")),
+        encoding="utf-8",
+    )
+
+def thread_result(thread_id, params):
+    metadata = state["threads"][thread_id]
+    for source, target in (
+        ("cwd", "cwd"),
+        ("model", "model"),
+        ("approvalPolicy", "approvalPolicy"),
+        ("approvalsReviewer", "approvalsReviewer"),
+        ("serviceTier", "serviceTier"),
+        ("runtimeWorkspaceRoots", "runtimeWorkspaceRoots"),
+        ("sandbox", "sandbox"),
+    ):
+        if source in params:
+            metadata[target] = (
+                "default"
+                if source == "serviceTier" and params[source] is None
+                else params[source]
+            )
+    sandbox_type = {
+        "read-only": "readOnly",
+        "workspace-write": "workspaceWrite",
+        "danger-full-access": "dangerFullAccess",
+    }[metadata["sandbox"]]
+    save_state()
+    return {
+        "thread": {
+            "id": thread_id,
+            "cwd": metadata["cwd"],
+            "ephemeral": metadata["ephemeral"],
+        },
+        "model": metadata["model"],
+        "cwd": metadata["cwd"],
+        "approvalPolicy": metadata["approvalPolicy"],
+        "approvalsReviewer": metadata.get("approvalsReviewer", "user"),
+        "serviceTier": metadata.get("serviceTier"),
+        "runtimeWorkspaceRoots": metadata["runtimeWorkspaceRoots"],
+        "sandbox": {"type": sandbox_type},
+    }
 
 emit({"timestamp": "ignored-log-line", "level": "INFO"})
 for line in sys.stdin:
@@ -46,16 +98,44 @@ for line in sys.stdin:
             },
         })
     elif method == "thread/start":
-        thread_number += 1
+        state["thread_number"] += 1
+        thread_id = f"thread-{state['thread_number']}"
+        params = value["params"]
+        state["threads"][thread_id] = {
+            "cwd": params["cwd"],
+            "model": params.get("model", "fake-model"),
+            "approvalPolicy": params["approvalPolicy"],
+            "approvalsReviewer": params.get("approvalsReviewer", "user"),
+            "serviceTier": params.get("serviceTier") or "default",
+            "runtimeWorkspaceRoots": params["runtimeWorkspaceRoots"],
+            "sandbox": params["sandbox"],
+            "ephemeral": params["ephemeral"],
+        }
         emit({
             "id": request_id,
-            "result": {
-                "thread": {"id": f"thread-{thread_number}"},
-                "model": "fake",
-            },
+            "result": thread_result(thread_id, params),
         })
+    elif method == "thread/resume":
+        params = value["params"]
+        thread_id = params["threadId"]
+        if thread_id not in state["threads"]:
+            emit({
+                "id": request_id,
+                "error": {"code": -32001, "message": "thread not found"},
+            })
+        else:
+            result = thread_result(thread_id, params)
+            if state.pop("invalid_resume_metadata", False):
+                result["model"] = "scope-mismatch"
+                save_state()
+            emit({
+                "id": request_id,
+                "result": result,
+            })
     elif method == "turn/start":
-        turn_number += 1
+        state["turn_number"] += 1
+        save_state()
+        turn_number = state["turn_number"]
         turn_id = f"turn-{turn_number}"
         prompt = value["params"]["input"][0]["text"]
         result_text = json.dumps(
@@ -140,7 +220,50 @@ for line in sys.stdin:
 """
 
 
-def _runtime(tmp_path: Path) -> tuple[CodexAppServerRuntime, Path]:
+class _MemorySessionCache:
+    def __init__(self) -> None:
+        self.entries: dict[str, AgentRuntimeSessionEntry] = {}
+
+    def lookup(
+        self,
+        scope: AgentRuntimeSessionScope,
+    ) -> AgentRuntimeSessionEntry | None:
+        return self.entries.get(scope.scope_key)
+
+    def store(
+        self,
+        scope: AgentRuntimeSessionScope,
+        *,
+        provider_thread_id: str,
+        history_hash: str,
+    ) -> None:
+        self.entries[scope.scope_key] = AgentRuntimeSessionEntry(
+            scope=scope,
+            provider_thread_id=provider_thread_id,
+            canonical_history_hash=history_hash,
+        )
+
+    def evict_if_matches(
+        self,
+        scope: AgentRuntimeSessionScope,
+        *,
+        provider_thread_id: str,
+    ) -> bool:
+        current = self.entries.get(scope.scope_key)
+        if (
+            current is None
+            or current.provider_thread_id != provider_thread_id
+        ):
+            return False
+        del self.entries[scope.scope_key]
+        return True
+
+
+def _runtime(
+    tmp_path: Path,
+    *,
+    session_cache: _MemorySessionCache | None = None,
+) -> tuple[CodexAppServerRuntime, Path]:
     script = tmp_path / "fake_app_server.py"
     log = tmp_path / "protocol.jsonl"
     script.write_text(FAKE_APP_SERVER, encoding="utf-8")
@@ -150,6 +273,7 @@ def _runtime(tmp_path: Path) -> tuple[CodexAppServerRuntime, Path]:
             command=(sys.executable, "-u", str(script), str(log)),
             model="fake-model",
             effort="none",
+            session_cache=session_cache,
         ),
         log,
     )
@@ -172,12 +296,24 @@ def _complete(
     sandbox: str = "read-only",
     approval_policy: str = "never",
     approvals_reviewer: str | None = None,
+    user_id: str = "user-a",
+    project_id: str = "project-a",
+    credential_tenant_id: str | None = None,
+    canonical_messages: tuple[tuple[str, str], ...] | None = None,
+    runtime_mode: str = "chat",
 ) -> dict[str, str]:
     value = runtime.complete(
         tenant_id=tenant_id,
+        user_id=user_id,
+        project_id=project_id,
         product_thread_id=product_thread_id,
+        credential_tenant_id=credential_tenant_id or tenant_id,
+        runtime_profile="codex-cli",
+        runtime_id="codex-app-server",
+        runtime_mode=runtime_mode,
         initial_prompt=initial_prompt,
         followup_prompt=followup_prompt,
+        canonical_messages=canonical_messages,
         output_schema={"type": "object"},
         instructions="Return JSON only.",
         timeout=5,
@@ -193,6 +329,46 @@ def _complete(
         approvals_reviewer=approvals_reviewer,
     )
     return json.loads(value)
+
+
+def test_web_search_items_use_the_same_activity_callback(
+    tmp_path: Path,
+) -> None:
+    runtime = CodexAppServerRuntime(
+        runtime_root=tmp_path / "runtime",
+        command=("fake-codex",),
+    )
+    activities: list[tuple[str, dict[str, object]]] = []
+    runtime._turns["turn-web"] = _TurnState(
+        on_activity=lambda phase, item: activities.append((phase, item)),
+    )
+    item = {
+        "id": "web-01",
+        "type": "webSearch",
+        "query": "current official release",
+        "action": {"type": "search", "query": "current official release"},
+        "results": [
+            {
+                "url": "https://example.com/release",
+                "title": "Official release",
+            }
+        ],
+    }
+
+    for method in ("item/started", "item/completed"):
+        runtime._handle_message(
+            {
+                "method": method,
+                "params": {
+                    "threadId": "thread-web",
+                    "turnId": "turn-web",
+                    "item": item,
+                },
+            }
+        )
+
+    assert [phase for phase, _item in activities] == ["started", "completed"]
+    assert all(activity["type"] == "webSearch" for _phase, activity in activities)
 
 
 def test_live_catalog_empty_or_invalid_tiers_override_preview_metadata(
@@ -436,7 +612,7 @@ def test_developer_turn_uses_workspace_write_and_streams_activity(
     assert turn_start["params"]["approvalsReviewer"] == "auto_review"
 
 
-def test_one_process_reuses_one_ephemeral_thread_per_product_chat(
+def test_one_process_reuses_one_materialized_thread_per_product_chat(
     tmp_path: Path,
 ) -> None:
     runtime, log = _runtime(tmp_path)
@@ -481,7 +657,7 @@ def test_one_process_reuses_one_ephemeral_thread_per_product_chat(
         for record in records
         if record["method"] == "thread/start"
     ]
-    assert all(params["ephemeral"] is True for params in thread_starts)
+    assert all(params["ephemeral"] is False for params in thread_starts)
     assert all(params["approvalPolicy"] == "never" for params in thread_starts)
     assert all(params["sandbox"] == "read-only" for params in thread_starts)
     assert all(params["dynamicTools"] == [] for params in thread_starts)
@@ -578,7 +754,7 @@ def test_service_tier_is_sent_and_isolates_cached_threads(
     ]
     assert len(starts) == 2
     assert starts[0]["serviceTier"] == "priority"
-    assert "serviceTier" not in starts[1]
+    assert starts[1]["serviceTier"] is None
     turns = [
         record["params"]
         for record in records
@@ -675,3 +851,232 @@ def test_stopped_runtime_can_start_a_fresh_single_process(
     assert sum(
         record["method"] == "initialize" for record in records
     ) == 2
+
+
+def test_backend_restart_resumes_materialized_thread_with_exact_scope(
+    tmp_path: Path,
+    caplog,
+) -> None:
+    cache = _MemorySessionCache()
+    runtime, log = _runtime(tmp_path, session_cache=cache)
+    first_assistant = '{"received":"first"}'
+    try:
+        assert _complete(
+            runtime,
+            tenant_id="tenant-owner",
+            user_id="user-owner",
+            project_id="project-dev",
+            product_thread_id="chat-dev",
+            initial_prompt="first",
+            followup_prompt="first",
+            canonical_messages=(("user", "first"),),
+            runtime_mode="developer",
+            execution_profile="developer",
+            model="gpt-5.6-sol",
+            effort="high",
+            service_tier="priority",
+            workspace_root=tmp_path.resolve(),
+            sandbox="workspace-write",
+            approval_policy="on-request",
+            approvals_reviewer="auto_review",
+        ) == {"received": "first"}
+    finally:
+        runtime.stop()
+
+    resumed, _ = _runtime(tmp_path, session_cache=cache)
+    caplog.set_level("INFO", logger="app.codex_app_server")
+    try:
+        assert _complete(
+            resumed,
+            tenant_id="tenant-owner",
+            user_id="user-owner",
+            project_id="project-dev",
+            product_thread_id="chat-dev",
+            initial_prompt="canonical DB snapshot",
+            followup_prompt="second",
+            canonical_messages=(
+                ("user", "first"),
+                ("assistant", first_assistant),
+                ("user", "second"),
+            ),
+            runtime_mode="developer",
+            execution_profile="developer",
+            model="gpt-5.6-sol",
+            effort="high",
+            service_tier="priority",
+            workspace_root=tmp_path.resolve(),
+            sandbox="workspace-write",
+            approval_policy="on-request",
+            approvals_reviewer="auto_review",
+        ) == {"received": "second"}
+    finally:
+        resumed.stop()
+
+    records = [
+        json.loads(line)
+        for line in log.read_text(encoding="utf-8").splitlines()
+    ]
+    assert sum(record["method"] == "thread/start" for record in records) == 1
+    [resume] = [
+        record["params"]
+        for record in records
+        if record["method"] == "thread/resume"
+    ]
+    assert resume == {
+        "threadId": "thread-1",
+        "cwd": str(tmp_path.resolve()),
+        "approvalPolicy": "on-request",
+        "sandbox": "workspace-write",
+        "baseInstructions": "Return JSON only.",
+        "developerInstructions": "Return JSON only.",
+        "excludeTurns": True,
+        "runtimeWorkspaceRoots": [str(tmp_path.resolve())],
+        "model": "gpt-5.6-sol",
+        "approvalsReviewer": "auto_review",
+        "serviceTier": "priority",
+    }
+    turns = [
+        record["params"]
+        for record in records
+        if record["method"] == "turn/start"
+    ]
+    assert turns[0]["threadId"] == turns[1]["threadId"] == "thread-1"
+    assert turns[1]["effort"] == "high"
+    assert turns[1]["serviceTier"] == "priority"
+    timing = next(
+        record.message
+        for record in caplog.records
+        if "Codex app-server stages" in record.message
+    )
+    assert "outcome=success" in timing
+    assert "session=resumed" in timing
+    for field in (
+        "process_ready_ms=",
+        "lock_wait_ms=",
+        "account_ms=",
+        "session_ms=",
+        "turn_start_ms=",
+        "ttft_ms=",
+        "total_ms=",
+    ):
+        assert field in timing
+
+
+def test_history_mismatch_evicts_without_resume_and_uses_db_snapshot(
+    tmp_path: Path,
+) -> None:
+    cache = _MemorySessionCache()
+    runtime, log = _runtime(tmp_path, session_cache=cache)
+    try:
+        _complete(
+            runtime,
+            tenant_id="tenant-a",
+            product_thread_id="chat-a",
+            initial_prompt="first",
+            followup_prompt="first",
+            canonical_messages=(("user", "first"),),
+        )
+    finally:
+        runtime.stop()
+
+    restarted, _ = _runtime(tmp_path, session_cache=cache)
+    try:
+        assert _complete(
+            restarted,
+            tenant_id="tenant-a",
+            product_thread_id="chat-a",
+            initial_prompt="canonical DB snapshot",
+            followup_prompt="second",
+            canonical_messages=(
+                ("user", "different committed history"),
+                ("user", "second"),
+            ),
+        ) == {"received": "canonical DB snapshot"}
+    finally:
+        restarted.stop()
+
+    records = [
+        json.loads(line)
+        for line in log.read_text(encoding="utf-8").splitlines()
+    ]
+    assert sum(record["method"] == "thread/resume" for record in records) == 0
+    assert sum(record["method"] == "thread/start" for record in records) == 2
+
+
+def test_invalid_resumed_metadata_is_evicted_and_falls_back_atomically(
+    tmp_path: Path,
+) -> None:
+    cache = _MemorySessionCache()
+    runtime, log = _runtime(tmp_path, session_cache=cache)
+    try:
+        _complete(
+            runtime,
+            tenant_id="tenant-a",
+            product_thread_id="chat-a",
+            initial_prompt="first",
+            followup_prompt="first",
+            canonical_messages=(("user", "first"),),
+        )
+    finally:
+        runtime.stop()
+
+    state_path = log.with_suffix(".state.json")
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state["invalid_resume_metadata"] = True
+    state_path.write_text(
+        json.dumps(state, ensure_ascii=False, separators=(",", ":")),
+        encoding="utf-8",
+    )
+    restarted, _ = _runtime(tmp_path, session_cache=cache)
+    try:
+        assert _complete(
+            restarted,
+            tenant_id="tenant-a",
+            product_thread_id="chat-a",
+            initial_prompt="canonical DB snapshot",
+            followup_prompt="second",
+            canonical_messages=(
+                ("user", "first"),
+                ("assistant", '{"received":"first"}'),
+                ("user", "second"),
+            ),
+        ) == {"received": "canonical DB snapshot"}
+    finally:
+        restarted.stop()
+
+    records = [
+        json.loads(line)
+        for line in log.read_text(encoding="utf-8").splitlines()
+    ]
+    assert sum(record["method"] == "thread/resume" for record in records) == 1
+    assert sum(record["method"] == "thread/start" for record in records) == 2
+    assert len(cache.entries) == 1
+
+
+def test_user_and_project_are_part_of_the_in_process_lock_scope(
+    tmp_path: Path,
+) -> None:
+    runtime, log = _runtime(tmp_path)
+    try:
+        for user_id, project_id in (
+            ("user-a", "project-a"),
+            ("user-b", "project-a"),
+            ("user-a", "project-b"),
+        ):
+            _complete(
+                runtime,
+                tenant_id="tenant-a",
+                user_id=user_id,
+                project_id=project_id,
+                product_thread_id="same-thread-id",
+                initial_prompt=f"{user_id}:{project_id}",
+                followup_prompt=f"{user_id}:{project_id}",
+            )
+    finally:
+        runtime.stop()
+
+    records = [
+        json.loads(line)
+        for line in log.read_text(encoding="utf-8").splitlines()
+    ]
+    assert sum(record["method"] == "thread/start" for record in records) == 3

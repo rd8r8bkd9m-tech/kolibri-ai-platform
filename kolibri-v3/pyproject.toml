@@ -1,0 +1,14 @@
+[tool.ruff]
+target-version = "py314"
+line-length = 100
+extend-exclude = ["backend/venv", "dist", "var"]
+
+[tool.ruff.lint]
+# Start with correctness rules that the whole repository can satisfy today.
+# Add rule families only after migrating existing code in a focused change.
+select = ["E4", "E7", "E9", "F"]
+
+[tool.ruff.format]
+indent-style = "space"
+line-ending = "lf"
+quote-style = "double"

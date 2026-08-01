@@ -159,8 +159,6 @@
   body {
     @apply bg-background text-foreground;
     min-width: 320px;
-    overflow: hidden;
-    overscroll-behavior: none;
   }
   body {
     font-feature-settings:

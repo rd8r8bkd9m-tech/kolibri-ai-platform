@@ -4,9 +4,9 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 export function POST(request: Request) {
-  return proxyV3JsonRequest(
-    request,
-    "/v1/platform-admin/storage/operations/reconcile",
-    { method: "POST", maxRequestBytes: 1 * 1_024 },
-  );
+	return proxyV3JsonRequest(
+		request,
+		"/v1/platform-admin/storage/operations/reconcile",
+		{ method: "POST", maxRequestBytes: 1 * 1_024 },
+	);
 }

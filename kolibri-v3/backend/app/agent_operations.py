@@ -325,6 +325,9 @@ def _runtime_availability(
             "activityEvents": descriptor.capabilities.activity_events,
             "persistentSessions": descriptor.capabilities.persistent_sessions,
             "modelCatalog": descriptor.capabilities.model_catalog,
+            "capabilityIds": sorted(
+                descriptor.capabilities.capability_ids
+            ),
         }
         for descriptor in descriptors[:_MAX_RUNTIME_ROWS]
     ]

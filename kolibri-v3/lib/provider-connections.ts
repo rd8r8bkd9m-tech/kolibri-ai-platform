@@ -8,8 +8,8 @@ export type ProviderId = (typeof PROVIDER_IDS)[number];
  * Product/Data backend; Next holds no Provider Authority credential.
  */
 export function isProviderId(value: unknown): value is ProviderId {
-  return (
-    typeof value === "string" &&
-    (PROVIDER_IDS as readonly string[]).includes(value)
-  );
+	return (
+		typeof value === "string" &&
+		(PROVIDER_IDS as readonly string[]).includes(value)
+	);
 }

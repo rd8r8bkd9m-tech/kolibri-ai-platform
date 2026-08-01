@@ -26,6 +26,7 @@ import re
 import sqlite3
 import stat
 import sys
+import tempfile
 from typing import NoReturn
 
 
@@ -42,6 +43,28 @@ _WORKER_COMMANDS: dict[str, tuple[str, tuple[str, ...]]] = {
     # reconciliation job has a durable, database-backed ownership fence.
     "estimate-audit": ("app.estimate_reconciliation", ()),
 }
+_WORKER_CREDENTIALS: dict[str, tuple[tuple[str, str], ...]] = {
+    "product-run": (
+        (
+            "KOLIBRI_V3_HOME_PRODUCT_COMMAND_TOKEN_FILE",
+            "home-product-command-token",
+        ),
+        (
+            "KOLIBRI_V3_HOME_PRODUCT_IDENTITY_HMAC_KEY_FILE",
+            "home-product-identity-hmac-key",
+        ),
+    ),
+    "provider-enrollment": (
+        (
+            "KOLIBRI_V3_PROVIDER_AUTHORITY_COMMAND_TOKEN_FILE",
+            "provider-authority-command-token",
+        ),
+        (
+            "KOLIBRI_V3_PROVIDER_AUTHORITY_IDENTITY_HMAC_KEY_FILE",
+            "provider-authority-identity-hmac-key",
+        ),
+    ),
+}
 
 
 class WorkerConfigurationError(RuntimeError):
@@ -50,6 +73,116 @@ class WorkerConfigurationError(RuntimeError):
 
 class WorkerOwnershipError(RuntimeError):
     """Another process already owns this worker role."""
+
+
+def _safe_private_directory(raw_path: str, *, code: str) -> Path:
+    path = Path(raw_path)
+    try:
+        metadata = path.lstat()
+        resolved = path.resolve(strict=True)
+    except OSError:
+        raise WorkerConfigurationError(code) from None
+    if (
+        not path.is_absolute()
+        or path.is_symlink()
+        or not stat.S_ISDIR(metadata.st_mode)
+        or resolved != path
+        or metadata.st_uid not in {0, os.geteuid()}
+        or metadata.st_mode & 0o027
+    ):
+        raise WorkerConfigurationError(code)
+    return path
+
+
+def materialize_systemd_credentials(worker_kind: str) -> None:
+    """Copy systemd's 0440 credentials into the private RuntimeDirectory.
+
+    systemd intentionally exposes loaded credentials as root-owned read-only
+    files. Application secret readers require service-owned mode 0600 files,
+    so the worker performs one bounded, atomic copy before configuration
+    validation. No credential is persisted outside the ephemeral runtime
+    directory.
+    """
+
+    try:
+        credentials = _WORKER_CREDENTIALS[worker_kind]
+    except KeyError:
+        raise WorkerConfigurationError(
+            "worker_credentials_not_applicable"
+        ) from None
+    source_root = _safe_private_directory(
+        _required_environment("CREDENTIALS_DIRECTORY"),
+        code="systemd_credentials_directory_invalid",
+    )
+    target_root = _safe_private_directory(
+        _required_environment("KOLIBRI_WORKER_CREDENTIAL_DIRECTORY"),
+        code="worker_credentials_directory_invalid",
+    )
+    if target_root.stat().st_uid != os.geteuid():
+        raise WorkerConfigurationError(
+            "worker_credentials_directory_invalid"
+        )
+
+    for environment_name, credential_name in credentials:
+        source_path = source_root / credential_name
+        expected_target = target_root / credential_name
+        if os.getenv(environment_name, "") != os.fspath(expected_target):
+            raise WorkerConfigurationError(
+                "worker_credential_target_invalid"
+            )
+        flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+        try:
+            source_descriptor = os.open(source_path, flags)
+        except OSError:
+            raise WorkerConfigurationError(
+                "systemd_credential_unavailable"
+            ) from None
+        try:
+            source_metadata = os.fstat(source_descriptor)
+            source_root_metadata = source_root.stat()
+            if (
+                not stat.S_ISREG(source_metadata.st_mode)
+                or source_metadata.st_uid != source_root_metadata.st_uid
+                or stat.S_IMODE(source_metadata.st_mode) != 0o440
+                or not 16 <= source_metadata.st_size <= 64 * 1024
+            ):
+                raise WorkerConfigurationError(
+                    "systemd_credential_invalid"
+                )
+            value = os.read(source_descriptor, 64 * 1024 + 1)
+            if len(value) != source_metadata.st_size:
+                raise WorkerConfigurationError(
+                    "systemd_credential_invalid"
+                )
+        finally:
+            os.close(source_descriptor)
+
+        descriptor, temporary_name = tempfile.mkstemp(
+            prefix=f".{credential_name}.",
+            dir=target_root,
+        )
+        temporary_path = Path(temporary_name)
+        try:
+            os.fchmod(descriptor, 0o600)
+            written = 0
+            while written < len(value):
+                written += os.write(descriptor, value[written:])
+            os.fsync(descriptor)
+            metadata = os.fstat(descriptor)
+            if (
+                metadata.st_uid != os.geteuid()
+                or stat.S_IMODE(metadata.st_mode) != 0o600
+            ):
+                raise WorkerConfigurationError(
+                    "worker_credential_copy_invalid"
+                )
+            os.close(descriptor)
+            descriptor = -1
+            os.replace(temporary_path, expected_target)
+        finally:
+            if descriptor >= 0:
+                os.close(descriptor)
+            temporary_path.unlink(missing_ok=True)
 
 
 def _required_environment(name: str) -> str:
@@ -469,12 +602,24 @@ def _parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Validate production configuration without taking ownership.",
     )
+    parser.add_argument(
+        "--materialize-credentials",
+        action="store_true",
+        help="Copy systemd credentials into the private RuntimeDirectory.",
+    )
     return parser
 
 
 def main() -> int:
     arguments = _parser().parse_args()
     try:
+        if arguments.materialize_credentials:
+            if arguments.check:
+                raise WorkerConfigurationError(
+                    "worker_launcher_mode_conflict"
+                )
+            materialize_systemd_credentials(arguments.worker_kind)
+            return 0
         database_path = validate_canonical_database()
         validate_release_identity()
         validate_runtime_configuration(arguments.worker_kind)

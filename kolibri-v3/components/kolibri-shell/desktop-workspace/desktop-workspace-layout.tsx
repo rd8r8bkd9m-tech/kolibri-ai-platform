@@ -1,0 +1,130 @@
+"use client";
+
+import type { ReactNode } from "react";
+import {
+	ResizableHandle,
+	ResizablePanel,
+	ResizablePanelGroup,
+} from "@/components/ui/resizable";
+import { cn } from "@/lib/utils";
+
+export type DesktopWorkspaceLayoutProps = {
+	account: ReactNode;
+	accountOpen: boolean;
+	auxiliary: ReactNode;
+	auxiliaryFullscreen: boolean;
+	auxiliaryOpen: boolean;
+	chat: ReactNode;
+	chrome: ReactNode;
+	header: ReactNode;
+	navigation: ReactNode;
+	navigationOpen: boolean;
+	primary: ReactNode;
+	primaryOpen: boolean;
+};
+
+export function DesktopWorkspaceLayout({
+	account,
+	accountOpen,
+	auxiliary,
+	auxiliaryFullscreen,
+	auxiliaryOpen,
+	chat,
+	chrome,
+	header,
+	navigation,
+	navigationOpen,
+	primary,
+	primaryOpen,
+}: DesktopWorkspaceLayoutProps) {
+	const chatHidden = primaryOpen || accountOpen;
+
+	return (
+		<div
+			data-slot="kolibri-workspace-shell"
+			data-workspace-mode="desktop"
+			className="bg-background text-foreground relative flex h-dvh max-h-dvh min-w-0 flex-col overflow-hidden"
+		>
+			<ResizablePanelGroup
+				orientation="horizontal"
+				className="min-h-0 min-w-0 flex-1"
+			>
+				{navigationOpen && !auxiliaryFullscreen ? (
+					<>
+						<ResizablePanel
+							id="project-navigation"
+							defaultSize={374}
+							minSize={288}
+							maxSize={410}
+							groupResizeBehavior="preserve-pixel-size"
+							className="min-h-0 min-w-0 overflow-hidden"
+						>
+							<div id="workspace-project-navigation" className="h-full">
+								{navigation}
+							</div>
+						</ResizablePanel>
+						<ResizableHandle aria-label="Изменить ширину навигации" />
+					</>
+				) : null}
+
+				<ResizablePanel
+					id="primary-workspace"
+					minSize={640}
+					className="min-h-0 min-w-0 overflow-hidden"
+				>
+					<main className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden">
+						{header}
+						<div className="relative min-h-0 min-w-0 flex-1 overflow-hidden">
+							<section
+								aria-label="Диалог с Kolibri"
+								aria-hidden={chatHidden ? true : undefined}
+								inert={chatHidden ? true : undefined}
+								className={cn(
+									"absolute inset-0 min-h-0 min-w-0 overflow-hidden",
+									chatHidden && "invisible pointer-events-none",
+								)}
+							>
+								{chat}
+							</section>
+							{primaryOpen ? (
+								<section
+									data-slot="primary-product-surface"
+									className="absolute inset-0 min-h-0 min-w-0 overflow-hidden"
+								>
+									{primary}
+								</section>
+							) : null}
+							{accountOpen ? (
+								<section
+									aria-label="Личный кабинет Kolibri"
+									className="absolute inset-0 z-20 min-h-0 min-w-0 overflow-hidden bg-background"
+								>
+									{account}
+								</section>
+							) : null}
+						</div>
+					</main>
+				</ResizablePanel>
+
+				{auxiliaryOpen && !auxiliaryFullscreen ? (
+					<>
+						<ResizableHandle aria-label="Изменить ширину дополнительного канваса" />
+						<ResizablePanel
+							id="auxiliary-canvas"
+							defaultSize={480}
+							minSize={320}
+							maxSize={600}
+							groupResizeBehavior="preserve-pixel-size"
+							className="min-h-0 min-w-0 overflow-hidden"
+						>
+							{auxiliary}
+						</ResizablePanel>
+					</>
+				) : null}
+			</ResizablePanelGroup>
+
+			{auxiliaryFullscreen ? auxiliary : null}
+			{chrome}
+		</div>
+	);
+}

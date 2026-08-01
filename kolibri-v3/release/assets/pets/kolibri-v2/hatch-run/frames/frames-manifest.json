@@ -1,0 +1,28 @@
+{
+  "ok": true,
+  "chroma_key": {
+    "hex": "#FF00FF",
+    "rgb": [
+      255,
+      0,
+      255
+    ],
+    "threshold": 96.0
+  },
+  "rows": [
+    {
+      "state": "running-left",
+      "frames": [
+        "/Users/kolibri/Documents/Codex/kolibri-ai-platform/kolibri-v3/release/assets/pets/kolibri-v2/hatch-run/frames/running-left/00.png",
+        "/Users/kolibri/Documents/Codex/kolibri-ai-platform/kolibri-v3/release/assets/pets/kolibri-v2/hatch-run/frames/running-left/01.png",
+        "/Users/kolibri/Documents/Codex/kolibri-ai-platform/kolibri-v3/release/assets/pets/kolibri-v2/hatch-run/frames/running-left/02.png",
+        "/Users/kolibri/Documents/Codex/kolibri-ai-platform/kolibri-v3/release/assets/pets/kolibri-v2/hatch-run/frames/running-left/03.png",
+        "/Users/kolibri/Documents/Codex/kolibri-ai-platform/kolibri-v3/release/assets/pets/kolibri-v2/hatch-run/frames/running-left/04.png",
+        "/Users/kolibri/Documents/Codex/kolibri-ai-platform/kolibri-v3/release/assets/pets/kolibri-v2/hatch-run/frames/running-left/05.png",
+        "/Users/kolibri/Documents/Codex/kolibri-ai-platform/kolibri-v3/release/assets/pets/kolibri-v2/hatch-run/frames/running-left/06.png",
+        "/Users/kolibri/Documents/Codex/kolibri-ai-platform/kolibri-v3/release/assets/pets/kolibri-v2/hatch-run/frames/running-left/07.png"
+      ],
+      "method": "components"
+    }
+  ]
+}

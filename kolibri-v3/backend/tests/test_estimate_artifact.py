@@ -200,6 +200,7 @@ def test_generated_estimate_is_filled_calculated_versioned_and_editable(
                 "id": "document_estimate_test_01",
                 "projectId": accepted.project_id,
                 "projectName": "Тестовая смета",
+                "slotType": "estimate",
                 "category": "estimates",
                 "kind": "estimate",
                 "name": "Смета ремонта ванной 6 м²",
@@ -305,6 +306,38 @@ def test_generated_estimate_is_filled_calculated_versioned_and_editable(
         assert saved.status_code == 200
         assert saved.json()["version"] == 2
         assert saved.json()["totals"]["total"] == "18000.00"
+
+        stale = client.patch(
+            f"/v1/projects/{accepted.project_id}/estimate",
+            headers={**ORIGIN, "X-CSRF-Token": csrf},
+            json={
+                "version": 1,
+                "title": payload["estimateTitle"],
+                "currency": payload["currency"],
+                "rows": [
+                    {
+                        key: value
+                        for key, value in payload["rows"][0].items()
+                        if key not in {"lineTotal", "priceEvidence"}
+                    }
+                ],
+            },
+        )
+        assert stale.status_code == 409
+        assert stale.json() == {
+            "code": "estimate_version_conflict",
+            "message": (
+                "Смета уже изменилась. "
+                "Обновите данные перед сохранением."
+            ),
+            "expected_version": 1,
+            "current_version": 2,
+        }
+        latest_after_conflict = client.get(
+            f"/v1/projects/{accepted.project_id}/estimate"
+        )
+        assert latest_after_conflict.status_code == 200
+        assert latest_after_conflict.json()["version"] == 2
 
         versions = client.get(
             f"/v1/projects/{accepted.project_id}/estimate/versions"

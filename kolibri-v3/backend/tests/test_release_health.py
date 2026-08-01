@@ -46,7 +46,12 @@ def test_development_health_is_unversioned_without_release_environment(
         response = client.get("/v1/health")
 
     assert response.status_code == 200
-    assert response.json() == {"status": "ok", "service": "kolibri-v3"}
+    assert response.json() == {
+        "status": "ok",
+        "service": "kolibri-v3",
+        "agentRuntimeContract": "kolibri.agent-runtime@1.1",
+        "sourceRoot": str(Path(__file__).resolve().parents[2]),
+    }
     assert response.headers["X-Kolibri-Release"] == "unversioned"
     assert response.headers["X-Request-ID"].startswith("req_")
 
@@ -88,6 +93,7 @@ def test_release_health_reports_exact_identity(
     assert response.json() == {
         "status": "ok",
         "service": "kolibri-v3",
+        "agentRuntimeContract": "kolibri.agent-runtime@1.1",
         "releaseId": RELEASE_ID,
         "releaseCommit": RELEASE_COMMIT,
     }

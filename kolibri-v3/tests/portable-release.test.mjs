@@ -228,6 +228,33 @@ async function createFixture({ standalone = false } = {}) {
       "PRAGMA user_version = 44;\n",
     ),
     writeFile(
+      path.join(
+        project,
+        "backend",
+        "migrations",
+        "045_agent_runtime_session_cache.sql",
+      ),
+      "PRAGMA user_version = 45;\n",
+    ),
+    writeFile(
+      path.join(
+        project,
+        "backend",
+        "migrations",
+        "046_tbank_billing.sql",
+      ),
+      "PRAGMA user_version = 46;\n",
+    ),
+    writeFile(
+      path.join(
+        project,
+        "backend",
+        "migrations",
+        "047_billing_entitlement_catalog_compatibility.sql",
+      ),
+      "PRAGMA user_version = 47;\n",
+    ),
+    writeFile(
       path.join(project, "contracts", "generated", "v1", "manifest.json"),
       JSON.stringify(
         {
@@ -474,8 +501,8 @@ test("portable archive binds canonical backend, web, Git, migrations, and stable
   assert.equal(manifest.source_tree_sha256, manifest.content_digest);
   assert.match(manifest.gate_input_digest, /^[0-9a-f]{64}$/);
   assert.equal(manifest.migration_minimum_version, "001");
-  assert.equal(manifest.migration_maximum_version, "044");
-  assert.equal(manifest.migration_count, 14);
+  assert.equal(manifest.migration_maximum_version, "047");
+  assert.equal(manifest.migration_count, 17);
   assert.equal(manifest.release_lane, "canonical-portable-only");
   assert.equal(manifest.dirty, false);
 
@@ -565,6 +592,18 @@ test("portable archive binds canonical backend, web, Git, migrations, and stable
   assert.match(
     listing.stdout,
     /kolibri-v3\/backend\/migrations\/044_runtime_worker_heartbeats[.]sql/,
+  );
+  assert.match(
+    listing.stdout,
+    /kolibri-v3\/backend\/migrations\/045_agent_runtime_session_cache[.]sql/,
+  );
+  assert.match(
+    listing.stdout,
+    /kolibri-v3\/backend\/migrations\/046_tbank_billing[.]sql/,
+  );
+  assert.match(
+    listing.stdout,
+    /kolibri-v3\/backend\/migrations\/047_billing_entitlement_catalog_compatibility[.]sql/,
   );
   assert.match(
     listing.stdout,
@@ -1135,6 +1174,12 @@ test("install contract renders exact fail-closed monitor and backup units", asyn
     "kolibri-v3",
     "--current-link",
     "/opt/kolibri-v3/current",
+    "--service-user",
+    "kolibri-v3",
+    "--service-group",
+    "kolibri-v3",
+    "--service-uid",
+    "1001",
     "--data-root",
     "/opt/kolibri-v3/var",
     "--backup-root",
@@ -1150,7 +1195,7 @@ test("install contract renders exact fail-closed monitor and backup units", asyn
     "--release-commit",
     "0123456789abcdef0123456789abcdef01234567",
     "--expected-schema",
-    "44",
+    "45",
     "--systemctl",
     "/usr/bin/systemctl",
     "--journalctl",
@@ -1183,11 +1228,27 @@ test("install contract renders exact fail-closed monitor and backup units", asyn
   }
   assert.match(monitor, /-m app[.]release_monitor/);
   assert.match(monitor, /--public-url https:\/\/kolibriai[.]ru\/readyz/);
-  assert.match(monitor, /CapabilityBoundingSet=CAP_DAC_READ_SEARCH/);
+  assert.match(monitor, /^User=kolibri-v3$/m);
+  assert.match(monitor, /^Group=kolibri-v3$/m);
+  assert.match(monitor, /--backup-owner-uid 1001/);
+  assert.match(monitor, /^CapabilityBoundingSet=$/m);
+  assert.match(monitor, /^ReadWritePaths=\/opt\/kolibri-v3\/var$/m);
+  assert.doesNotMatch(
+    monitor,
+    /^ReadOnlyPaths=.*\/opt\/kolibri-v3\/var(?:\s|$)/m,
+  );
   assert.doesNotMatch(monitor, /^Requires=.*(?:backend|frontend|worker)/m);
   assert.match(monitorTimer, /OnUnitActiveSec=60s/);
   assert.match(backup, /database-rehearsal[.]py scheduled-backup/);
   assert.match(backup, /PrivateNetwork=true/);
+  assert.match(
+    backup,
+    /^ReadWritePaths=\/opt\/kolibri-v3\/var \/var\/backups\/kolibri-v3$/m,
+  );
+  assert.doesNotMatch(
+    backup,
+    /^ReadOnlyPaths=.*\/opt\/kolibri-v3\/var(?:\s|$)/m,
+  );
   assert.doesNotMatch(backup, /^Requires=.*backend/m);
   assert.match(backupTimer, /OnCalendar=[*]-[*]-[*] 02:15:00 UTC/);
 
@@ -1200,6 +1261,12 @@ test("install contract renders exact fail-closed monitor and backup units", asyn
     "kolibri-v3",
     "--current-link",
     "/opt/kolibri-v3/current",
+    "--service-user",
+    "kolibri-v3",
+    "--service-group",
+    "kolibri-v3",
+    "--service-uid",
+    "1001",
     "--data-root",
     "/opt/kolibri-v3/var",
     "--backup-root",
@@ -1215,7 +1282,7 @@ test("install contract renders exact fail-closed monitor and backup units", asyn
     "--release-commit",
     "0123456789abcdef0123456789abcdef01234567",
     "--expected-schema",
-    "44",
+    "45",
     "--systemctl",
     "/usr/bin/systemctl",
     "--journalctl",
@@ -1532,6 +1599,11 @@ test("installer statically binds verification, immutable activation, health iden
   assert.match(installer, /KOLIBRI_RELEASE_COMMIT=\$release_commit/);
   assert.match(
     installer,
+    /developer_preview_origin="\$KOLIBRI_PUBLIC_SCHEME:\/\/dev[.]\$KOLIBRI_DOMAIN"/,
+  );
+  assert.match(installer, /KOLIBRI_V3_ALLOWED_ORIGINS=\$allowed_origins/);
+  assert.match(
+    installer,
     /KOLIBRI_V3_DIRECT_MODEL_RUNTIME=\$KOLIBRI_DIRECT_MODEL_RUNTIME/,
   );
   assert.match(installer, /KOLIBRI_V3_REQUIRE_PRODUCT_WORKER=true/);
@@ -1541,10 +1613,22 @@ test("installer statically binds verification, immutable activation, health iden
   assert.match(installer, /normalize-database/);
   assert.match(
     installer,
+    /install -d -o root -g "\$service_group" -m 710 "\$KOLIBRI_BACKUP_ROOT"/,
+  );
+  assert.match(
+    installer,
+    /install -d -o "\$KOLIBRI_SERVICE_USER" -g "\$service_group" -m 700[\s\S]+"\$data_root" "\$scheduled_backup_root"/,
+  );
+  assert.match(
+    installer,
     /database-rehearsal[.]py" backup[\s\S]+--source "\$data_root\/kolibri-v3[.]db"[\s\S]+--output "\$backup_dir\/kolibri-v3[.]db"/,
   );
   assert.match(installer, /"releaseId": sys[.]argv\[1\]/);
   assert.match(installer, /"releaseCommit": sys[.]argv\[2\]/);
+  assert.match(
+    installer,
+    /all\(payload[.]get\(key\) == value for key, value in expected[.]items\(\)\)/,
+  );
   assert.match(installer, /KOLIBRI_ENABLE_PRODUCT_WORKER/);
   assert.match(installer, /validate-worker-enablement/);
   assert.match(installer, /validate-operator-backend-env/);

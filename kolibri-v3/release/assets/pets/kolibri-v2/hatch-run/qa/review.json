@@ -1,0 +1,962 @@
+{
+  "ok": true,
+  "frames_root": "/Users/kolibri/Documents/Codex/kolibri-ai-platform/kolibri-v3/release/assets/pets/kolibri-v2/hatch-run/frames",
+  "errors": [],
+  "warnings": [],
+  "rows": [
+    {
+      "state": "idle",
+      "expected_frames": 6,
+      "actual_frames": 6,
+      "extraction_method": null,
+      "ok": true,
+      "errors": [],
+      "warnings": [],
+      "frames": [
+        {
+          "index": 0,
+          "file": "/Users/kolibri/Documents/Codex/kolibri-ai-platform/kolibri-v3/release/assets/pets/kolibri-v2/hatch-run/frames/idle/00.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 15275,
+          "bbox": [
+            9,
+            5,
+            182,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 287
+        },
+        {
+          "index": 1,
+          "file": "/Users/kolibri/Documents/Codex/kolibri-ai-platform/kolibri-v3/release/assets/pets/kolibri-v2/hatch-run/frames/idle/01.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 14213,
+          "bbox": [
+            10,
+            9,
+            181,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 275
+        },
+        {
+          "index": 2,
+          "file": "/Users/kolibri/Documents/Codex/kolibri-ai-platform/kolibri-v3/release/assets/pets/kolibri-v2/hatch-run/frames/idle/02.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 14078,
+          "bbox": [
+            10,
+            9,
+            181,
+            202
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 285
+        },
+        {
+          "index": 3,
+          "file": "/Users/kolibri/Documents/Codex/kolibri-ai-platform/kolibri-v3/release/assets/pets/kolibri-v2/hatch-run/frames/idle/03.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 14462,
+          "bbox": [
+            10,
+            6,
+            181,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 267
+        },
+        {
+          "index": 4,
+          "file": "/Users/kolibri/Documents/Codex/kolibri-ai-platform/kolibri-v3/release/assets/pets/kolibri-v2/hatch-run/frames/idle/04.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 14657,
+          "bbox": [
+            9,
+            5,
+            182,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 301
+        },
+        {
+          "index": 5,
+          "file": "/Users/kolibri/Documents/Codex/kolibri-ai-platform/kolibri-v3/release/assets/pets/kolibri-v2/hatch-run/frames/idle/05.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 14663,
+          "bbox": [
+            11,
+            5,
+            181,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 278
+        }
+      ]
+    },
+    {
+      "state": "running-right",
+      "expected_frames": 8,
+      "actual_frames": 8,
+      "extraction_method": null,
+      "ok": true,
+      "errors": [],
+      "warnings": [],
+      "frames": [
+        {
+          "index": 0,
+          "file": "/Users/kolibri/Documents/Codex/kolibri-ai-platform/kolibri-v3/release/assets/pets/kolibri-v2/hatch-run/frames/running-right/00.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 15236,
+          "bbox": [
+            5,
+            9,
+            187,
+            199
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 348
+        },
+        {
+          "index": 1,
+          "file": "/Users/kolibri/Documents/Codex/kolibri-ai-platform/kolibri-v3/release/assets/pets/kolibri-v2/hatch-run/frames/running-right/01.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 10500,
+          "bbox": [
+            11,
+            40,
+            180,
+            192
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 286
+        },
+        {
+          "index": 2,
+          "file": "/Users/kolibri/Documents/Codex/kolibri-ai-platform/kolibri-v3/release/assets/pets/kolibri-v2/hatch-run/frames/running-right/02.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 10821,
+          "bbox": [
+            6,
+            46,
+            186,
+            177
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 248
+        },
+        {
+          "index": 3,
+          "file": "/Users/kolibri/Documents/Codex/kolibri-ai-platform/kolibri-v3/release/assets/pets/kolibri-v2/hatch-run/frames/running-right/03.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 9113,
+          "bbox": [
+            5,
+            53,
+            186,
+            176
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 227
+        },
+        {
+          "index": 4,
+          "file": "/Users/kolibri/Documents/Codex/kolibri-ai-platform/kolibri-v3/release/assets/pets/kolibri-v2/hatch-run/frames/running-right/04.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 9593,
+          "bbox": [
+            9,
+            48,
+            182,
+            184
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 242
+        },
+        {
+          "index": 5,
+          "file": "/Users/kolibri/Documents/Codex/kolibri-ai-platform/kolibri-v3/release/assets/pets/kolibri-v2/hatch-run/frames/running-right/05.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 9688,
+          "bbox": [
+            13,
+            45,
+            179,
+            181
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 257
+        },
+        {
+          "index": 6,
+          "file": "/Users/kolibri/Documents/Codex/kolibri-ai-platform/kolibri-v3/release/assets/pets/kolibri-v2/hatch-run/frames/running-right/06.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 10822,
+          "bbox": [
+            13,
+            45,
+            179,
+            185
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 271
+        },
+        {
+          "index": 7,
+          "file": "/Users/kolibri/Documents/Codex/kolibri-ai-platform/kolibri-v3/release/assets/pets/kolibri-v2/hatch-run/frames/running-right/07.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 10557,
+          "bbox": [
+            12,
+            40,
+            180,
+            192
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 290
+        }
+      ]
+    },
+    {
+      "state": "running-left",
+      "expected_frames": 8,
+      "actual_frames": 8,
+      "extraction_method": "components",
+      "ok": true,
+      "errors": [],
+      "warnings": [],
+      "frames": [
+        {
+          "index": 0,
+          "file": "/Users/kolibri/Documents/Codex/kolibri-ai-platform/kolibri-v3/release/assets/pets/kolibri-v2/hatch-run/frames/running-left/00.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 11430,
+          "bbox": [
+            5,
+            39,
+            187,
+            168
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 457
+        },
+        {
+          "index": 1,
+          "file": "/Users/kolibri/Documents/Codex/kolibri-ai-platform/kolibri-v3/release/assets/pets/kolibri-v2/hatch-run/frames/running-left/01.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 9713,
+          "bbox": [
+            5,
+            43,
+            187,
+            165
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 413
+        },
+        {
+          "index": 2,
+          "file": "/Users/kolibri/Documents/Codex/kolibri-ai-platform/kolibri-v3/release/assets/pets/kolibri-v2/hatch-run/frames/running-left/02.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 11044,
+          "bbox": [
+            5,
+            39,
+            187,
+            168
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 443
+        },
+        {
+          "index": 3,
+          "file": "/Users/kolibri/Documents/Codex/kolibri-ai-platform/kolibri-v3/release/assets/pets/kolibri-v2/hatch-run/frames/running-left/03.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 8796,
+          "bbox": [
+            5,
+            44,
+            187,
+            164
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 396
+        },
+        {
+          "index": 4,
+          "file": "/Users/kolibri/Documents/Codex/kolibri-ai-platform/kolibri-v3/release/assets/pets/kolibri-v2/hatch-run/frames/running-left/04.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 11534,
+          "bbox": [
+            5,
+            39,
+            187,
+            169
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 499
+        },
+        {
+          "index": 5,
+          "file": "/Users/kolibri/Documents/Codex/kolibri-ai-platform/kolibri-v3/release/assets/pets/kolibri-v2/hatch-run/frames/running-left/05.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 9510,
+          "bbox": [
+            5,
+            40,
+            187,
+            168
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 339
+        },
+        {
+          "index": 6,
+          "file": "/Users/kolibri/Documents/Codex/kolibri-ai-platform/kolibri-v3/release/assets/pets/kolibri-v2/hatch-run/frames/running-left/06.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 10786,
+          "bbox": [
+            5,
+            40,
+            187,
+            167
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 448
+        },
+        {
+          "index": 7,
+          "file": "/Users/kolibri/Documents/Codex/kolibri-ai-platform/kolibri-v3/release/assets/pets/kolibri-v2/hatch-run/frames/running-left/07.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 9828,
+          "bbox": [
+            5,
+            41,
+            187,
+            167
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 391
+        }
+      ]
+    },
+    {
+      "state": "waving",
+      "expected_frames": 4,
+      "actual_frames": 4,
+      "extraction_method": null,
+      "ok": true,
+      "errors": [],
+      "warnings": [],
+      "frames": [
+        {
+          "index": 0,
+          "file": "/Users/kolibri/Documents/Codex/kolibri-ai-platform/kolibri-v3/release/assets/pets/kolibri-v2/hatch-run/frames/waving/00.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 12361,
+          "bbox": [
+            15,
+            17,
+            177,
+            191
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 101
+        },
+        {
+          "index": 1,
+          "file": "/Users/kolibri/Documents/Codex/kolibri-ai-platform/kolibri-v3/release/assets/pets/kolibri-v2/hatch-run/frames/waving/01.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 15764,
+          "bbox": [
+            13,
+            17,
+            179,
+            191
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 169
+        },
+        {
+          "index": 2,
+          "file": "/Users/kolibri/Documents/Codex/kolibri-ai-platform/kolibri-v3/release/assets/pets/kolibri-v2/hatch-run/frames/waving/02.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 15237,
+          "bbox": [
+            5,
+            19,
+            187,
+            191
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 132
+        },
+        {
+          "index": 3,
+          "file": "/Users/kolibri/Documents/Codex/kolibri-ai-platform/kolibri-v3/release/assets/pets/kolibri-v2/hatch-run/frames/waving/03.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 12212,
+          "bbox": [
+            15,
+            18,
+            176,
+            191
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 90
+        }
+      ]
+    },
+    {
+      "state": "jumping",
+      "expected_frames": 5,
+      "actual_frames": 5,
+      "extraction_method": null,
+      "ok": true,
+      "errors": [],
+      "warnings": [],
+      "frames": [
+        {
+          "index": 0,
+          "file": "/Users/kolibri/Documents/Codex/kolibri-ai-platform/kolibri-v3/release/assets/pets/kolibri-v2/hatch-run/frames/jumping/00.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 7746,
+          "bbox": [
+            30,
+            72,
+            161,
+            201
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 111
+        },
+        {
+          "index": 1,
+          "file": "/Users/kolibri/Documents/Codex/kolibri-ai-platform/kolibri-v3/release/assets/pets/kolibri-v2/hatch-run/frames/jumping/01.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 8663,
+          "bbox": [
+            35,
+            38,
+            156,
+            192
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 132
+        },
+        {
+          "index": 2,
+          "file": "/Users/kolibri/Documents/Codex/kolibri-ai-platform/kolibri-v3/release/assets/pets/kolibri-v2/hatch-run/frames/jumping/02.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 9467,
+          "bbox": [
+            25,
+            5,
+            167,
+            148
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 147
+        },
+        {
+          "index": 3,
+          "file": "/Users/kolibri/Documents/Codex/kolibri-ai-platform/kolibri-v3/release/assets/pets/kolibri-v2/hatch-run/frames/jumping/03.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 7892,
+          "bbox": [
+            31,
+            55,
+            160,
+            201
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 125
+        },
+        {
+          "index": 4,
+          "file": "/Users/kolibri/Documents/Codex/kolibri-ai-platform/kolibri-v3/release/assets/pets/kolibri-v2/hatch-run/frames/jumping/04.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 7074,
+          "bbox": [
+            33,
+            84,
+            159,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 103
+        }
+      ]
+    },
+    {
+      "state": "failed",
+      "expected_frames": 8,
+      "actual_frames": 8,
+      "extraction_method": null,
+      "ok": true,
+      "errors": [],
+      "warnings": [],
+      "frames": [
+        {
+          "index": 0,
+          "file": "/Users/kolibri/Documents/Codex/kolibri-ai-platform/kolibri-v3/release/assets/pets/kolibri-v2/hatch-run/frames/failed/00.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 13465,
+          "bbox": [
+            17,
+            5,
+            175,
+            192
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 273
+        },
+        {
+          "index": 1,
+          "file": "/Users/kolibri/Documents/Codex/kolibri-ai-platform/kolibri-v3/release/assets/pets/kolibri-v2/hatch-run/frames/failed/01.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 11635,
+          "bbox": [
+            19,
+            17,
+            173,
+            195
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 224
+        },
+        {
+          "index": 2,
+          "file": "/Users/kolibri/Documents/Codex/kolibri-ai-platform/kolibri-v3/release/assets/pets/kolibri-v2/hatch-run/frames/failed/02.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 10392,
+          "bbox": [
+            29,
+            38,
+            163,
+            200
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 199
+        },
+        {
+          "index": 3,
+          "file": "/Users/kolibri/Documents/Codex/kolibri-ai-platform/kolibri-v3/release/assets/pets/kolibri-v2/hatch-run/frames/failed/03.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 9304,
+          "bbox": [
+            37,
+            47,
+            154,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 142
+        },
+        {
+          "index": 4,
+          "file": "/Users/kolibri/Documents/Codex/kolibri-ai-platform/kolibri-v3/release/assets/pets/kolibri-v2/hatch-run/frames/failed/04.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 9240,
+          "bbox": [
+            39,
+            57,
+            153,
+            199
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 142
+        },
+        {
+          "index": 5,
+          "file": "/Users/kolibri/Documents/Codex/kolibri-ai-platform/kolibri-v3/release/assets/pets/kolibri-v2/hatch-run/frames/failed/05.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 8182,
+          "bbox": [
+            44,
+            72,
+            148,
+            191
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 134
+        },
+        {
+          "index": 6,
+          "file": "/Users/kolibri/Documents/Codex/kolibri-ai-platform/kolibri-v3/release/assets/pets/kolibri-v2/hatch-run/frames/failed/06.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 8292,
+          "bbox": [
+            44,
+            65,
+            148,
+            192
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 126
+        },
+        {
+          "index": 7,
+          "file": "/Users/kolibri/Documents/Codex/kolibri-ai-platform/kolibri-v3/release/assets/pets/kolibri-v2/hatch-run/frames/failed/07.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 9712,
+          "bbox": [
+            27,
+            39,
+            165,
+            194
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 212
+        }
+      ]
+    },
+    {
+      "state": "waiting",
+      "expected_frames": 6,
+      "actual_frames": 6,
+      "extraction_method": null,
+      "ok": true,
+      "errors": [],
+      "warnings": [],
+      "frames": [
+        {
+          "index": 0,
+          "file": "/Users/kolibri/Documents/Codex/kolibri-ai-platform/kolibri-v3/release/assets/pets/kolibri-v2/hatch-run/frames/waiting/00.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 12340,
+          "bbox": [
+            37,
+            5,
+            154,
+            199
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 174
+        },
+        {
+          "index": 1,
+          "file": "/Users/kolibri/Documents/Codex/kolibri-ai-platform/kolibri-v3/release/assets/pets/kolibri-v2/hatch-run/frames/waiting/01.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 14933,
+          "bbox": [
+            12,
+            7,
+            179,
+            199
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 200
+        },
+        {
+          "index": 2,
+          "file": "/Users/kolibri/Documents/Codex/kolibri-ai-platform/kolibri-v3/release/assets/pets/kolibri-v2/hatch-run/frames/waiting/02.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 14903,
+          "bbox": [
+            8,
+            5,
+            183,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 208
+        },
+        {
+          "index": 3,
+          "file": "/Users/kolibri/Documents/Codex/kolibri-ai-platform/kolibri-v3/release/assets/pets/kolibri-v2/hatch-run/frames/waiting/03.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 12982,
+          "bbox": [
+            22,
+            6,
+            169,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 173
+        },
+        {
+          "index": 4,
+          "file": "/Users/kolibri/Documents/Codex/kolibri-ai-platform/kolibri-v3/release/assets/pets/kolibri-v2/hatch-run/frames/waiting/04.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 12296,
+          "bbox": [
+            28,
+            10,
+            163,
+            202
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 170
+        },
+        {
+          "index": 5,
+          "file": "/Users/kolibri/Documents/Codex/kolibri-ai-platform/kolibri-v3/release/assets/pets/kolibri-v2/hatch-run/frames/waiting/05.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 11667,
+          "bbox": [
+            33,
+            9,
+            158,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 177
+        }
+      ]
+    },
+    {
+      "state": "running",
+      "expected_frames": 6,
+      "actual_frames": 6,
+      "extraction_method": null,
+      "ok": true,
+      "errors": [],
+      "warnings": [],
+      "frames": [
+        {
+          "index": 0,
+          "file": "/Users/kolibri/Documents/Codex/kolibri-ai-platform/kolibri-v3/release/assets/pets/kolibri-v2/hatch-run/frames/running/00.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 13955,
+          "bbox": [
+            14,
+            9,
+            178,
+            195
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 222
+        },
+        {
+          "index": 1,
+          "file": "/Users/kolibri/Documents/Codex/kolibri-ai-platform/kolibri-v3/release/assets/pets/kolibri-v2/hatch-run/frames/running/01.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 12351,
+          "bbox": [
+            16,
+            23,
+            176,
+            190
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 230
+        },
+        {
+          "index": 2,
+          "file": "/Users/kolibri/Documents/Codex/kolibri-ai-platform/kolibri-v3/release/assets/pets/kolibri-v2/hatch-run/frames/running/02.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 13831,
+          "bbox": [
+            17,
+            9,
+            175,
+            197
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 208
+        },
+        {
+          "index": 3,
+          "file": "/Users/kolibri/Documents/Codex/kolibri-ai-platform/kolibri-v3/release/assets/pets/kolibri-v2/hatch-run/frames/running/03.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 13345,
+          "bbox": [
+            5,
+            39,
+            187,
+            185
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 234
+        },
+        {
+          "index": 4,
+          "file": "/Users/kolibri/Documents/Codex/kolibri-ai-platform/kolibri-v3/release/assets/pets/kolibri-v2/hatch-run/frames/running/04.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 13195,
+          "bbox": [
+            15,
+            26,
+            177,
+            197
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 210
+        },
+        {
+          "index": 5,
+          "file": "/Users/kolibri/Documents/Codex/kolibri-ai-platform/kolibri-v3/release/assets/pets/kolibri-v2/hatch-run/frames/running/05.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 11532,
+          "bbox": [
+            18,
+            43,
+            174,
+            198
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 205
+        }
+      ]
+    },
+    {
+      "state": "review",
+      "expected_frames": 6,
+      "actual_frames": 6,
+      "extraction_method": null,
+      "ok": true,
+      "errors": [],
+      "warnings": [],
+      "frames": [
+        {
+          "index": 0,
+          "file": "/Users/kolibri/Documents/Codex/kolibri-ai-platform/kolibri-v3/release/assets/pets/kolibri-v2/hatch-run/frames/review/00.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 13871,
+          "bbox": [
+            10,
+            6,
+            180,
+            200
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 205
+        },
+        {
+          "index": 1,
+          "file": "/Users/kolibri/Documents/Codex/kolibri-ai-platform/kolibri-v3/release/assets/pets/kolibri-v2/hatch-run/frames/review/01.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 12308,
+          "bbox": [
+            9,
+            5,
+            182,
+            192
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 213
+        },
+        {
+          "index": 2,
+          "file": "/Users/kolibri/Documents/Codex/kolibri-ai-platform/kolibri-v3/release/assets/pets/kolibri-v2/hatch-run/frames/review/02.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 10846,
+          "bbox": [
+            12,
+            50,
+            179,
+            198
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 187
+        },
+        {
+          "index": 3,
+          "file": "/Users/kolibri/Documents/Codex/kolibri-ai-platform/kolibri-v3/release/assets/pets/kolibri-v2/hatch-run/frames/review/03.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 10506,
+          "bbox": [
+            12,
+            68,
+            179,
+            202
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 180
+        },
+        {
+          "index": 4,
+          "file": "/Users/kolibri/Documents/Codex/kolibri-ai-platform/kolibri-v3/release/assets/pets/kolibri-v2/hatch-run/frames/review/04.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 9857,
+          "bbox": [
+            21,
+            51,
+            169,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 166
+        },
+        {
+          "index": 5,
+          "file": "/Users/kolibri/Documents/Codex/kolibri-ai-platform/kolibri-v3/release/assets/pets/kolibri-v2/hatch-run/frames/review/05.png",
+          "width": 192,
+          "height": 208,
+          "nontransparent_pixels": 13290,
+          "bbox": [
+            14,
+            9,
+            178,
+            203
+          ],
+          "edge_pixels": 0,
+          "chroma_adjacent_pixels": 205
+        }
+      ]
+    }
+  ]
+}

@@ -5,7 +5,7 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 export async function GET(request: NextRequest) {
-  return proxyV3JsonRequest(request, "/v1/provider-connections", {
-    method: "GET",
-  });
+	return proxyV3JsonRequest(request, "/v1/provider-connections", {
+		method: "GET",
+	});
 }

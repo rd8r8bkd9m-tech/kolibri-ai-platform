@@ -14,7 +14,7 @@ const readSource = (relativePath) =>
 
 test("Generative UI uses the official assistant-ui renderer, schema, instance, and escaped serializer", async () => {
   const [library, renderer] = await Promise.all([
-    readSource("lib/generative-ui/library.tsx"),
+    readSource("components/assistant-ui/generative-ui-library.tsx"),
     readSource("components/assistant-ui/generative-ui-renderer.tsx"),
   ]);
 
@@ -48,7 +48,7 @@ test("Generative UI uses the official assistant-ui renderer, schema, instance, a
 test("the Kolibri vocabulary is display-only and explicitly allowlisted", async () => {
   const [schema, library] = await Promise.all([
     readSource("lib/generative-ui/schema.ts"),
-    readSource("lib/generative-ui/library.tsx"),
+    readSource("components/assistant-ui/generative-ui-library.tsx"),
   ]);
 
   for (const component of [
@@ -79,7 +79,7 @@ test("untrusted trees are bounded, schema-validated, and soft-fail accessibly", 
     readSource("lib/generative-ui/schema.ts"),
     readSource("lib/generative-ui/sanitize.ts"),
     readSource("components/assistant-ui/generative-ui-renderer.tsx"),
-    readSource("lib/generative-ui/library.tsx"),
+    readSource("components/assistant-ui/generative-ui-library.tsx"),
   ]);
 
   for (const limit of [
@@ -184,6 +184,46 @@ test("estimate widgets accept complete technology assumptions from the backend c
         total: "0.00",
       },
       updatedAt: "2026-07-29T08:00:00Z",
+    });
+
+  assert.equal(
+    result.success,
+    true,
+    result.success ? undefined : JSON.stringify(result.error.issues),
+  );
+});
+
+test("estimate widgets accept provider-neutral server revision profiles", async () => {
+  const { kolibriGenerativeUIComponentSchemas } = await import(
+    "../lib/generative-ui/schema.ts"
+  );
+
+  const result =
+    kolibriGenerativeUIComponentSchemas.EstimateEditor.safeParse({
+      schemaId: "kolibri.estimate_draft",
+      schemaVersion: "1.2",
+      projectId: "project_contract_12345678",
+      documentId: "document_contract_12345678",
+      version: 3,
+      status: "draft",
+      estimateTitle: "Смета после уточнения",
+      currency: "RUB",
+      estimateRegion: "Республика Татарстан",
+      assumptions: [],
+      generation: {
+        providerProfile: "server-estimate-revision",
+        runId: "run_contract_12345678",
+      },
+      rows: [],
+      pricing: {
+        status: "unpriced",
+        sourcedRows: 0,
+        staleRows: 0,
+        totalRows: 0,
+        lastCheckedAt: null,
+      },
+      totals: { subtotal: "0.00", total: "0.00" },
+      updatedAt: "2026-07-31T00:00:00Z",
     });
 
   assert.equal(

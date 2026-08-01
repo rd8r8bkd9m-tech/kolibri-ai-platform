@@ -50,7 +50,7 @@ def _arguments(tmp_path: Path):
             "--release-commit",
             RELEASE_COMMIT,
             "--expected-schema",
-            "44",
+            "47",
             "--backend-unit",
             "kolibri-v3-backend.service",
             "--frontend-unit",
@@ -105,6 +105,29 @@ def _healthy_dependencies(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
+def test_release_health_accepts_only_the_versioned_runtime_contract() -> None:
+    expected = release_monitor._expected_payload(RELEASE_ID, RELEASE_COMMIT)
+
+    assert release_monitor._payload_matches_release(
+        expected, RELEASE_ID, RELEASE_COMMIT
+    )
+    assert release_monitor._payload_matches_release(
+        {**expected, "agentRuntimeContract": "kolibri.agent-runtime@1.1"},
+        RELEASE_ID,
+        RELEASE_COMMIT,
+    )
+    assert not release_monitor._payload_matches_release(
+        {**expected, "agentRuntimeContract": "legacy"},
+        RELEASE_ID,
+        RELEASE_COMMIT,
+    )
+    assert not release_monitor._payload_matches_release(
+        {**expected, "unexpected": "value"},
+        RELEASE_ID,
+        RELEASE_COMMIT,
+    )
+
+
 def test_monitor_reports_only_bounded_aggregate_release_metrics(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -118,7 +141,7 @@ def test_monitor_reports_only_bounded_aggregate_release_metrics(
     assert result["alerts"] == []
     assert result["releaseId"] == RELEASE_ID
     assert result["releaseCommit"] == RELEASE_COMMIT
-    assert result["metrics"]["schemaVersion"] == 44
+    assert result["metrics"]["schemaVersion"] == 47
     assert result["metrics"]["stuckRuns"] == 0
     assert result["metrics"]["errorRateBps"] == 100
     serialized = str(result)

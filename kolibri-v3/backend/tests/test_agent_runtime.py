@@ -13,6 +13,7 @@ import app.main as main_module
 from app.agent_runtime import (
     AGENT_RUNTIME_SCHEMA_ID,
     AGENT_RUNTIME_SCHEMA_VERSION,
+    LIVE_WEB_SEARCH_CAPABILITY_ID,
     AgentAccessPolicy,
     AgentExecutionConfiguration,
     AgentModelSelection,
@@ -37,6 +38,8 @@ from app.main import create_app
 def _chat_request(*, run_id: str = "run_runtime_contract_01") -> AgentRuntimeRequest:
     return AgentRuntimeRequest(
         tenant_id="tenant_runtime_contract",
+        user_id="user_runtime_contract",
+        project_id="project_runtime_contract",
         thread_id="thread_runtime_contract",
         run_id=run_id,
         credential_tenant_id="tenant_runtime_contract",
@@ -136,6 +139,30 @@ def test_direct_executor_accepts_only_the_provider_neutral_registry() -> None:
     assert "mimo-code" not in source
 
 
+def test_runtime_capability_metadata_is_bounded_and_provider_neutral() -> None:
+    capabilities = AgentRuntimeCapabilities(
+        modes=frozenset({"chat"}),
+        streaming=True,
+        structured_output=False,
+        activity_events=False,
+        persistent_sessions=True,
+        capability_ids=frozenset({LIVE_WEB_SEARCH_CAPABILITY_ID}),
+    )
+
+    assert capabilities.capability_ids == frozenset(
+        {LIVE_WEB_SEARCH_CAPABILITY_ID}
+    )
+    with pytest.raises(ValueError, match="capability id"):
+        AgentRuntimeCapabilities(
+            modes=frozenset({"chat"}),
+            streaming=True,
+            structured_output=False,
+            activity_events=False,
+            persistent_sessions=True,
+            capability_ids=frozenset({"not a capability"}),
+        )
+
+
 def test_explicit_runtime_never_falls_back_to_another_registered_agent() -> None:
     registry = AgentRuntimeRegistry()
     lifecycle: list[str] = []
@@ -212,6 +239,8 @@ class _PersistentDeveloperTransport:
 def _developer_request(workspace: Path, run_id: str) -> AgentRuntimeRequest:
     return AgentRuntimeRequest(
         tenant_id="tenant_runtime_contract",
+        user_id="user_runtime_contract",
+        project_id="project_runtime_contract",
         thread_id="thread_runtime_contract",
         run_id=run_id,
         credential_tenant_id="tenant_runtime_contract",

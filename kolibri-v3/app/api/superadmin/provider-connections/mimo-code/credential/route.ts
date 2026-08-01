@@ -5,9 +5,9 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 export async function POST(request: NextRequest) {
-  return proxyV3JsonRequest(
-    request,
-    "/v1/provider-connections/mimo-code/credential",
-    { method: "POST", maxRequestBytes: 12 * 1_024 },
-  );
+	return proxyV3JsonRequest(
+		request,
+		"/v1/provider-connections/mimo-code/credential",
+		{ method: "POST", maxRequestBytes: 12 * 1_024 },
+	);
 }

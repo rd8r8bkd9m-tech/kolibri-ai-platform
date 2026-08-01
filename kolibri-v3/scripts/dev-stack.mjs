@@ -9,12 +9,24 @@ import path from "node:path";
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const v3Root = path.resolve(scriptDirectory, "..");
 const nextBinary = path.join(v3Root, "node_modules", ".bin", "next");
+const mobileLauncher = path.join(v3Root, "scripts", "dev-mobile.mjs");
+const gatewayLauncher = path.join(v3Root, "scripts", "dev-ui-gateway.mjs");
+const desktopInternalPort = Number(
+	process.env.KOLIBRI_V3_DESKTOP_INTERNAL_PORT || "3104",
+);
+const mobileInternalPort = Number(
+	process.env.KOLIBRI_V3_MOBILE_INTERNAL_PORT || "4103",
+);
+const uiGatewayPort = Number(process.env.KOLIBRI_V3_UI_PORT || "3103");
 const restartDelayMs = 1_000;
 const readinessPollMs = 150;
 const devInstanceId = randomUUID();
+const agentRuntimeContract = "kolibri.agent-runtime@1.1";
 
 let backend = null;
 let web = null;
+let mobile = null;
+let gateway = null;
 let backendReady = false;
 let stopping = false;
 let readinessTimer = null;
@@ -86,7 +98,9 @@ function probeBackendReadiness() {
             response.statusCode === 200 &&
               payload.status === "ok" &&
               payload.service === "kolibri-v3" &&
-              payload.instanceId === devInstanceId,
+              payload.instanceId === devInstanceId &&
+              payload.sourceRoot === v3Root &&
+              payload.agentRuntimeContract === agentRuntimeContract,
           );
         } catch {
           finish(false);
@@ -115,7 +129,9 @@ function startBackend() {
     backend = null;
     backendReady = false;
     if (!stopping) {
-      web?.kill("SIGTERM");
+		web?.kill("SIGTERM");
+		mobile?.kill("SIGTERM");
+		gateway?.kill("SIGTERM");
       console.error(
         `[dev:stack] backend stopped (${signal ?? code}); restarting`,
       );
@@ -126,14 +142,14 @@ function startBackend() {
 }
 
 function startWeb() {
-  if (stopping || web || !backendReady) {
-    return;
-  }
-  web = spawn(nextBinary, ["dev", "--port", "3103"], {
-    cwd: v3Root,
-    env: {
-      ...process.env,
-      KOLIBRI_V3_BACKEND_URL: "http://127.0.0.1:8002",
+	if (stopping || web || !backendReady) {
+		return;
+	}
+	web = spawn(nextBinary, ["dev", "--port", String(desktopInternalPort)], {
+		cwd: v3Root,
+		env: {
+			...process.env,
+			KOLIBRI_V3_BACKEND_URL: "http://127.0.0.1:8002",
     },
     stdio: "inherit",
   });
@@ -148,8 +164,70 @@ function startWeb() {
       } else {
         scheduleReadinessProbe();
       }
-    }
-  });
+		}
+	});
+	startMobile();
+	startGateway();
+}
+
+function startMobile() {
+	if (stopping || mobile || !backendReady) {
+		return;
+	}
+	mobile = spawn(process.execPath, [mobileLauncher], {
+		cwd: v3Root,
+			env: {
+			...process.env,
+			KOLIBRI_V3_MOBILE_HOST: "localhost",
+			KOLIBRI_V3_MOBILE_INTERNAL_HOST: "::1",
+			KOLIBRI_V3_MOBILE_INTERNAL_PORT: String(mobileInternalPort),
+			KOLIBRI_V3_MOBILE_API_BASE_URL: "http://127.0.0.1:8002",
+		},
+		stdio: "inherit",
+	});
+	mobile.once("exit", (code, signal) => {
+		mobile = null;
+		if (!stopping) {
+			if (backendReady) {
+				console.error(
+					`[dev:stack] mobile UI stopped (${signal ?? code}); restarting`,
+				);
+				scheduleRestart(startMobile);
+			} else {
+				scheduleReadinessProbe();
+			}
+		}
+	});
+}
+
+function startGateway() {
+	if (stopping || gateway || !backendReady) {
+		return;
+	}
+	gateway = spawn(process.execPath, [gatewayLauncher], {
+		cwd: v3Root,
+		env: {
+			...process.env,
+			KOLIBRI_V3_UI_PORT: String(uiGatewayPort),
+			KOLIBRI_V3_DESKTOP_INTERNAL_PORT: String(desktopInternalPort),
+			KOLIBRI_V3_MOBILE_INTERNAL_HOST: "::1",
+			KOLIBRI_V3_MOBILE_INTERNAL_PORT: String(mobileInternalPort),
+		},
+		stdio: "inherit",
+	});
+	gateway.once("exit", (code, signal) => {
+		gateway = null;
+		if (!stopping) {
+			if (backendReady) {
+				console.error(
+					`[dev:stack] UI gateway stopped (${signal ?? code}); restarting`,
+				);
+				scheduleRestart(startGateway);
+			} else {
+				scheduleReadinessProbe();
+			}
+		}
+	});
 }
 
 function shutdown(signal) {
@@ -164,10 +242,12 @@ function shutdown(signal) {
   if (readinessTimer) {
     clearTimeout(readinessTimer);
     readinessTimer = null;
-  }
-  backend?.kill("SIGTERM");
-  web?.kill("SIGTERM");
-  const activeChildren = [backend, web].filter(Boolean);
+	}
+	backend?.kill("SIGTERM");
+	web?.kill("SIGTERM");
+	mobile?.kill("SIGTERM");
+	gateway?.kill("SIGTERM");
+	const activeChildren = [backend, web, mobile, gateway].filter(Boolean);
   if (activeChildren.length === 0) {
     process.exit(signal === "SIGINT" ? 130 : 0);
   }

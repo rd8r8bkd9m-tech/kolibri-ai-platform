@@ -239,6 +239,8 @@ class Settings:
     allowed_origins: tuple[str, ...] = (
         "http://127.0.0.1:3103",
         "http://localhost:3103",
+        "http://127.0.0.1:4103",
+        "http://localhost:4103",
     )
     bootstrap_owner_email: str | None = None
     environment: str = "development"
@@ -277,6 +279,7 @@ class Settings:
     provider_enrollment_reauth_seconds: int = 15 * 60
     direct_model_runtime_enabled: bool = False
     direct_model_timeout_seconds: float = 180.0
+    local_provider_vault_read_enabled: bool = False
     developer_agent_enabled: bool = False
     embedded_developer_runtime_enabled: bool = False
     developer_workspace_root: Path | None = None
@@ -691,7 +694,7 @@ class Settings:
         ).strip()
         raw_origins = os.getenv(
             "KOLIBRI_V3_ALLOWED_ORIGINS",
-            "http://127.0.0.1:3103,http://localhost:3103",
+            "http://127.0.0.1:3103,http://localhost:3103,http://127.0.0.1:4103,http://localhost:4103",
         )
         origins = tuple(origin.strip() for origin in raw_origins.split(",") if origin.strip())
 
@@ -759,6 +762,10 @@ class Settings:
                 os.getenv("KOLIBRI_V3_DIRECT_MODEL_TIMEOUT_SECONDS"),
                 default=180.0,
                 name="KOLIBRI_V3_DIRECT_MODEL_TIMEOUT_SECONDS",
+            ),
+            local_provider_vault_read_enabled=_parse_bool(
+                os.getenv("KOLIBRI_V3_LOCAL_PROVIDER_VAULT_READ_ENABLED"),
+                default=False,
             ),
             developer_agent_enabled=developer_agent_enabled,
             embedded_developer_runtime_enabled=_parse_bool(

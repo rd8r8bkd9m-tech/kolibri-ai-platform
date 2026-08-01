@@ -16,7 +16,12 @@ from typing import Any, Callable, Literal, Mapping, Protocol, runtime_checkable
 
 
 AGENT_RUNTIME_SCHEMA_ID = "kolibri.agent-runtime"
-AGENT_RUNTIME_SCHEMA_VERSION = "1.0"
+AGENT_RUNTIME_SCHEMA_VERSION = "1.1"
+LIVE_WEB_SEARCH_CAPABILITY_ID = "web.search.live"
+WEATHER_CURRENT_CAPABILITY_ID = "weather.current"
+FILES_ATTACH_CAPABILITY_ID = "files.attach"
+ESTIMATES_WORKSPACE_CAPABILITY_ID = "construction.estimates.workspace"
+ESTIMATES_EXPORT_CAPABILITY_ID = "construction.estimates.export"
 _IDENTIFIER = re.compile(r"^[a-z0-9][a-z0-9._-]{1,95}$")
 
 AgentRuntimeMode = Literal["chat", "structured", "developer"]
@@ -60,6 +65,7 @@ class AgentRuntimeCapabilities:
     activity_events: bool
     persistent_sessions: bool
     model_catalog: bool = False
+    capability_ids: frozenset[str] = frozenset()
 
     def __post_init__(self) -> None:
         if not self.modes:
@@ -68,6 +74,12 @@ class AgentRuntimeCapabilities:
             raise ValueError("structured mode requires structured_output")
         if "developer" in self.modes and not self.activity_events:
             raise ValueError("developer mode requires activity_events")
+        if any(
+            not isinstance(capability_id, str)
+            or _IDENTIFIER.fullmatch(capability_id) is None
+            for capability_id in self.capability_ids
+        ):
+            raise ValueError("runtime capability id is invalid")
 
 
 @dataclass(frozen=True, slots=True)
@@ -190,6 +202,8 @@ class AgentToolCall:
 @dataclass(frozen=True, slots=True)
 class AgentRuntimeRequest:
     tenant_id: str
+    user_id: str
+    project_id: str
     thread_id: str
     run_id: str
     credential_tenant_id: str
@@ -230,6 +244,8 @@ class AgentRuntimeRequest:
             raise ValueError("unsupported agent runtime request version")
         for name, value in (
             ("tenant_id", self.tenant_id),
+            ("user_id", self.user_id),
+            ("project_id", self.project_id),
             ("thread_id", self.thread_id),
             ("run_id", self.run_id),
             ("credential_tenant_id", self.credential_tenant_id),

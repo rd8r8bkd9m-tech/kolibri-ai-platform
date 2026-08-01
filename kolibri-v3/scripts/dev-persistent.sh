@@ -26,13 +26,17 @@ runtime_ready() {
   [[
     "${backend_payload}" == *'"status":"ok"'* &&
     "${backend_payload}" == *'"service":"kolibri-v3"'* &&
-    "${backend_payload}" == *'"instanceId":"'*
+    "${backend_payload}" == *'"instanceId":"'* &&
+    "${backend_payload}" == *'"agentRuntimeContract":"kolibri.agent-runtime@1.0"'* &&
+    "${backend_payload}" == *"\"sourceRoot\":\"${v3_root}\""*
   ]] && [[ "${app_status}" == "200" ]]
 }
 
 runtime_ports_free() {
   ! lsof -nP -iTCP:8002 -sTCP:LISTEN >/dev/null 2>&1 &&
-    ! lsof -nP -iTCP:3103 -sTCP:LISTEN >/dev/null 2>&1
+    ! lsof -nP -iTCP:3103 -sTCP:LISTEN >/dev/null 2>&1 &&
+    ! lsof -nP -iTCP:3104 -sTCP:LISTEN >/dev/null 2>&1 &&
+    ! lsof -nP -iTCP:4103 -sTCP:LISTEN >/dev/null 2>&1
 }
 
 session_process_group() {
@@ -67,9 +71,11 @@ start_runtime() {
   fi
 
   if lsof -nP -iTCP:8002 -sTCP:LISTEN >/dev/null 2>&1 ||
-    lsof -nP -iTCP:3103 -sTCP:LISTEN >/dev/null 2>&1; then
+    lsof -nP -iTCP:3103 -sTCP:LISTEN >/dev/null 2>&1 ||
+    lsof -nP -iTCP:3104 -sTCP:LISTEN >/dev/null 2>&1 ||
+    lsof -nP -iTCP:4103 -sTCP:LISTEN >/dev/null 2>&1; then
     printf '%s\n' \
-      "Ports 8002/3103 are occupied outside the persistent V3 session." >&2
+      "V3 ports 8002/3103/3104/4103 are occupied outside the persistent V3 session." >&2
     exit 1
   fi
 

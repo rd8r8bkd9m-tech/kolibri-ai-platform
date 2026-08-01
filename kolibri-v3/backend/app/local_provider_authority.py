@@ -1,9 +1,9 @@
-"""Local-development provider credential binding.
+"""Provider credential binding with an explicit production read-only path.
 
-Production credentials belong to Provider Execution Authority on Primary.
-This adapter exists only for the loopback V3 development runtime: it installs
-MiMo's credential in the exact private CLI file and verifies the existing
-Codex CLI login without returning or persisting secret material in Product DB.
+Credential installation remains development-only.  A production runtime may
+decrypt a pre-provisioned vault entry only when the operator explicitly enables
+``KOLIBRI_V3_LOCAL_PROVIDER_VAULT_READ_ENABLED``; this keeps deployment
+deterministic without turning the public admin surface into a secret writer.
 """
 
 from __future__ import annotations
@@ -44,6 +44,14 @@ def _require_development(settings: Settings) -> None:
         )
 
 
+def _require_vault_read(settings: Settings) -> None:
+    if settings.environment != "development" and not settings.local_provider_vault_read_enabled:
+        raise LocalProviderAuthorityError(
+            "local_provider_authority_disabled",
+            "Чтение локального provider-vault отключено в этой среде.",
+        )
+
+
 def _private_key_path(settings: Settings) -> Path:
     configured = os.getenv(
         "KOLIBRI_V3_PROVIDER_ENCRYPTION_KEY_FILE",
@@ -60,13 +68,18 @@ def _private_key_path(settings: Settings) -> Path:
 
 
 def ensure_local_provider_master_key(settings: Settings) -> bytes:
-    _require_development(settings)
+    _require_vault_read(settings)
     path = _private_key_path(settings)
     path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     read_flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
     try:
         descriptor = os.open(path, read_flags)
     except FileNotFoundError:
+        if settings.environment != "development":
+            raise LocalProviderAuthorityError(
+                "provider_master_key_unavailable",
+                "Production provider-vault key is not provisioned.",
+            ) from None
         create_flags = (
             os.O_WRONLY
             | os.O_CREAT
@@ -254,7 +267,7 @@ def install_mimo_key(
 def load_mimo_key(settings: Settings, *, tenant_id: str) -> str:
     """Decrypt the tenant-bound MiMo credential for direct local execution."""
 
-    _require_development(settings)
+    _require_vault_read(settings)
     database_path = Path(settings.database_url.removeprefix("sqlite:///"))
     vault_root = (
         database_path.parent

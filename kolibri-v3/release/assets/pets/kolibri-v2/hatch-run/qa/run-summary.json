@@ -1,0 +1,35 @@
+{
+  "ok": true,
+  "completedAt": "2026-08-01T16:20:13Z",
+  "petId": "kolibri-v2",
+  "displayName": "Коли",
+  "atlas": {
+    "path": "final/spritesheet.webp",
+    "sha256": "34ecd7fddd2e1360c4a869140fb31b92a1c50e9f5f05d7213964bbe9ab866ae6",
+    "bytes": 1525858,
+    "width": 1536,
+    "height": 1872,
+    "format": "WEBP",
+    "mode": "RGBA",
+    "transparentRgbResiduePixels": 0
+  },
+  "generation": {
+    "base": "generated",
+    "rowsGenerated": 9,
+    "rowsDerived": 0,
+    "derivedRows": []
+  },
+  "quality": {
+    "extractionMethod": "stable-slots with connected-components repair for running-left",
+    "frameInspectionErrors": 0,
+    "frameInspectionWarnings": 0,
+    "stableSlotWarningsAccepted": true,
+    "stableSlotRationale": "Preserves source-strip scale, baseline, jump height, slump depth and review lean; running-left was regenerated with separated poses and extracted as connected components.",
+    "atlasValidationErrors": 0,
+    "atlasValidationWarnings": 0,
+    "contactSheetReviewed": true,
+    "motionPreviewsGenerated": 9,
+    "visualQa": "pass",
+    "visualQaNote": "Independent release QA confirmed all nine rows, including eight complete and separated left-facing running frames, with no clipping, overlap, detached artifacts, or identity drift."
+  }
+}

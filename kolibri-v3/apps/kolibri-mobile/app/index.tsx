@@ -8,36 +8,36 @@ import { useTheme } from "@/hooks/use-theme";
 import { useMobileSession } from "@/src/auth/mobile-session";
 
 export default function HomeScreen() {
-  const { colors } = useTheme();
-  const session = useMobileSession();
+	const { colors } = useTheme();
+	const session = useMobileSession();
 
-  if (session.status === "restoring") {
-    return (
-      <View
-        accessibilityLabel="Восстановление сессии"
-        style={[styles.loading, { backgroundColor: colors.background }]}
-      >
-        <ActivityIndicator color={colors.foreground} />
-      </View>
-    );
-  }
+	if (session.status === "restoring") {
+		return (
+			<View
+				accessibilityLabel="Восстановление сессии"
+				style={[styles.loading, { backgroundColor: colors.background }]}
+			>
+				<ActivityIndicator color={colors.foreground} />
+			</View>
+		);
+	}
 
-  if (session.status === "signed-out") {
-    return <AuthScreen />;
-  }
+	if (session.status === "signed-out") {
+		return <AuthScreen />;
+	}
 
-  return (
-    <SafeAreaView
-      edges={["top", "bottom"]}
-      style={[styles.safe, { backgroundColor: colors.background }]}
-    >
-      <MobileHeader />
-      <Thread />
-    </SafeAreaView>
-  );
+	return (
+		<SafeAreaView
+			edges={["top", "bottom"]}
+			style={[styles.safe, { backgroundColor: colors.background }]}
+		>
+			<MobileHeader />
+			<Thread />
+		</SafeAreaView>
+	);
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1 },
-  loading: { alignItems: "center", flex: 1, justifyContent: "center" },
+	safe: { flex: 1 },
+	loading: { alignItems: "center", flex: 1, justifyContent: "center" },
 });

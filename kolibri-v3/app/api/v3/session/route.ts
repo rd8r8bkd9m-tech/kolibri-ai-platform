@@ -1,5 +1,5 @@
 import { proxyV3JsonRequest } from "@/lib/server/v3-backend";
 
 export function GET(request: Request) {
-  return proxyV3JsonRequest(request, "/v1/session");
+	return proxyV3JsonRequest(request, "/v1/session");
 }

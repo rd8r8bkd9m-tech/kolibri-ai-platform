@@ -64,7 +64,10 @@ test("workspace file contracts use product names, not prototype names", async ()
   }
 
   assert.match(manager, /export type WorkspaceFileKind/);
-  assert.match(manager, /export type WorkspaceFile\s*=/);
+  assert.match(
+    manager,
+    /export type\s+WorkspaceFile\b|export type\s+\{\s*WorkspaceFile,\s*WorkspaceFileCategory,\s*WorkspaceFileKind\s*\};/,
+  );
   assert.match(barrel, /\bWorkspaceFileKind\b/);
   assert.match(barrel, /\bWorkspaceFile\b/);
 });

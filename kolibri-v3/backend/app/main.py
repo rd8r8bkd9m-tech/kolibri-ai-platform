@@ -17,8 +17,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from .agent_operations import router as agent_operations_router
-from .agent_runtime import AgentRuntimeRegistry
+from .agent_runtime import (
+    AGENT_RUNTIME_SCHEMA_ID,
+    AGENT_RUNTIME_SCHEMA_VERSION,
+    AgentRuntimeRegistry,
+)
 from .attachments import router as attachments_router
+from .billing.router import router as billing_router
+from .capability_manifest import router as capability_manifest_router
 from .config import Settings
 from .chat.cancellation import ActiveRunCancellationRegistry
 from .chat.execution_adapter import DirectRunDispatcher
@@ -100,11 +106,12 @@ def _public_error(
     code: str,
     message: str,
     headers: dict[str, str] | None = None,
+    details: dict[str, int] | None = None,
 ) -> JSONResponse:
     response_headers = {**NO_STORE_HEADERS, **(headers or {})}
     return JSONResponse(
         status_code=status_code,
-        content={"code": code, "message": message},
+        content={"code": code, "message": message, **(details or {})},
         headers=response_headers,
     )
 
@@ -295,11 +302,19 @@ def create_app(
             raw_code = error.detail.get("code")
             raw_message = error.detail.get("message")
             if isinstance(raw_code, str) and isinstance(raw_message, str):
+                public_details = {
+                    key: value
+                    for key in ("expected_version", "current_version")
+                    if isinstance((value := error.detail.get(key)), int)
+                    and not isinstance(value, bool)
+                    and value >= 1
+                }
                 return _public_error(
                     error.status_code,
                     code=raw_code,
                     message=raw_message,
                     headers=error.headers,
+                    details=public_details,
                 )
         return _public_error(
             error.status_code,
@@ -310,9 +325,33 @@ def create_app(
 
     @app.exception_handler(RequestValidationError)
     async def validation_error(
-        _request: Request,
-        _error: RequestValidationError,
+        request: Request,
+        error: RequestValidationError,
     ) -> JSONResponse:
+        if configured.environment == "development":
+            # Keep invalid values and message contents out of logs while making
+            # cross-client contract drift diagnosable from the browser/runtime
+            # development loop.
+            violations = [
+                {
+                    "location": ".".join(str(part) for part in item["loc"]),
+                    "type": str(item["type"]),
+                }
+                for item in error.errors()
+            ]
+            _HTTP_LOGGER.warning(
+                (
+                    "request_validation_failed path=%s body_type=%s "
+                    "string_contains_json_object=%s violations=%s"
+                ),
+                request.url.path,
+                type(error.body).__name__,
+                (
+                    isinstance(error.body, str)
+                    and error.body.lstrip().startswith("{")
+                ),
+                json.dumps(violations, separators=(",", ":")),
+            )
         return _public_error(
             status.HTTP_422_UNPROCESSABLE_ENTITY,
             code="invalid_request",
@@ -375,7 +414,13 @@ def create_app(
                 },
                 headers=NO_STORE_HEADERS,
             )
-        payload = {"status": "ok", "service": "kolibri-v3"}
+        payload = {
+            "status": "ok",
+            "service": "kolibri-v3",
+            "agentRuntimeContract": (
+                f"{AGENT_RUNTIME_SCHEMA_ID}@{AGENT_RUNTIME_SCHEMA_VERSION}"
+            ),
+        }
         if release_identity is not None:
             payload.update(release_identity)
         if configured.environment == "development":
@@ -385,6 +430,7 @@ def create_app(
             ).strip()
             if dev_instance_id:
                 payload["instanceId"] = dev_instance_id
+            payload["sourceRoot"] = str(Path(__file__).resolve().parents[2])
         return payload
 
     @app.get(
@@ -473,6 +519,8 @@ def create_app(
         return base
 
     app.include_router(identity_router)
+    app.include_router(billing_router)
+    app.include_router(capability_manifest_router)
     app.include_router(attachments_router)
     app.include_router(generated_artifacts_router)
     app.include_router(chat_router)

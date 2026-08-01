@@ -1721,6 +1721,8 @@ class ProviderExecutionService:
         )
         runtime_request = AgentRuntimeRequest(
             tenant_id=payload["tenant_id"],
+            user_id=str(command["identity"]["user_id"]),
+            project_id=payload["project_id"],
             thread_id=payload["thread_id"],
             run_id=payload["run_id"],
             credential_tenant_id=payload["tenant_id"],
@@ -1890,6 +1892,8 @@ class ProviderExecutionService:
         request = execution.runtime_request
         request = AgentRuntimeRequest(
             tenant_id=request.tenant_id,
+            user_id=request.user_id,
+            project_id=request.project_id,
             thread_id=request.thread_id,
             run_id=request.run_id,
             credential_tenant_id=request.credential_tenant_id,
