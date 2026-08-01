@@ -54,12 +54,14 @@ test("desktop shell is one quiet three-column workspace", async () => {
 	assert.match(layout, /aria-label=["']Диалог с Kolibri["']/);
 	assert.match(layout, /\{auxiliaryOpen && !auxiliaryFullscreen \? \(/);
 
-	assert.match(desktop, /const \[primarySurface, setPrimarySurface\]/);
+	assert.match(desktop, /primaryContent=\{null\}/);
+	assert.match(desktop, /primaryOpen=\{false\}/);
 	assert.match(desktop, /useAuxiliaryCanvas\(\{/);
 	assert.match(auxiliaryController, /placement: ["']right["']/);
 	assert.match(auxiliaryController, /KOLIBRI_OPEN_ESTIMATE_EVENT/);
 	assert.match(auxiliarySurface, /placement=["']right["']/);
 	assert.match(view, /<Thread\b/);
+	assert.match(view, /workspaceOpen=\{auxiliary\.open\}/);
 	assert.doesNotMatch(desktop, /Рабочий стол/);
 	assert.doesNotMatch(sidebarConstants, /Рабочий стол|id:\s*["']desktop["']/);
 

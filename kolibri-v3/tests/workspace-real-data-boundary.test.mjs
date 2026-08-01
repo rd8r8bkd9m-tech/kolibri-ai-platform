@@ -13,16 +13,19 @@ const readSource = (relativePath) =>
   readFile(path.join(APP_ROOT, relativePath), "utf8");
 
 test("project files default to an honest empty collection", async () => {
-  const [manager, canvas] = await Promise.all([
+  const [manager, states, canvas] = await Promise.all([
     readSource(
       "components/kolibri-workspace/workspace-file-manager.tsx",
+    ),
+    readSource(
+      "components/kolibri-workspace/workspace-file-manager-states.tsx",
     ),
     readSource("components/kolibri-workspace/canvas-workspace.tsx"),
   ]);
 
   assert.match(manager, /\bfiles\s*=\s*\[\]/);
   assert.match(manager, /files\?:\s*readonly\s+WorkspaceFile\[\]/);
-  assert.match(manager, /В проекте пока нет файлов/);
+  assert.match(states, /В проекте пока нет файлов/);
   assert.doesNotMatch(manager, /\bDEMO_FILES\b/);
   assert.doesNotMatch(
     manager,
@@ -63,7 +66,7 @@ test("workspace file contracts use product names, not prototype names", async ()
     assert.doesNotMatch(source, /\bDemoWorkspaceFile(?:Kind)?\b/);
   }
 
-  assert.match(manager, /export type WorkspaceFileKind/);
+  assert.match(manager, /export type\s*\{[^}]*WorkspaceFileKind/);
   assert.match(
     manager,
     /export type\s+WorkspaceFile\b|export type\s+\{\s*WorkspaceFile,\s*WorkspaceFileCategory,\s*WorkspaceFileKind\s*\};/,

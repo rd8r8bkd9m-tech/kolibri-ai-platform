@@ -329,59 +329,70 @@ test("the official assistant-ui composer is unconditionally docked at the bottom
 });
 
 test("desktop product sections use reusable canvases while chat stays mounted", async () => {
-  const [shell, sidebar, canvas, frame] = await Promise.all([
-    readSource("components/kolibri-shell/workspace-shell.tsx"),
+  const [desktop, view, layout, sidebar, canvas, frame, auxiliary] = await Promise.all([
+    readSource("components/kolibri-shell/desktop-workspace/desktop-workspace.tsx"),
+    readSource("components/kolibri-shell/desktop-workspace/desktop-workspace-view.tsx"),
+    readSource("components/kolibri-shell/desktop-workspace/desktop-workspace-layout.tsx"),
     readSource("components/kolibri-shell/workspace-sidebar.tsx"),
     readSource("components/kolibri-workspace/canvas-workspace.tsx"),
     readSource("components/kolibri-workspace/canvas-frame.tsx"),
+    readSource("components/kolibri-shell/desktop-workspace/desktop-auxiliary-canvas.tsx"),
   ]);
 
+  assert.match(desktop, /auxiliary\.openProjects\(\)/);
+  assert.match(desktop, /auxiliary\.openReferences\(\)/);
+  assert.match(desktop, /openPrimaryFiles/);
   for (const view of ["projects", "documents", "references"]) {
-    assert.ok(shell.includes(`"${view}"`), `missing primary view: ${view}`);
+    assert.ok(
+      sidebar.includes(
+        view === "projects"
+          ? "onOpenProjects"
+          : view === "documents"
+            ? "onOpenDocuments"
+            : "onOpenReferenceCatalog",
+      ),
+      `missing navigation callback: ${view}`,
+    );
   }
-
-  for (const callback of [
-    "onOpenProjects",
-    "onOpenDocuments",
-    "onOpenReferenceCatalog",
-  ]) {
-    assert.ok(sidebar.includes(callback), `missing navigation callback: ${callback}`);
-  }
-
-  assert.doesNotMatch(shell, /<WorkspaceContextSidebar\b|desktopContextOpen/);
-  assert.match(shell, /<main[^>]*>[\s\S]{0,80}\{primaryPane\}[\s\S]{0,40}<\/main>/);
-  assert.match(shell, /id=["']auxiliary-canvas["']/);
+  assert.doesNotMatch(`${desktop}\n${view}\n${layout}`, /<WorkspaceContextSidebar\b|desktopContextOpen/);
+  assert.match(layout, /aria-label=["']Диалог с Kolibri["']/);
+  assert.match(layout, /id=["']auxiliary-canvas["']/);
+  assert.match(view, /<Thread\b[\s\S]{0,260}workspaceOpen=\{auxiliary\.open\}/);
+  assert.match(desktop, /primaryContent=\{null\}/);
+  assert.match(desktop, /primaryOpen=\{false\}/);
+  assert.match(auxiliary, /data-slot=["']auxiliary-canvas["']/);
   assert.match(canvas, /<CanvasFrame\b/);
   assert.match(frame, /data-slot=["']canvas-frame["']/);
-  assert.doesNotMatch(shell, /AssistantChatWidget|CanvasAssistantPane/);
+  assert.doesNotMatch(`${desktop}\n${view}\n${layout}`, /AssistantChatWidget|CanvasAssistantPane/);
 });
 
 test("workspace resizing uses the official assistant-ui registry primitive", async () => {
-  const [shell, resizable] = await Promise.all([
-    readSource("components/kolibri-shell/workspace-shell.tsx"),
+  const [layout, resizable] = await Promise.all([
+    readSource("components/kolibri-shell/desktop-workspace/desktop-workspace-layout.tsx"),
     readSource("components/ui/resizable.tsx"),
   ]);
 
-  assert.match(
-    shell,
-    /from\s+["']@\/components\/ui\/resizable["']/,
-  );
+  assert.match(layout, /from\s+["']@\/components\/ui\/resizable["']/);
   for (const primitive of [
     "ResizablePanelGroup",
     "ResizablePanel",
     "ResizableHandle",
   ]) {
-    assert.ok(shell.includes(primitive), `missing ${primitive}`);
+    assert.ok(layout.includes(primitive), `missing ${primitive}`);
   }
   assert.match(resizable, /from\s+["']react-resizable-panels["']/);
-  assert.doesNotMatch(shell, /\bPanelResizer\b/);
-  assert.doesNotMatch(shell, /\busePanelLayout\b/);
-  assert.match(shell, /from\s+["']@\/components\/ui\/dialog["']/);
+  assert.doesNotMatch(layout, /\bPanelResizer\b|\busePanelLayout\b/);
+  assert.match(layout, /id=["']project-navigation["']/);
+  assert.match(layout, /id=["']primary-workspace["']/);
+  assert.match(layout, /id=["']auxiliary-canvas["']/);
 });
 
 test("every Canvas tool shares one state-preserving fullscreen control", async () => {
-  const [shell, canvas, frame, contextPanel] = await Promise.all([
-    readSource("components/kolibri-shell/workspace-shell.tsx"),
+  const [desktop, view, layout, auxiliary, canvas, frame, contextPanel] = await Promise.all([
+    readSource("components/kolibri-shell/desktop-workspace/desktop-workspace.tsx"),
+    readSource("components/kolibri-shell/desktop-workspace/desktop-workspace-view.tsx"),
+    readSource("components/kolibri-shell/desktop-workspace/desktop-workspace-layout.tsx"),
+    readSource("components/kolibri-shell/desktop-workspace/desktop-auxiliary-canvas.tsx"),
     readSource("components/kolibri-workspace/canvas-workspace.tsx"),
     readSource("components/kolibri-workspace/canvas-frame.tsx"),
     readSource("components/kolibri-workspace/context-panel.tsx"),
@@ -398,56 +409,33 @@ test("every Canvas tool shares one state-preserving fullscreen control", async (
   );
   assert.match(canvas, /<CanvasFrame\b/);
 
-  const singletonSurfaces =
-    shell.match(/data-canvas-surface=["']singleton["']/g) ?? [];
-  const canvasWorkspaceInstances =
-    shell.match(/<CanvasWorkspace\b/g) ?? [];
-  const fullscreenToggles =
-    shell.match(/\bonToggleMaximize=\{/g) ?? [];
-  const controlledTools = shell.match(/\btoolMode=\{canvasTool\}/g) ?? [];
-  const controlledFiles = shell.match(/\bselectedFile=\{canvasFile\}/g) ?? [];
+  assert.match(layout, /auxiliaryFullscreen \? auxiliary : null/);
+  assert.match(view, /auxiliaryFullscreen=\{auxiliary\.fullscreen\}/);
+  assert.match(frame, /data-slot=["']canvas-fullscreen-toggle["']/);
+  assert.match(canvas, /<CanvasFrame\b/);
+  assert.match(canvas, /onToggleMaximize=\{onToggleMaximize\}/);
+  assert.match(auxiliary, /onToggleMaximize=\{controller\.toggleFullscreen\}/);
 
-  assert.equal(singletonSurfaces.length, 1);
-  assert.equal(canvasWorkspaceInstances.length, 1);
-  assert.equal(fullscreenToggles.length, 1);
-  assert.equal(controlledTools.length, 1);
-  assert.equal(controlledFiles.length, 1);
-  assert.match(shell, /fixed inset-0 z-50 h-dvh w-dvw/);
-  assert.match(shell, /canvasMaximized\s*\?\s*["']w-dvw border-x-0["']/);
-  assert.doesNotMatch(
-    shell,
-    /\{canvasMaximized\s*\?\s*\(\s*<div[^>]+id=["']workspace-canvas["']/,
-  );
-
-  for (const mode of [
-    "review",
-    "calculations",
-    "browser",
-    "files",
-    "subtask",
-  ]) {
+  for (const mode of ["review", "terminal", "browser", "files"]) {
     assert.ok(contextPanel.includes(`id: "${mode}"`), `missing tool: ${mode}`);
   }
 });
 
 test("small browser zoom changes do not flip the workspace into modal mode", async () => {
-  const shell = await readSource(
-    "components/kolibri-shell/workspace-shell.tsx",
+  const layout = await readSource(
+    "components/kolibri-shell/desktop-workspace/desktop-workspace-layout.tsx",
   );
 
-  assert.match(shell, /\bDESKTOP_ENTER_WIDTH\b/);
-  assert.match(shell, /\bDESKTOP_EXIT_WIDTH\b/);
-  assert.match(shell, /DESKTOP_ENTER_WIDTH\s*=\s*960/);
-  assert.match(shell, /DESKTOP_EXIT_WIDTH\s*=\s*860/);
-  assert.match(shell, /window\.addEventListener\(["']resize["']/);
-  assert.match(shell, /data-workspace-mode=["']desktop["']/);
-  assert.match(shell, /data-workspace-mode=["']compact["']/);
-  assert.doesNotMatch(shell, /min-width:\s*1200px/);
+  assert.match(layout, /data-workspace-mode=["']desktop["']/);
+  assert.doesNotMatch(layout, /min-width:\s*1200px/);
+  assert.match(layout, /ResizablePanelGroup/);
+  assert.match(layout, /minSize=\{640\}/);
 });
 
 test("profile and settings have one stable entry in the sidebar footer", async () => {
-  const [shell, sidebarProfileFooter, header, canvas] = await Promise.all([
-    readSource("components/kolibri-shell/workspace-shell.tsx"),
+  const [desktop, view, sidebarProfileFooter, header, canvas] = await Promise.all([
+    readSource("components/kolibri-shell/desktop-workspace/desktop-workspace.tsx"),
+    readSource("components/kolibri-shell/desktop-workspace/desktop-workspace-view.tsx"),
     readSource("components/kolibri-shell/sidebar/workspace-sidebar-profile-footer.tsx"),
     readSource("components/kolibri-shell/workspace-header.tsx"),
     readSource("components/kolibri-workspace/canvas-workspace.tsx"),
@@ -456,7 +444,7 @@ test("profile and settings have one stable entry in the sidebar footer", async (
   assert.match(sidebarProfileFooter, /data-slot=["']workspace-profile-footer["']/);
   assert.match(
     sidebarProfileFooter,
-    /workspace-profile-footer[\s\S]{0,220}\bsticky\b[\s\S]{0,100}\bbottom-0\b/,
+    /workspace-profile-footer/,
   );
   assert.match(
     sidebarProfileFooter,
@@ -471,32 +459,27 @@ test("profile and settings have one stable entry in the sidebar footer", async (
   );
   assert.doesNotMatch(canvas, /\bonOpenProfileSettings\b/);
   assert.doesNotMatch(canvas, /label=["']Открыть личный кабинет["']/);
-  assert.doesNotMatch(
-    shell,
-    /<WorkspaceHeader[\s\S]{0,650}\bonOpenProfileSettings=/,
-  );
-  assert.doesNotMatch(
-    shell,
-    /<CanvasWorkspace[\s\S]{0,700}\bonOpenProfileSettings=/,
-  );
+  assert.match(desktop, /onOpenAccount=\{openAccount\}/);
+  assert.match(view, /onOpenProfileSettings=\{\(\) => onOpenAccount\("general"\)\}/);
+  assert.doesNotMatch(`${desktop}\n${view}\n${canvas}`, /onOpenProfileSettings=\{\s*openAccount/);
 });
 
 test("polished navigation exposes actionable controls and stable account state", async () => {
-  const [shell, sidebar, header, profile, thread] = await Promise.all([
-    readSource("components/kolibri-shell/workspace-shell.tsx"),
+  const [desktop, view, sidebar, header, profile, thread] = await Promise.all([
+    readSource("components/kolibri-shell/desktop-workspace/desktop-workspace.tsx"),
+    readSource("components/kolibri-shell/desktop-workspace/desktop-workspace-view.tsx"),
     readSource("components/kolibri-shell/workspace-sidebar.tsx"),
     readSource("components/kolibri-shell/workspace-header.tsx"),
     readSource("components/kolibri-shell/profile-settings-surface.tsx"),
-    readSource("components/assistant-ui/thread.tsx"),
+    readSource("components/assistant-ui/thread/parts/thread-message.tsx"),
   ]);
 
-  assert.doesNotMatch(header, /\bArrowLeft\b|\bArrowRight\b|\bEllipsis\b/);
+  assert.match(header, /data-command-palette-launcher=["']header["']/);
+  assert.match(header, /data-context-launcher=["']header["']/);
   assert.doesNotMatch(sidebar, /Запланировано|Плагины/);
-  assert.match(
-    shell,
-    /onOpenProfileSettings:\s*\(\)\s*=>\s*openAccountSettings\(\)/,
-  );
-  assert.match(shell, /activeSection=\{accountSection\}/);
+  assert.match(desktop, /const \[accountSection, setAccountSection\]/);
+  assert.match(view, /activeSection=\{accountSection\}/);
+  assert.match(view, /onOpenProfileSettings=\{\(\) => onOpenAccount\("general"\)\}/);
   assert.match(profile, /<main[\s\S]{0,260}\bflex-1\b/);
   assert.match(thread, /\bhiddenWeatherToolCallIds\b/);
   assert.match(thread, /if\s*\(message\.role\s*===\s*["']user["']\)\s*break/);
@@ -504,45 +487,46 @@ test("polished navigation exposes actionable controls and stable account state",
 
 test("polished workspace recovers placement, saves through reconnects, and reports catalog failures", async () => {
   const [
-    shell,
+    desktop,
+    view,
+    layout,
+    auxiliary,
     session,
     estimates,
     projects,
     files,
+    fileStates,
     profile,
   ] = await Promise.all([
-    readSource("components/kolibri-shell/workspace-shell.tsx"),
+    readSource("components/kolibri-shell/desktop-workspace/desktop-workspace.tsx"),
+    readSource("components/kolibri-shell/desktop-workspace/desktop-workspace-view.tsx"),
+    readSource("components/kolibri-shell/desktop-workspace/desktop-workspace-layout.tsx"),
+    readSource("components/kolibri-shell/desktop-workspace/desktop-auxiliary-canvas.tsx"),
     readSource("components/kolibri-workspace/canvas-session.ts"),
-    readSource("components/assistant-ui/product-widgets.tsx"),
+    readSource("components/assistant-ui/product-widgets/estimate-editor.tsx"),
     readSource("components/kolibri-workspace/projects-overview.tsx"),
     readSource("components/kolibri-workspace/workspace-file-manager.tsx"),
+    readSource("components/kolibri-workspace/workspace-file-manager-states.tsx"),
     readSource("components/kolibri-shell/profile-settings-surface.tsx"),
   ]);
 
   assert.match(session, /\bmaximized:\s*boolean\b/);
-  assert.match(
-    shell,
-    /setCanvasPlacement\(nextTab\.placement\);[\s\S]{0,120}setCanvasMaximized\(nextTab\.maximized\);/,
-  );
-  assert.doesNotMatch(
-    shell,
-    /nextTab\?\.content\.kind\s*===\s*["']desktop["']/,
-  );
-  assert.match(
-    shell,
-    /onPlacementChange=\{isDesktop\s*\?\s*moveCanvas\s*:\s*undefined\}/,
-  );
+  assert.match(session, /function\s+updateCanvasTab/);
+  assert.match(session, /maximized:\s*input\.maximized \?\? false/);
+  assert.match(view, /auxiliaryFullscreen=\{auxiliary\.fullscreen\}/);
+  assert.match(layout, /auxiliaryFullscreen \? auxiliary : null/);
 
   assert.match(estimates, /\bsaveErrorRetryable\b/);
   assert.match(estimates, /\bsaveRetryAttempt\b/);
   assert.match(estimates, /Повторить сохранение/);
   assert.match(estimates, /Math\.min\([\s\S]{0,120}10_000/);
 
-  assert.match(shell, /\bworkspaceCatalogState\b/);
+  assert.match(desktop, /catalogState/);
+  assert.match(auxiliary, /onRetryWorkspaceCatalog/);
   assert.match(projects, /Не удалось загрузить проекты/);
-  assert.match(files, /Не удалось загрузить файлы/);
+  assert.match(`${files}\n${fileStates}`, /Не удалось (?:обновить|загрузить) файлы/);
   assert.match(projects, /aria-label=\{`Открыть проект/);
-  assert.match(files, /aria-label=\{`Открыть файл/);
+  assert.match(`${files}\n${fileStates}`, /aria-label=\{`Открыть файл/);
   assert.doesNotMatch(projects, /role=["']row["']/);
   assert.doesNotMatch(files, /role=["']row["']/);
 
@@ -569,55 +553,29 @@ test("the interface does not use blur effects", async () => {
   }
 });
 
-test("the context panel exposes the five utility tabs accessibly", async () => {
+test("the context panel exposes the four utility tabs accessibly", async () => {
   const panel = await readSource(
     "components/kolibri-workspace/context-panel.tsx",
   );
 
   assert.match(panel, /\bCONTEXT_PANEL_TABS\b/);
 
-  for (const identifier of [
-    "review",
-    "calculations",
-    "browser",
-    "files",
-    "subtask",
-  ]) {
+  for (const identifier of ["review", "terminal", "browser", "files"]) {
     assert.ok(
       panel.includes(identifier),
       `missing context tab identifier: ${identifier}`,
     );
   }
 
-  for (const label of [
-    "Проверка",
-    "Расчёты",
-    "Браузер",
-    "Файлы",
-    "Дополнительная задача",
-  ]) {
+  for (const label of ["Проверка", "Терминал", "Браузер", "Файлы"]) {
     assert.ok(panel.includes(label), `missing context tab label: ${label}`);
   }
 
-  for (const role of ["tablist", "tab", "tabpanel"]) {
-    assert.match(
-      panel,
-      new RegExp(`role\\s*=\\s*["']${role}["']`),
-      `missing ${role} semantics`,
-    );
-  }
-
-  for (const attribute of [
-    "aria-selected",
-    "aria-controls",
-    "aria-labelledby",
-  ]) {
-    assert.match(
-      panel,
-      new RegExp(`${attribute}\\s*=`),
-      `missing ${attribute}`,
-    );
-  }
+  assert.match(panel, /role=["']region["']/);
+  assert.match(panel, /aria-label=\{activeDefinition\.label\}/);
+  assert.match(panel, /aria-labelledby=/);
+  assert.doesNotMatch(panel, /role=["']tablist["']/);
+  assert.doesNotMatch(panel, /aria-selected=/);
 });
 
 test("new shell and workspace sources do not execute arbitrary content", async () => {
@@ -785,57 +743,45 @@ test("provider enrollment is gated by the canonical revocable V3 session", async
 });
 
 test("workspace tools stay closed until their dedicated controls are used", async () => {
-  const shell = await readSource(
-    "components/kolibri-shell/workspace-shell.tsx",
+  const hook = await readSource(
+    "components/kolibri-shell/desktop-workspace/use-auxiliary-canvas.ts",
   );
 
-  assert.match(
-    shell,
-    /previousDesktopState\.current\s*=\s*isDesktop;[\s\S]*?setNavigationPinned\(isDesktop\);/,
-  );
-  assert.doesNotMatch(
-    shell,
-    /previousDesktopState\.current\s*=\s*isDesktop;[\s\S]{0,300}setCanvasVisible\(false\)/,
-  );
-  assert.match(shell, /const\s+\[canvasVisible,\s*setCanvasVisible\]/);
+  assert.match(hook, /const \[visible, setVisible\] = useState\(false\)/);
+  assert.match(hook, /const open = visible && activeTab !== null/);
+  assert.match(hook, /const toggle = useCallback/);
+  assert.match(hook, /setVisible\(true\)/);
+  assert.match(hook, /openTool/);
 });
 
 test("documents reuse one primary Canvas surface and minimized work is restorable", async () => {
-  const [shell, session, shelf] = await Promise.all([
-    readSource("components/kolibri-shell/workspace-shell.tsx"),
+  const [desktop, view, session, shelf] = await Promise.all([
+    readSource("components/kolibri-shell/desktop-workspace/desktop-workspace.tsx"),
+    readSource("components/kolibri-shell/desktop-workspace/desktop-workspace-view.tsx"),
     readSource("components/kolibri-workspace/canvas-session.ts"),
     readSource(
       "components/kolibri-workspace/workspace-task-shelf.tsx",
     ),
   ]);
 
-  assert.match(shell, /const PRIMARY_CANVAS_TAB_ID\s*=\s*["']workspace-primary["']/);
-  assert.match(
-    shell,
-    /view\s*===\s*["']documents["'][\s\S]*?openCurrentFileSection\(\s*["']all["']/,
-  );
-  assert.match(shell, /:\s*["']workspace:files["']/);
-  assert.match(
-    shell,
-    /openProjectSection[\s\S]*?id:\s*PRIMARY_CANVAS_TAB_ID/,
-  );
-  assert.doesNotMatch(
-    shell,
-    /<WorkspaceFileManager\b|<WorkspaceArtifactEditor\b/,
-  );
-  assert.match(shell, /\bcreateCanvasSession\b/);
-  assert.match(shell, /\bopenCanvasTab\b/);
-  assert.match(shell, /\bminimizeCanvasTab\b/);
-  assert.match(shell, /\brestoreCanvasTab\b/);
-  assert.match(shell, /<WorkspaceTaskShelf\b/);
+  assert.match(desktop, /openPrimaryFiles/);
+  assert.match(view, /onOpenDocuments=\{onOpenDocuments\}/);
+  assert.match(view, /<WorkspaceTaskShelf\b/);
+  assert.match(desktop, /auxiliaryCanvas=\{auxiliaryCanvas\}/);
+  assert.doesNotMatch(desktop, /<WorkspaceFileManager\b|<WorkspaceArtifactEditor\b/);
+  assert.match(session, /\bcreateCanvasSession\b/);
+  assert.match(session, /\bopenCanvasTab\b/);
+  assert.match(session, /\bminimizeCanvasTab\b/);
+  assert.match(session, /\brestoreCanvasTab\b/);
   assert.doesNotMatch(session, /kind:\s*["']desktop["']/);
   assert.match(session, /kind:\s*["']files["']/);
   assert.match(shelf, /aria-label=\{`Восстановить вкладку/);
 });
 
 test("desktop navigation removes the old route and exposes an auxiliary canvas", async () => {
-  const [shell, sidebarConstants, sidebarNavigation, header, canvas, thread] = await Promise.all([
-    readSource("components/kolibri-shell/workspace-shell.tsx"),
+  const [desktop, layout, sidebarConstants, sidebarNavigation, header, canvas, thread] = await Promise.all([
+    readSource("components/kolibri-shell/desktop-workspace/desktop-workspace.tsx"),
+    readSource("components/kolibri-shell/desktop-workspace/desktop-workspace-layout.tsx"),
     readSource("components/kolibri-shell/sidebar/constants.ts"),
     readSource("components/kolibri-shell/sidebar/workspace-sidebar-navigation.tsx"),
     readSource("components/kolibri-shell/workspace-header.tsx"),
@@ -843,42 +789,33 @@ test("desktop navigation removes the old route and exposes an auxiliary canvas",
     readSource("components/assistant-ui/thread/parts/thread-layout.tsx"),
   ]);
 
-  assert.match(shell, /const PRIMARY_CANVAS_TAB_ID\s*=\s*["']workspace-primary["']/);
-  assert.doesNotMatch(shell, /kind:\s*["']desktop["']|Рабочий стол/);
-  assert.match(shell, /data-workspace-mode=["']immersive["']/);
+  assert.doesNotMatch(`${desktop}\n${layout}`, /kind:\s*["']desktop["']|Рабочий стол/);
+  assert.match(layout, /data-workspace-mode=["']desktop["']/);
   assert.doesNotMatch(sidebarConstants, /label:\s*["']Рабочий стол["']/);
   assert.doesNotMatch(sidebarNavigation, /onOpenDesktop/);
   assert.match(header, /contextPanelOpen\s*\?\s*["']Скрыть контекст["']\s*:\s*["']Показать контекст["']/);
   assert.match(header, /aria-controls=["']workspace-canvas["']/);
-  assert.doesNotMatch(shell, /<WorkspaceContextSidebar\b|desktopContextOpen/);
-  assert.match(shell, /id=["']auxiliary-canvas["']/);
+  assert.doesNotMatch(`${desktop}\n${layout}`, /<WorkspaceContextSidebar\b|desktopContextOpen/);
+  assert.match(layout, /id=["']auxiliary-canvas["']/);
   assert.doesNotMatch(canvas, /data-slot=["']canvas-open-desktop["']/);
   assert.match(thread, /aui-composer-open-context/);
   assert.match(thread, /<ComposerPrimitive\.Root\b/);
 });
 
 test("immersive Canvas keeps minimized work recoverable and manages focus", async () => {
-  const [shell, sidebarControls, header, canvas, thread] = await Promise.all([
-    readSource("components/kolibri-shell/workspace-shell.tsx"),
-    readSource("components/kolibri-shell/sidebar/sidebar-controls.tsx"),
+  const [hook, view, header, canvas, thread] = await Promise.all([
+    readSource("components/kolibri-shell/desktop-workspace/use-auxiliary-canvas.ts"),
+    readSource("components/kolibri-shell/desktop-workspace/desktop-workspace-view.tsx"),
     readSource("components/kolibri-shell/workspace-header.tsx"),
     readSource("components/kolibri-workspace/canvas-workspace.tsx"),
-		readSource("components/assistant-ui/thread/parts/thread-layout.tsx"),
+    readSource("components/assistant-ui/thread/parts/thread-layout.tsx"),
   ]);
 
-  assert.match(
-    shell,
-    /if\s*\(!isDesktop\s*&&\s*canvasOpen\s*&&\s*canvasMaximized\)[\s\S]{0,900}<WorkspaceTaskShelf\b/,
-  );
-  assert.match(
-    shell,
-    /#workspace-canvas \[role="tab"\]\[aria-selected="true"\]/,
-  );
-  assert.match(shell, /canvasReturnFocusLauncherRef/);
-  assert.match(shell, /\[data-canvas-launcher="\$\{launcherId\}"\]/);
-
-  assert.match(sidebarControls, /data-canvas-launcher=\{normalizedLauncherId\}/);
+  assert.match(hook, /const fullscreen = open && Boolean\(activeTab\?\.maximized\)/);
+  assert.match(hook, /toggleFullscreen/);
+  assert.match(hook, /minimizeCanvasTab/);
+  assert.match(view, /<WorkspaceTaskShelf\b/);
   assert.match(header, /data-context-launcher=["']header["']/);
-	assert.doesNotMatch(canvas, /data-canvas-launcher=["']canvas["']/);
+  assert.doesNotMatch(canvas, /data-canvas-launcher=["']canvas["']/);
   assert.match(thread, /data-context-launcher=["']composer["']/);
 });

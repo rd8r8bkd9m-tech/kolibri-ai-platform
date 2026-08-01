@@ -36,7 +36,10 @@ test("workspace tools expose honest empty states without seeded calculations or 
   }
 
   assert.doesNotMatch(contextPanel, />В проекте?</);
-  assert.match(contextPanel, /Расчёты пока не созданы/);
+  for (const tool of ["Проверка", "Терминал", "Браузер", "Файлы"]) {
+    assert.match(contextPanel, new RegExp(tool));
+  }
+  assert.doesNotMatch(contextPanel, /Расчёты пока не созданы|Дополнительная задача/);
   assert.match(contextPanel, /Подключения маркетплейсов не настроены/);
   assert.match(contextPanel, /Нет активных подключений/);
 });
