@@ -6,11 +6,16 @@ const readSource = (path) =>
 	readFile(new URL(`../${path}`, import.meta.url), "utf8");
 
 test("desktop exposes a searchable command palette for the active workspace", async () => {
-	const [palette, shell, header] = await Promise.all([
+	const [palette, workspace, view, header] = await Promise.all([
 		readSource(
 			"components/kolibri-shell/workspace-command-palette.tsx",
 		),
-		readSource("components/kolibri-shell/workspace-shell.tsx"),
+		readSource(
+			"components/kolibri-shell/desktop-workspace/desktop-workspace.tsx",
+		),
+		readSource(
+			"components/kolibri-shell/desktop-workspace/desktop-workspace-view.tsx",
+		),
 		readSource("components/kolibri-shell/workspace-header.tsx"),
 	]);
 
@@ -26,13 +31,13 @@ test("desktop exposes a searchable command palette for the active workspace", as
 	assert.match(palette, /run\(\(\) => onSelectProject\(project\)\)/);
 	assert.match(palette, /run\(\(\) => onSelectFile\(file\)\)/);
 
-	assert.match(shell, /const \[commandPaletteOpen, setCommandPaletteOpen\]/);
-	assert.match(shell, /key !== ["']k["']/);
-	assert.match(shell, /<WorkspaceCommandPalette/);
-	assert.match(shell, /aui\.threads\(\)\.switchToNewThread\(\)/);
-	assert.match(shell, /aui\.threads\(\)\.switchToThread\(threadId\)/);
-	assert.match(shell, /onOpenBrowser=\{\(\) => openContextTool\(["']browser["']\)\}/);
-	assert.match(shell, /onOpenReview=\{\(\) => openContextTool\(["']review["']\)\}/);
+	assert.match(workspace, /const \[commandPaletteOpen, setCommandPaletteOpen\]/);
+	assert.match(workspace, /<DesktopWorkspaceView/);
+	assert.match(workspace, /aui\.threads\(\)\.switchToNewThread\(\)/);
+	assert.match(workspace, /aui\.threads\(\)\.switchToThread\(threadId\)/);
+	assert.match(view, /<WorkspaceCommandPalette/);
+	assert.match(view, /onOpenBrowser=\{\(\) => auxiliary\.openTool\(["']browser["']\)\}/);
+	assert.match(view, /onOpenReview=\{\(\) => auxiliary\.openTool\(["']review["']\)\}/);
 
 	assert.match(header, /data-command-palette-launcher=["']header["']/);
 	assert.match(header, /label=["']Команды и поиск["']/);

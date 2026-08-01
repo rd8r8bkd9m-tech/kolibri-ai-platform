@@ -310,8 +310,8 @@ export function ReferenceCatalog({ onBack }: { onBack?: () => void }) {
 				</Button>
 			</header>
 
-			<div className="border-border/80 flex shrink-0 flex-col gap-2 border-b px-2.5 py-2.5 @min-[720px]:flex-row @min-[720px]:items-center">
-				<label className="min-w-0 @min-[720px]:w-56">
+			<div className="border-border/80 flex shrink-0 flex-col gap-2 border-b px-2.5 py-2.5 @min-[440px]:flex-row @min-[440px]:items-center">
+				<label className="min-w-0 @min-[440px]:w-56">
 					<span className="sr-only">Раздел справочника</span>
 					<select
 						value={activeCategory}

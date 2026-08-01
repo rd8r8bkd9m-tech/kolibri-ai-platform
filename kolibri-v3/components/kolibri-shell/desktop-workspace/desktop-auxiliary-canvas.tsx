@@ -1,6 +1,11 @@
 "use client";
 
-import { CanvasWorkspace, type WorkspaceFile } from "@/components/kolibri-workspace";
+import {
+	CanvasWorkspace,
+	ProjectsOverview,
+	ReferenceCatalog,
+	type WorkspaceFile,
+} from "@/components/kolibri-workspace";
 import type { WorkspaceCatalogLoadState } from "@/lib/workspace-documents";
 import type { WorkspaceProject } from "@/lib/workspace-types";
 import { cn } from "@/lib/utils";
@@ -10,6 +15,7 @@ export function DesktopAuxiliaryCanvas({
 	catalogState,
 	controller,
 	onOpenSettings,
+	onOpenProject,
 	onRefresh,
 	projects,
 	workspaceFiles,
@@ -17,6 +23,7 @@ export function DesktopAuxiliaryCanvas({
 	catalogState: WorkspaceCatalogLoadState;
 	controller: AuxiliaryCanvasController;
 	onOpenSettings: () => void;
+	onOpenProject: (project: WorkspaceProject) => void;
 	onRefresh: () => void;
 	projects: readonly WorkspaceProject[];
 	workspaceFiles: readonly WorkspaceFile[];
@@ -30,6 +37,19 @@ export function DesktopAuxiliaryCanvas({
 	const files = activeTab.projectId
 		? workspaceFiles.filter((file) => file.projectId === activeTab.projectId)
 		: workspaceFiles;
+	const surfaceContent =
+		activeTab.content.kind === "projects" ? (
+			<ProjectsOverview
+				activeProjectId={activeTab.projectId}
+				catalogState={catalogState}
+				onBack={() => controller.updateTool(null)}
+				onOpenProject={onOpenProject}
+				onRetry={onRefresh}
+				projects={projects}
+			/>
+		) : activeTab.content.kind === "references" ? (
+			<ReferenceCatalog onBack={() => controller.updateTool(null)} />
+		) : undefined;
 
 	return (
 		<div
@@ -50,9 +70,10 @@ export function DesktopAuxiliaryCanvas({
 				maximized={activeTab.maximized}
 				placement="right"
 				projectName={project?.name}
-				selectedFile={activeFile}
-				sessionTabs={controller.visibleTabs}
-				surfaceMode={activeTab.content.kind}
+			selectedFile={activeFile}
+			sessionTabs={controller.visibleTabs}
+			surfaceContent={surfaceContent}
+			surfaceMode={activeTab.content.kind}
 				toolMode={activeTool}
 				workspaceCatalogState={catalogState}
 				workspaceFiles={files}

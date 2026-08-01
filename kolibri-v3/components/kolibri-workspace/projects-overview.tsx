@@ -3,6 +3,7 @@
 import { useAssistantContext } from "@assistant-ui/react";
 import {
 	AlertCircle,
+	ArrowLeft,
 	Folder,
 	FolderKanban,
 	LoaderCircle,
@@ -20,6 +21,7 @@ import type { WorkspaceProject } from "@/lib/workspace-types";
 export type ProjectsOverviewProps = {
 	activeProjectId?: string | null;
 	catalogState?: WorkspaceCatalogLoadState;
+	onBack?: () => void;
 	onOpenProject: (project: WorkspaceProject) => void;
 	onRetry?: () => void;
 	projects: readonly WorkspaceProject[];
@@ -28,6 +30,7 @@ export type ProjectsOverviewProps = {
 export function ProjectsOverview({
 	activeProjectId,
 	catalogState = "ready",
+	onBack,
 	onOpenProject,
 	onRetry,
 	projects,
@@ -197,6 +200,18 @@ export function ProjectsOverview({
 
 			<header className="border-border/80 hidden shrink-0 border-b min-[960px]:block">
 				<div className="mx-auto flex min-h-16 w-full max-w-5xl items-center px-4 py-3 sm:px-6">
+					{onBack ? (
+						<Button
+							type="button"
+							variant="ghost"
+							size="icon-xs"
+							className="mr-2 size-7 rounded-lg"
+							onClick={onBack}
+							aria-label="Назад к инструментам"
+						>
+							<ArrowLeft className="size-4" aria-hidden="true" />
+						</Button>
+					) : null}
 					<div className="relative min-w-0 w-full sm:ml-auto sm:max-w-md">
 						<Search
 							className="text-muted-foreground pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2"

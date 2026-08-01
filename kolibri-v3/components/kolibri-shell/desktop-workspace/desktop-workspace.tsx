@@ -11,21 +11,11 @@ import type { ProfileSettingsSection } from "@/components/kolibri-shell/profile-
 import type { WorkspaceFile } from "@/components/kolibri-workspace";
 import { KOLIBRI_OPEN_MODEL_SETTINGS_EVENT } from "@/lib/workspace-events";
 import type { WorkspaceProject } from "@/lib/workspace-types";
-import {
-	primarySurfaceDestination,
-	type DesktopPrimarySurface,
-} from "./types";
 import { DesktopAuxiliaryCanvas } from "./desktop-auxiliary-canvas";
 import { DesktopWorkspaceView } from "./desktop-workspace-view";
-import { PrimaryWorkspaceSurface } from "./primary-workspace-surface";
 import { useAuxiliaryCanvas } from "./use-auxiliary-canvas";
 import { useDesktopWorkspaceShortcuts } from "./use-desktop-workspace-shortcuts";
 import { useWorkspaceDocumentCatalog } from "./use-workspace-document-catalog";
-
-function findCurrentFile(files: readonly WorkspaceFile[], id: string | null) {
-	if (!id) return null;
-	return files.find((file) => file.id === id) ?? null;
-}
 
 export function DesktopWorkspace() {
 	const aui = useAui();
@@ -40,8 +30,6 @@ export function DesktopWorkspace() {
 	const [activeProject, setActiveProject] = useState<WorkspaceProject | null>(
 		null,
 	);
-	const [primarySurface, setPrimarySurface] =
-		useState<DesktopPrimarySurface | null>(null);
 	const [accountOpen, setAccountOpen] = useState(false);
 	const [accountSection, setAccountSection] =
 		useState<ProfileSettingsSection>("general");
@@ -65,10 +53,6 @@ export function DesktopWorkspace() {
 		onInteraction: closeAccount,
 		workspaceFiles,
 	});
-	const primaryFile =
-		primarySurface?.kind === "files"
-			? findCurrentFile(workspaceFiles, primarySurface.selectedFileId)
-			: null;
 
 	useEffect(() => {
 		const projectId = activeThread?.custom?.projectId;
@@ -96,7 +80,7 @@ Preserve project, artifact version, source, capture date, and user approval boun
 				activeProject
 					? `Active project: ${activeProject.name} (${activeProject.id}).`
 					: "Active project: none.",
-				`Primary surface: ${primarySurface?.kind ?? "chat"}.`,
+					`Primary surface: chat.`,
 				`Auxiliary canvas: ${
 					auxiliary.open
 						? (auxiliary.activeTool ?? auxiliary.activeTab?.content.kind)
@@ -122,7 +106,6 @@ Preserve project, artifact version, source, capture date, and user approval boun
 	);
 
 	const openChat = useCallback(() => {
-		setPrimarySurface(null);
 		setAccountOpen(false);
 	}, []);
 
@@ -130,16 +113,10 @@ Preserve project, artifact version, source, capture date, and user approval boun
 		(project: WorkspaceProject) => {
 			switchToProjectThread(project.id);
 			setActiveProject(project);
-			setPrimarySurface({
-				category: "all",
-				kind: "files",
-				projectId: project.id,
-				selectedFileId: null,
-				title: project.name,
-			});
+			auxiliary.openProject(project);
 			setAccountOpen(false);
 		},
-		[switchToProjectThread],
+		[auxiliary, switchToProjectThread],
 	);
 
 	const openPrimaryFile = useCallback(
@@ -149,30 +126,21 @@ Preserve project, artifact version, source, capture date, and user approval boun
 				: null;
 			if (file.projectId) switchToProjectThread(file.projectId);
 			if (project) setActiveProject(project);
-			setPrimarySurface({
-				category: file.category,
-				kind: "files",
-				projectId: file.projectId ?? null,
-				selectedFileId: file.id,
-				title: file.name,
-			});
+			auxiliary.openFile(file);
 			setAccountOpen(false);
 		},
-		[projects, switchToProjectThread],
+		[auxiliary, projects, switchToProjectThread],
 	);
 
 	const openPrimaryFiles = useCallback(() => {
-		setPrimarySurface({
-			category: "all",
-			kind: "files",
+		auxiliary.openFiles({
 			projectId: activeProject?.id ?? null,
-			selectedFileId: null,
 			title: activeProject?.name
 				? `Документы · ${activeProject.name}`
 				: "Документы",
 		});
 		setAccountOpen(false);
-	}, [activeProject]);
+	}, [activeProject, auxiliary]);
 
 	const openAccount = useCallback(
 		(section: ProfileSettingsSection = "general") => {
@@ -206,32 +174,24 @@ Preserve project, artifact version, source, capture date, and user approval boun
 			catalogState={catalogState}
 			controller={auxiliary}
 			onOpenSettings={() => openAccount("integrations")}
+			onOpenProject={openProject}
 			onRefresh={() => void refresh()}
 			projects={projects}
 			workspaceFiles={workspaceFiles}
 		/>
 	);
 
-	const primaryContent = primarySurface ? (
-		<PrimaryWorkspaceSurface
-			activeProject={activeProject}
-			catalogState={catalogState}
-			onOpenChat={openChat}
-			onOpenProject={openProject}
-			onRetry={() => void refresh()}
-			primaryFile={primaryFile}
-			projects={projects}
-			setSurface={setPrimarySurface}
-			surface={primarySurface}
-			workspaceFiles={workspaceFiles}
-		/>
-	) : null;
-	const activeDestination = primarySurfaceDestination(primarySurface);
-	const currentTitle =
-		primaryFile?.name ??
-		primarySurface?.title ??
-		activeThread?.title?.trim() ??
-		"Новая задача";
+	const activeDestination =
+		auxiliary.activeTab?.content.kind === "projects"
+			? "projects"
+			: auxiliary.activeTab?.content.kind === "references"
+				? "references"
+				: auxiliary.activeTab?.content.kind === "files"
+					? "documents"
+					: "chat";
+	// The center header belongs to the conversation. Auxiliary artifacts have
+	// their own canvas frame header and must not replace the active thread title.
+	const currentTitle = activeThread?.title?.trim() ?? "Новая задача";
 
 	return (
 		<DesktopWorkspaceView
@@ -256,21 +216,21 @@ Preserve project, artifact version, source, capture date, and user approval boun
 			onOpenFile={openPrimaryFile}
 			onOpenProject={openProject}
 			onOpenProjects={() => {
-				setPrimarySurface({ kind: "projects", title: "Проекты" });
-				setAccountOpen(false);
-			}}
+			auxiliary.openProjects();
+			setAccountOpen(false);
+		}}
 			onOpenReferences={() => {
-				setPrimarySurface({ kind: "references", title: "Справочники" });
-				setAccountOpen(false);
-			}}
+			auxiliary.openReferences();
+			setAccountOpen(false);
+		}}
 			onPaletteOpenChange={setCommandPaletteOpen}
-			onSelectThread={(threadId) => {
-				void aui.threads().switchToThread(threadId);
-				openChat();
-			}}
+			onSelectThread={async (threadId) => {
+			await aui.threads().switchToThread(threadId);
+			openChat();
+		}}
 			onToggleNavigation={() => setNavigationOpen((open) => !open)}
-			primaryContent={primaryContent}
-			primaryOpen={primarySurface !== null}
+			primaryContent={null}
+			primaryOpen={false}
 			projects={projects}
 			threads={threadItems.filter((thread) => thread.status === "regular")}
 			workspaceFiles={workspaceFiles}

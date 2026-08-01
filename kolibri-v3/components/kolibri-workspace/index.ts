@@ -20,6 +20,13 @@ export {
 	type ContextPanelProps,
 } from "./context-panel";
 
+export {
+	ProjectsOverview,
+	type ProjectsOverviewProps,
+} from "./projects-overview";
+
+export { ReferenceCatalog } from "./reference-catalog";
+
 export type {
 	WorkspaceFile,
 	WorkspaceFileCategory,

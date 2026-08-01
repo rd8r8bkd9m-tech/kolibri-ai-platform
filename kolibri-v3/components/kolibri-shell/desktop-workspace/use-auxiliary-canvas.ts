@@ -117,6 +117,66 @@ export function useAuxiliaryCanvas({
 		[activeProject?.id, openTab],
 	);
 
+	const openProjects = useCallback(() => {
+		openTab({
+			content: { kind: "projects" },
+			id: "auxiliary:projects",
+			title: "Проекты",
+		});
+	}, [openTab]);
+
+	const openReferences = useCallback(() => {
+		openTab({
+			content: { kind: "references" },
+			id: "auxiliary:references",
+			title: "Справочники",
+		});
+	}, [openTab]);
+
+	const openFiles = useCallback(
+		(input: {
+			category?: WorkspaceFile["category"];
+			projectId?: string | null;
+			title?: string;
+		} = {}) => {
+			const projectId = input.projectId ?? activeProject?.id ?? null;
+			openTab({
+				content: { kind: "files", category: input.category ?? "all" },
+				id: `auxiliary:files:${projectId ?? "workspace"}`,
+				projectId,
+				title:
+					input.title ??
+					(projectId ? `Документы · ${projectId}` : "Документы"),
+			});
+		},
+		[activeProject?.id, openTab],
+	);
+
+	const openProject = useCallback(
+		(project: WorkspaceProject) => {
+			openTab({
+				content: { kind: "files", category: "all" },
+				id: `auxiliary:project:${project.id}`,
+				projectId: project.id,
+				title: project.name,
+			});
+		},
+		[openTab],
+	);
+
+	const openFile = useCallback(
+		(file: WorkspaceFile) => {
+			openTab({
+				content: { kind: "files", category: file.category },
+				id: `artifact:${file.documentId ?? file.id}`,
+				projectId: file.projectId ?? null,
+				selectedFile: file,
+				title: file.name,
+			});
+		},
+		[openTab],
+	);
+
 	const toggle = useCallback(() => {
 		if (open) {
 			setVisible(false);
@@ -245,6 +305,11 @@ export function useAuxiliaryCanvas({
 		fullscreen,
 		minimize,
 		open,
+		openFile,
+		openFiles,
+		openProject,
+		openProjects,
+		openReferences,
 		openTool,
 		restoreTab,
 		selectFile,
