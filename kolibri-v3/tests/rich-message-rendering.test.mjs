@@ -83,7 +83,7 @@ test("Streamdown package styles are discoverable and KaTeX is loaded once", asyn
 
 test("Kolibri workflow stages never expose raw tool JSON in the chat", async () => {
   const fallback = await readSource(
-    "components/assistant-ui/tool-fallback.tsx",
+    "components/assistant-ui/tool-fallback/tool-presentation.ts",
   );
 
   for (const toolName of [
@@ -94,25 +94,15 @@ test("Kolibri workflow stages never expose raw tool JSON in the chat", async () 
     "estimate_engine_calculate",
     "estimate_verification",
   ]) {
-    assert.match(fallback, new RegExp(`["']${toolName}["']`));
+    assert.match(fallback, new RegExp(`\\b${toolName}:`));
   }
 
-  assert.match(
-    fallback,
-    /const ToolFallbackImpl:[\s\S]*return <ProductToolStatus/,
+  const fallbackRenderer = await readSource(
+    "components/assistant-ui/tool-fallback.tsx",
   );
-  const productToolStatus = fallback.slice(
-    fallback.indexOf("function ProductToolStatus"),
-    fallback.indexOf("function ToolFallbackContent"),
+  assert.match(fallbackRenderer, /<ProductToolStatus\s+toolName=\{toolName\}/);
+  assert.doesNotMatch(
+    `${fallback}\n${fallbackRenderer}`,
+    /ToolFallbackArgs|ToolFallbackResult|ToolFallbackApproval|JSON\.stringify/,
   );
-  const defaultFallback = fallback.slice(
-    fallback.indexOf("const ToolFallbackImpl"),
-    fallback.indexOf("const ToolFallback = memo"),
-  );
-  assert.doesNotMatch(productToolStatus, /ToolFallbackArgs/);
-  assert.doesNotMatch(productToolStatus, /ToolFallbackResult/);
-  assert.doesNotMatch(productToolStatus, /JSON\.stringify/);
-  assert.doesNotMatch(defaultFallback, /<ToolFallbackArgs/);
-  assert.doesNotMatch(defaultFallback, /<ToolFallbackResult/);
-  assert.doesNotMatch(defaultFallback, /<ToolFallbackApproval/);
 });

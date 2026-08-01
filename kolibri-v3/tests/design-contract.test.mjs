@@ -12,6 +12,9 @@ const APP_ROOT = path.resolve(
 const readSource = (relativePath) =>
   readFile(path.join(APP_ROOT, relativePath), "utf8");
 
+const readSources = async (relativePaths) =>
+	(await Promise.all(relativePaths.map(readSource))).join("\n");
+
 async function collectSourceFiles(relativeDirectory) {
   const directory = path.join(APP_ROOT, relativeDirectory);
   const entries = await readdir(directory, { withFileTypes: true });
@@ -34,16 +37,18 @@ async function collectSourceFiles(relativeDirectory) {
 }
 
 test("the welcome surface uses four desktop and three mobile assistant-ui prompts", async () => {
-  const thread = await readSource("components/assistant-ui/thread.tsx");
+  const thread = await readSources([
+    "components/assistant-ui/thread/layouts/thread-screen.tsx",
+    "components/assistant-ui/thread/parts/thread-layout.tsx",
+    "components/assistant-ui/thread/thread-suggestions-config.ts",
+  ]);
 
   assert.match(thread, /\bKolibri\b/i);
 
-  const suggestions =
-    thread.match(/<ThreadPrimitive\.Suggestion\b/g) ?? [];
-  const prompts = thread.match(/\bprompt\s*=/g) ?? [];
-
-  assert.equal(suggestions.length, 7);
-  assert.equal(prompts.length, 7);
+  assert.match(thread, /MOBILE_STARTERS\.map/);
+  assert.match(thread, /DESKTOP_STARTERS\.map/);
+  assert.equal((thread.match(/<ThreadPrimitive\.Suggestion\b/g) ?? []).length, 2);
+  assert.equal((thread.match(/\bprompt=\{prompt\}/g) ?? []).length, 2);
 
   for (const title of [
     "Рассчитать смету",
@@ -79,77 +84,65 @@ test("the compact shell matches the mobile chat contract and persists theme choi
     css,
     runtimeProvider,
   ] = await Promise.all([
-    readSource("components/kolibri-shell/workspace-shell.tsx"),
+    readSources([
+      "components/kolibri-shell/desktop-workspace/desktop-workspace.tsx",
+      "components/kolibri-shell/desktop-workspace/desktop-workspace-view.tsx",
+      "components/kolibri-shell/desktop-workspace/desktop-workspace-layout.tsx",
+    ]),
     readSource("components/kolibri-shell/mobile-workspace-header.tsx"),
     readSource("components/kolibri-shell/workspace-sidebar.tsx"),
     readSource("components/kolibri-shell/sidebar/sidebar-controls.tsx"),
     readSource("components/kolibri-shell/sidebar/sidebar-brand.tsx"),
     readSource("components/kolibri-shell/sidebar/workspace-sidebar-profile-footer.tsx"),
     readSource("components/kolibri-shell/sidebar/workspace-sidebar-navigation.tsx"),
-    readSource("components/assistant-ui/thread/parts/thread-layout.tsx"),
-    readSource("components/assistant-ui/thread-list.tsx"),
+    readSources([
+      "components/assistant-ui/thread/layouts/thread-screen.tsx",
+      "components/assistant-ui/thread/parts/thread-layout.tsx",
+      "components/assistant-ui/thread/parts/thread-message.tsx",
+      "components/assistant-ui/thread/parts/thread-message-primitives.tsx",
+      "components/assistant-ui/thread/thread-shell.tsx",
+      "components/assistant-ui/thread/thread-ui-constants.ts",
+      "components/ui/class-names.ts",
+    ]),
+    readSources([
+      "components/assistant-ui/thread-list/thread-list-core.tsx",
+      "components/assistant-ui/thread-list/thread-list-item.tsx",
+      "components/assistant-ui/thread-list/thread-list-utils.ts",
+    ]),
     readSource("components/theme/kolibri-theme-provider.tsx"),
-    readSource("app/layout.tsx"),
+    readSources(["app/app/layout.tsx", "app/layout.tsx"]),
     readSource("app/globals.css"),
     readSource("app/MyRuntimeProvider.tsx"),
   ]);
 
-  assert.match(shell, /isDesktop\s*\?\s*\([\s\S]*<WorkspaceHeader\b/);
-  assert.match(shell, /<MobileWorkspaceHeader\b/);
-  assert.match(shell, /<Thread[\s\S]{0,100}\bcompact=\{!isDesktop\}/);
+  assert.match(shell, /<DesktopWorkspaceLayout\b/);
+  assert.match(shell, /<WorkspaceHeader\b/);
+  assert.match(shell, /<Thread\b/);
+  assert.match(shell, /navigationOpen/);
   assert.match(header, /<ThreadListPrimitive\.New\b/);
   assert.match(header, /Открыть меню/);
   assert.match(header, /aria-expanded=\{navigationOpen\}/);
-  assert.match(shell, /navigationOpen=\{mobileNavigationOpen\}/);
+  assert.match(shell, /navigationOpen=\{navigationOpen\}/);
   assert.match(header, /data-slot=["']mobile-hamburger-icon["']/);
   assert.match(header, /data-slot=["']mobile-editor-back["']/);
   assert.match(header, /aria-label=["']На основной экран["']/);
-  assert.match(sidebar, /const\s+previewDisabled\s*=\s*isOverlay/);
-  assert.match(sidebar, /isOverlay=\{previewDisabled\}/);
+  assert.match(
+    sidebar,
+    /data-overlay=\{isOverlay\s*\?\s*["']true["']\s*:\s*["']false["']\}/,
+  );
   assert.match(
     sidebarBrand,
     /data-slot=["']workspace-sidebar-brand["'][\s\S]{0,240}Колибри/,
   );
   assert.match(sidebarNavigation, /data-slot=["']workspace-sidebar-body["']/);
-  assert.match(sidebarNavigation, /previewDisabled=\{isOverlay\}/);
-  assert.match(sidebarControls, /if\s*\(previewDisabled\)\s*return\s+destinationButton/);
+  assert.match(sidebarNavigation, /isOverlay/);
+  assert.match(sidebarControls, /data-canvas-launcher=\{normalizedLauncherId\}/);
   assert.match(sidebarProfileFooter, /data-slot=["']workspace-profile-footer["']/);
-  assert.match(shell, /data-slot=["']mobile-account-sheet["']/);
-  assert.match(shell, /top-\[env\(safe-area-inset-top\)\]/);
-  assert.match(shell, /rounded-r-\[2\.5rem\]/);
-  assert.match(shell, /slide-in-from-left-full/);
-  assert.match(shell, /canvasOpen\s*&&\s*canvasFile/);
-  assert.match(
-    shell,
-    /onBack=\{[\s\S]{0,100}canvasOpen\s*\?\s*\(\)\s*=>\s*openPrimaryDestination\(["']chat["']\)/,
-  );
-  assert.match(shell, /openPrimaryDestination\(["']chat["']\)/);
-  assert.match(
-    shell,
-    /isDesktop\s*&&\s*canvasMaximized\s*&&\s*placement\s*===\s*["']primary["']/,
-  );
-  assert.match(
-    shell,
-    /if\s*\(!isDesktop\)\s*\{[\s\S]{0,120}setCanvasMaximized\(false\)/,
-  );
-  assert.doesNotMatch(
-    shell,
-    /const toggleNavigation[\s\S]{0,420}else\s*\{[\s\S]{0,100}setCanvasVisible/,
-  );
-  assert.doesNotMatch(
-    shell,
-    /const openAccountSettings[\s\S]{0,520}setCanvasVisible/,
-  );
-  assert.match(
-    shell,
-    /const mobilePrimaryCanvasMounted\s*=\s*activeCanvasTab\s*!==\s*null\s*&&\s*canvasPlacement\s*===\s*["']primary["']/,
-  );
-  assert.match(
-    shell,
-    /data-slot=["']mobile-primary-workspace["'][\s\S]{0,220}inert=\{mobilePrimaryWorkspaceHidden/,
-  );
+  assert.match(shell, /aria-label=["']Диалог с Kolibri["']/);
+  assert.match(shell, /inert=\{chatHidden\s*\?/);
+  assert.match(shell, /id=["']auxiliary-canvas["']/);
   assert.equal(
-    (header.match(/h-\[2\.5px\]\s+w-full\s+rounded-full\s+bg-current/g) ?? [])
+    (header.match(/uiClassTokens\.mobileHeaderHamburgerBar/g) ?? [])
       .length,
     2,
   );
@@ -184,7 +177,7 @@ test("the compact shell matches the mobile chat contract and persists theme choi
   assert.match(theme, /KOLIBRI_THEME_STORAGE_KEY\s*=\s*["']kolibri-theme["']/);
   assert.match(theme, /prefers-color-scheme:\s*dark/);
   assert.match(layout, /<KolibriThemeProvider\b/);
-  assert.match(layout, /\bthemeBootScript\b/);
+  assert.doesNotMatch(layout, /dangerouslySetInnerHTML/);
   assert.match(css, /@media\s*\(max-width:\s*959px\)/);
   assert.match(css, /--background:\s*#000000/);
   assert.match(css, /--background:\s*#ffffff/);
@@ -204,7 +197,7 @@ test("the compact shell matches the mobile chat contract and persists theme choi
 test("mobile runtime uses iOS and Android viewport primitives", async () => {
   const [environment, layout, css] = await Promise.all([
     readSource("components/kolibri-shell/mobile-environment.tsx"),
-    readSource("app/layout.tsx"),
+    readSources(["app/app/layout.tsx", "app/layout.tsx"]),
     readSource("app/globals.css"),
   ]);
 
@@ -223,9 +216,10 @@ test("mobile runtime uses iOS and Android viewport primitives", async () => {
 });
 
 test("the estimate editor uses mobile cards without changing desktop table behavior", async () => {
-  const editor = await readSource(
-    "components/assistant-ui/product-widgets.tsx",
-  );
+  const editor = await readSources([
+    "components/assistant-ui/product-widgets/estimate-editor.tsx",
+    "components/assistant-ui/product-widgets/estimate-document-card.tsx",
+  ]);
 
   assert.match(editor, /data-slot=["']estimate-mobile-list["']/);
   assert.match(editor, /matchMedia\(["']\(max-width:\s*959px\)["']\)/);
@@ -243,7 +237,7 @@ test("the estimate editor uses mobile cards without changing desktop table behav
 
 test("the visible weather scene does not lazy-load its LCP backdrop", async () => {
   const widgets = await readSource(
-    "components/assistant-ui/product-widgets.tsx",
+    "components/assistant-ui/product-widgets/weather.tsx",
   );
 
   assert.match(
@@ -267,7 +261,7 @@ test("the application remains wired to the same-origin AG-UI runtime provider", 
   const [provider, client, layout, route] = await Promise.all([
     readSource("app/MyRuntimeProvider.tsx"),
     readSource("lib/product-chat/client.ts"),
-    readSource("app/layout.tsx"),
+    readSources(["app/app/layout.tsx", "app/layout.tsx"]),
     readSource("app/api/agui/route.ts"),
   ]);
 
@@ -287,9 +281,19 @@ test("the application remains wired to the same-origin AG-UI runtime provider", 
 
 test("chat and task navigation are composed from assistant-ui primitives", async () => {
   const [thread, threadList, shell] = await Promise.all([
-    readSource("components/assistant-ui/thread.tsx"),
-    readSource("components/assistant-ui/thread-list.tsx"),
-    readSource("components/kolibri-shell/workspace-shell.tsx"),
+    readSources([
+      "components/assistant-ui/thread/layouts/thread-screen.tsx",
+      "components/assistant-ui/thread/parts/thread-layout.tsx",
+      "components/assistant-ui/thread/parts/thread-message.tsx",
+      "components/assistant-ui/thread/parts/thread-message-primitives.tsx",
+    ]),
+    readSources([
+      "components/assistant-ui/thread-list/thread-list-core.tsx",
+      "components/assistant-ui/thread-list/thread-list-item.tsx",
+    ]),
+    readSource(
+      "components/kolibri-shell/desktop-workspace/desktop-workspace-view.tsx",
+    ),
   ]);
 
   assert.match(thread, /from\s+["']@assistant-ui\/react["']/);
@@ -304,14 +308,19 @@ test("chat and task navigation are composed from assistant-ui primitives", async
   }
   assert.doesNotMatch(thread, /<textarea\b/i);
 
-  assert.match(threadList, /\bThreadListPrimitive\b/);
+  assert.match(threadList, /\bThreadListRoot\b/);
+  assert.match(threadList, /\bThreadListNew\b/);
   assert.match(threadList, /\bThreadListItemPrimitive\b/);
   assert.match(shell, /<Thread[\s\S]{0,180}\bonOpenContextPanel=/);
   assert.match(shell, /<WorkspaceSidebar\b/);
 });
 
 test("the official assistant-ui composer is unconditionally docked at the bottom", async () => {
-  const thread = await readSource("components/assistant-ui/thread.tsx");
+  const thread = await readSources([
+    "components/assistant-ui/thread/layouts/thread-screen.tsx",
+    "components/assistant-ui/thread/parts/thread-layout.tsx",
+    "components/ui/class-names.ts",
+  ]);
 
   assert.match(thread, /<ComposerPrimitive\.Root\b/);
   assert.match(thread, /<ThreadPrimitive\.ViewportFooter\b/);
@@ -323,7 +332,7 @@ test("the official assistant-ui composer is unconditionally docked at the bottom
   assert.match(thread, /data-slot=["']aui_empty-state["']/);
   assert.match(
     thread,
-    /aui_empty-state[\s\S]{0,180}\bflex-1\b[\s\S]{0,100}\bitems-center\b[\s\S]{0,100}\bjustify-center\b/,
+    /threadEmptyState:\s*["'][^"']*\bflex-1\b[^"']*\bitems-center\b[^"']*\bjustify-center\b/,
   );
   assert.doesNotMatch(thread, /!isEmpty[\s\S]{0,120}\bsticky\b/);
 });

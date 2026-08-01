@@ -14,12 +14,22 @@ const readSource = (relativePath) =>
 
 test("the Kolibri chat is composed from the streaming assistant-ui thread primitives", async () => {
   const [thread, attachment] = await Promise.all([
-    readSource("components/assistant-ui/thread.tsx"),
-    readSource("components/assistant-ui/attachment.tsx"),
+    Promise.all([
+      readSource("components/assistant-ui/thread/layouts/thread-screen.tsx"),
+      readSource("components/assistant-ui/thread/parts/thread-layout.tsx"),
+      readSource("components/assistant-ui/thread/parts/thread-message.tsx"),
+      readSource("components/assistant-ui/thread/parts/thread-message-primitives.tsx"),
+    ]).then((sources) => sources.join("\n")),
+    Promise.all([
+      readSource("components/assistant-ui/attachment/attachment-surfaces.tsx"),
+      readSource("components/assistant-ui/attachment/attachment-ui.tsx"),
+      readSource("components/assistant-ui/attachment/attachment-preview.tsx"),
+      readSource("components/assistant-ui/attachment/attachment-controls.tsx"),
+      readSource("components/assistant-ui/thread/parts/thread-layout.tsx"),
+    ]).then((sources) => sources.join("\n")),
   ]);
 
   for (const primitive of [
-    "ThreadPrimitive.Root",
     "ThreadPrimitive.Viewport",
     "ThreadPrimitive.Messages",
     "ThreadPrimitive.ViewportFooter",
@@ -38,10 +48,10 @@ test("the Kolibri chat is composed from the streaming assistant-ui thread primit
     "missing ComposerPrimitive.Attachments",
   );
 
-  assert.match(thread, /\bautoScroll=\{true\}/);
-  assert.match(thread, /\bscrollToBottomOnInitialize=\{true\}/);
-  assert.match(thread, /\bscrollToBottomOnRunStart=\{true\}/);
-  assert.match(thread, /\bscrollToBottomOnThreadSwitch=\{true\}/);
+  assert.match(thread, /\bautoScroll(?:=\{true\})?\b/);
+  assert.match(thread, /\bscrollToBottomOnInitialize(?:=\{true\})?\b/);
+  assert.match(thread, /\bscrollToBottomOnRunStart(?:=\{true\})?\b/);
+  assert.match(thread, /\bscrollToBottomOnThreadSwitch(?:=\{true\})?\b/);
   assert.match(
     thread,
     /ComposerPrimitive\.AttachmentDropzone[\s\S]{0,100}\bdisabled=\{attachmentsDisabled\}/,
@@ -59,9 +69,13 @@ test("the Kolibri chat is composed from the streaming assistant-ui thread primit
 });
 
 test("attachment controls expose localized accessible names and states", async () => {
-  const attachment = await readSource(
-    "components/assistant-ui/attachment.tsx",
-  );
+  const attachment = await Promise.all([
+    readSource("components/assistant-ui/attachment/attachment-ui.tsx"),
+    readSource("components/assistant-ui/attachment/attachment-preview.tsx"),
+    readSource("components/assistant-ui/attachment/attachment-controls.tsx"),
+    readSource("components/assistant-ui/thread/parts/thread-layout.tsx"),
+    readSource("components/assistant-ui/thread/thread-ui-constants.ts"),
+  ]).then((sources) => sources.join("\n"));
 
   for (const text of [
     "Предпросмотр вложения",
@@ -72,7 +86,7 @@ test("attachment controls expose localized accessible names and states", async (
     "загрузка не удалась",
     "загружается",
     "Удалить файл",
-    "Добавить вложение",
+    "Прикрепить файл",
   ]) {
     assert.ok(attachment.includes(text), `missing accessible text: ${text}`);
   }

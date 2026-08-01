@@ -125,23 +125,18 @@ test("the estimate editor preserves the draft until an explicit conflict action"
 });
 
 test("mobile editor and chat stay mounted while visibility changes", async () => {
-  const shell = await readSource(
-    "components/kolibri-shell/workspace-shell.tsx",
-  );
+  const shell = await Promise.all([
+    readSource(
+      "components/kolibri-shell/desktop-workspace/desktop-workspace-layout.tsx",
+    ),
+    readSource("apps/kolibri-mobile/app/index.tsx"),
+  ]).then((sources) => sources.join("\n"));
 
-  assert.match(shell, /const threadSurface\s*=\s*\(/);
-  assert.match(shell, /data-slot=["']mobile-thread-preserver["']/);
-  assert.match(
-    shell,
-    /mobile-thread-preserver[\s\S]{0,520}\{threadSurface\}/,
-  );
-  assert.match(shell, /data-slot=["']mobile-primary-workspace["']/);
-  assert.match(shell, /mobilePrimaryCanvasMounted/);
-  assert.match(shell, /aria-hidden=\{[\s\S]{0,100}accountSurfaceOpen/);
-  assert.match(shell, /\binert=\{/);
-  assert.match(shell, /\binvisible pointer-events-none\b/);
-  assert.doesNotMatch(
-    shell,
-    /mobilePrimarySurfaceOpen\s*\?\s*canvasSurface\s*:\s*threadSurface/,
-  );
+  assert.match(shell, /const chatHidden\s*=\s*primaryOpen\s*\|\|\s*accountOpen/);
+  assert.match(shell, /aria-hidden=\{chatHidden\s*\?\s*true\s*:\s*undefined\}/);
+  assert.match(shell, /inert=\{chatHidden\s*\?\s*true\s*:\s*undefined\}/);
+  assert.match(shell, /invisible pointer-events-none/);
+  assert.match(shell, /<SafeAreaView\b/);
+  assert.match(shell, /<Thread\s*\/>/);
+  assert.doesNotMatch(shell, /mobile-thread-preserver|mobile-primary-workspace/);
 });

@@ -14,8 +14,14 @@ const readSource = (relativePath) =>
 
 test("saved estimates expose one-click native PDF sharing and document exports", async () => {
   const [widgetSource, threadSource, shareSource, routeSource] = await Promise.all([
-    readSource("components/assistant-ui/product-widgets.tsx"),
-    readSource("components/assistant-ui/thread.tsx"),
+    Promise.all([
+      readSource("components/assistant-ui/product-widgets/estimate-document-card.tsx"),
+      readSource("components/assistant-ui/product-widgets/estimate-editor.tsx"),
+    ]).then((sources) => sources.join("\n")),
+    Promise.all([
+      readSource("components/assistant-ui/thread/parts/thread-message.tsx"),
+      readSource("components/assistant-ui/thread/parts/thread-message-primitives.tsx"),
+    ]).then((sources) => sources.join("\n")),
     readSource("lib/estimate-share.ts"),
     readSource(
       "app/api/v3/projects/[projectId]/estimate/export/[format]/route.ts",
@@ -36,7 +42,7 @@ test("saved estimates expose one-click native PDF sharing and document exports",
   assert.match(shareSource, /navigator\.canShare\(payload\)/);
   assert.match(shareSource, /\.\.\.shareData/);
   assert.match(shareSource, /files: prepared\.files/);
-  assert.match(threadSource, /part\.args\.\$type !== "EstimateEditor"/);
+  assert.match(threadSource, /part\.args\.\$type === "EstimateEditor"/);
   assert.match(threadSource, /prepareEstimateShareFiles\(/);
   assert.match(threadSource, /sharePreparedEstimateFiles\(/);
   assert.match(threadSource, /<AssistantMessageShareAction \/>/);
@@ -52,7 +58,10 @@ test("saved estimates expose one-click native PDF sharing and document exports",
 });
 
 test("assistant messages expose direct assistant-ui actions", async () => {
-  const threadSource = await readSource("components/assistant-ui/thread.tsx");
+  const threadSource = await Promise.all([
+    readSource("components/assistant-ui/thread/parts/thread-message.tsx"),
+    readSource("components/assistant-ui/thread/parts/thread-message-primitives.tsx"),
+  ]).then((sources) => sources.join("\n"));
 
   assert.match(threadSource, /autohide="never"/);
   assert.match(threadSource, /<ActionBarPrimitive\.Copy/);

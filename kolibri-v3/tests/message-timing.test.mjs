@@ -15,7 +15,7 @@ const readSource = (relativePath) =>
 test("message timing is a quiet assistant-ui action-bar detail", async () => {
   const [component, thread] = await Promise.all([
     readSource("components/assistant-ui/message-timing.tsx"),
-    readSource("components/assistant-ui/thread.tsx"),
+    readSource("components/assistant-ui/thread/parts/thread-message-primitives.tsx"),
   ]);
 
   assert.match(component, /\buseMessageTiming\b/);

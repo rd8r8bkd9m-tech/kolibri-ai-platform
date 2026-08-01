@@ -24,9 +24,26 @@ test("composer uses the official model context with compact cascading selectors"
     client,
   ] =
     await Promise.all([
-    readSource("components/assistant-ui/thread.tsx"),
-    readSource("components/assistant-ui/agent-profile-selector.tsx"),
-    readSource("components/assistant-ui/model-selector.tsx"),
+      Promise.all([
+        readSource("components/assistant-ui/thread/parts/thread-layout.tsx"),
+        readSource("components/assistant-ui/agent-profile-selector.tsx"),
+      ]).then((sources) => sources.join("\n")),
+    Promise.all([
+      readSource("components/assistant-ui/agent-profile-selector.tsx"),
+      readSource("components/assistant-ui/model-profile-selector-control.tsx"),
+      readSource("components/assistant-ui/model-selector-controls.tsx"),
+      readSource("components/assistant-ui/model-selector-desktop-menu.tsx"),
+      readSource("components/assistant-ui/model-selector-mobile-menu.tsx"),
+      readSource("components/assistant-ui/model-selector-items.tsx"),
+      readSource("components/assistant-ui/model-selector-utils.ts"),
+      readSource("components/assistant-ui/developer-mode-control.tsx"),
+    ]).then((sources) => sources.join("\n")),
+    Promise.all([
+      readSource("components/assistant-ui/model-selector.tsx"),
+      readSource("components/assistant-ui/model-selector-controls.tsx"),
+      readSource("components/assistant-ui/model-selector-items.tsx"),
+      readSource("components/assistant-ui/model-selector-mobile-menu.tsx"),
+    ]).then((sources) => sources.join("\n")),
     readSource("lib/identity/provider.tsx"),
     readSource("components/kolibri-shell/profile-settings-surface.tsx"),
     readSource("components/ui/dropdown-menu.tsx"),
@@ -92,12 +109,12 @@ test("composer uses the official model context with compact cascading selectors"
   assert.match(selector, /min-w-0/);
   assert.match(selector, /calc\(100vw-1rem\)/);
 
-  assert.match(registry, /role=["']combobox["']/);
-  assert.match(registry, /aria-haspopup=["']listbox["']/);
-  assert.match(registry, /ModelSelectorFocusAnchor/);
-  assert.match(registry, /closeOnSelect\?:\s*boolean/);
-  assert.match(registry, /if\s*\(closeOnSelect\)\s*setOpen\(false\)/);
-  assert.match(registry, /ModelSelectorModelContext/);
+  assert.match(selector, /<DropdownMenuTrigger\s+asChild>/);
+  assert.match(registry, /onModelSelect/);
+  assert.match(registry, /modelContext\.register/);
+  assert.match(registry, /type\s+SelectorMenuProps/);
+  assert.match(registry, /onModelSelect/);
+  assert.match(registry, /onPageChange/);
   assert.match(dropdown, /DropdownMenuPrimitive\.SubContent/);
   assert.match(dropdown, /DropdownMenuPrimitive\.ItemIndicator/);
   assert.match(dropdown, /CheckIcon/);

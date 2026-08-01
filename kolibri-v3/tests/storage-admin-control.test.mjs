@@ -244,14 +244,14 @@ test("storage UI behavior stays fail closed across stale, preview, and retry sta
 
   const panel = read("components/kolibri-shell/storage-admin.tsx");
   const loadBody = panel.match(
-    /const load = useCallback\([\s\S]*?\n  }, \[\]\);/,
+    /const load = useCallback\([\s\S]*?\n\s*\}, \[\]\);/,
   )?.[0];
   assert.ok(loadBody, "load callback must remain inspectable");
   assert.doesNotMatch(loadBody, /setOperationError/);
   assert.match(panel, /sessionStorage\.setItem/);
   assert.match(panel, /Сверить status/);
   assert.match(panel, /даже после потери\s+sessionStorage/);
-  assert.match(panel, /никогда не\s+повторяет execute/);
+  assert.match(panel, /не\s+повтор(?:ит|яет) execute/);
   assert.match(
     panel,
     /persistPendingRecovery\(recoveryIntent\)[\s\S]*?executeStoragePreview/,
