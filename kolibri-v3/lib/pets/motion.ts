@@ -33,6 +33,14 @@ export type PetActivityEventV1 = {
 	reason?: string;
 };
 
+export type PetAgUiActivityProjection =
+	| {
+			kind: "state";
+			state: PetServerActivityState;
+			reason: string;
+	  }
+	| { kind: "contract"; value: unknown };
+
 export type PetAtlasRow =
 	| "idle"
 	| "running-right"
@@ -317,6 +325,69 @@ export function reducePetMotion(
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function projectRunFinishedState(
+	event: Record<string, unknown>,
+): PetServerActivityState {
+	const outcome = isRecord(event.outcome) ? event.outcome : null;
+	if (outcome?.type !== "interrupt" || !Array.isArray(outcome.interrupts)) {
+		return "success";
+	}
+	return outcome.interrupts.some(
+		(interrupt) =>
+			isRecord(interrupt) &&
+			(interrupt.reason === "confirmation" || interrupt.reason === "tool_call"),
+	)
+		? "approval"
+		: "waiting";
+}
+
+/**
+ * Turns provider-neutral AG-UI lifecycle events into the portable pet model.
+ * A backend-emitted `kolibri.pet.activity.v1` contract remains authoritative;
+ * the standard lifecycle mapping is only the truthful compatibility bridge.
+ */
+export function projectPetActivityFromAgUiEvent(
+	event: unknown,
+): PetAgUiActivityProjection | null {
+	if (!isRecord(event) || typeof event.type !== "string") return null;
+	switch (event.type) {
+		case "RUN_STARTED":
+		case "THINKING_START":
+		case "REASONING_START":
+			return { kind: "state", state: "thinking", reason: event.type };
+		case "STEP_STARTED":
+		case "TOOL_CALL_START":
+			return { kind: "state", state: "running", reason: event.type };
+		case "STEP_FINISHED":
+		case "TOOL_CALL_RESULT":
+		case "TEXT_MESSAGE_START":
+			return { kind: "state", state: "review", reason: event.type };
+		case "RUN_FINISHED":
+			return {
+				kind: "state",
+				state: projectRunFinishedState(event),
+				reason: event.type,
+			};
+		case "RUN_ERROR":
+			return {
+				kind: "state",
+				state: "error",
+				reason:
+					typeof event.message === "string" ? event.message : event.type,
+			};
+		case "CUSTOM":
+			return event.name === PET_ACTIVITY_EVENT_TYPE
+				? { kind: "contract", value: event.value }
+				: null;
+		case "ACTIVITY_SNAPSHOT":
+			return event.activityType === PET_ACTIVITY_EVENT_TYPE
+				? { kind: "contract", value: event.content }
+				: null;
+		default:
+			return null;
+	}
 }
 
 export function parsePetActivityEventV1(

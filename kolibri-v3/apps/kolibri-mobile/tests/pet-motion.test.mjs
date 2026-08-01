@@ -75,13 +75,27 @@ test("runtime events override reactions and transient states expire predictably"
 
 test("mobile pet renderer owns atlas cropping without starting a second chat runtime", () => {
 	const sprite = read("components/pet/pet-sprite.tsx");
+	const motion = read("components/pet/use-pet-motion.ts");
 	const assets = read("src/pets/assets.ts");
 	const webAssets = read("src/pets/assets.web.ts");
+	const runtimeActivity = read("src/pets/runtime-activity.ts");
+	const runtimeProvider = read("src/product-chat/runtime-provider.tsx");
+	const selection = read("src/pets/selection.ts");
 	assert.match(sprite, /PET_ATLAS_LAYOUT/);
 	assert.match(sprite, /getPetFrameAtElapsedMs/);
 	assert.match(sprite, /useReducedMotion/);
 	assert.match(sprite, /overflow:\s*"hidden"/);
 	assert.doesNotMatch(sprite, /ComposerPrimitive|useAuiState|fetch\s*\(/);
+	assert.match(motion, /subscribeToPetActivityFeed/);
+	assert.match(motion, /state\.threads\.mainThreadId/);
+	assert.match(motion, /getPetMessageAcceptedSnapshot/);
+	assert.match(runtimeActivity, /lib\/pets\/runtime-activity/);
+	assert.match(
+		runtimeProvider,
+		/agent\.subscribe\(createPetActivityAgentSubscriber\(\)\)/,
+	);
+	assert.match(selection, /typeof globalThis\.window !== "undefined"/);
+	assert.doesNotMatch(read("components/pet/pet-mini-assistant.tsx"), /onMessageSent/);
 	assert.equal((assets.match(/active:\s*require\(/g) ?? []).length, 10);
 	assert.equal((assets.match(/thumbnail:\s*require\(/g) ?? []).length, 10);
 	assert.match(assets, /atlases\/kolibri-v2\.webp/);

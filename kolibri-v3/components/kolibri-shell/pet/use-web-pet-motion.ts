@@ -1,7 +1,13 @@
 "use client";
 
 import { useAuiState } from "@assistant-ui/react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+	useCallback,
+	useEffect,
+	useRef,
+	useState,
+	useSyncExternalStore,
+} from "react";
 import {
 	createPetMotionModel,
 	derivePetActivityFromRuntime,
@@ -9,6 +15,12 @@ import {
 	type PetActivityState,
 	type PetReactionState,
 } from "@/lib/pets/motion";
+import {
+	getPetActivitySnapshot,
+	getPetMessageAcceptedOrdinal,
+	getPetMessageAcceptedSnapshot,
+	subscribeToPetActivityFeed,
+} from "@/lib/pets/runtime-activity";
 
 type ActiveReaction = {
 	baseState: PetActivityState;
@@ -16,7 +28,8 @@ type ActiveReaction = {
 };
 
 export function useWebPetMotion() {
-	const observedActivity = useAuiState((state) => {
+	const activeThreadId = useAuiState((state) => state.threads.mainThreadId);
+	const runtimeActivity = useAuiState((state) => {
 		const last = state.thread.messages.at(-1);
 		const assistantMessage = last?.role === "assistant" ? last : null;
 		const approvalRequired =
@@ -55,6 +68,17 @@ export function useWebPetMotion() {
 			toolRequiresAction,
 		});
 	});
+	const serverActivity = useSyncExternalStore(
+		subscribeToPetActivityFeed,
+		() => getPetActivitySnapshot(activeThreadId),
+		() => null,
+	);
+	const acceptedMessage = useSyncExternalStore(
+		subscribeToPetActivityFeed,
+		() => getPetMessageAcceptedSnapshot(activeThreadId),
+		() => null,
+	);
+	const observedActivity = serverActivity?.state ?? runtimeActivity;
 	const [activityState, setActivityState] =
 		useState<PetActivityState>(() =>
 			observedActivity === "success" || observedActivity === "error"
@@ -64,6 +88,7 @@ export function useWebPetMotion() {
 	const [reaction, setReaction] = useState<ActiveReaction | null>(null);
 	const reactionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const completionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+	const acceptedOrdinalRef = useRef(getPetMessageAcceptedOrdinal());
 	const previousObservedRef = useRef<PetActivityState>(observedActivity);
 
 	useEffect(() => {
@@ -128,12 +153,19 @@ export function useWebPetMotion() {
 		[activityState],
 	);
 
+	useEffect(() => {
+		if (
+			!acceptedMessage ||
+			acceptedMessage.ordinal <= acceptedOrdinalRef.current
+		) {
+			return;
+		}
+		acceptedOrdinalRef.current = acceptedMessage.ordinal;
+		startReaction("interaction.message-sent");
+	}, [acceptedMessage, startReaction]);
+
 	return {
 		activityState,
-		onMessageSent: useCallback(
-			() => startReaction("interaction.message-sent"),
-			[startReaction],
-		),
 		onTap: useCallback(
 			() => startReaction("interaction.tap"),
 			[startReaction],

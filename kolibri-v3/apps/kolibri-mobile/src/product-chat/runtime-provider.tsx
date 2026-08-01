@@ -29,6 +29,11 @@ import {
 	type ProductMessage,
 	type ProductThread,
 } from "@/src/product-chat/contracts";
+import {
+	clearPetActivityFeed,
+	createPetActivityAgentSubscriber,
+	publishPetMessageAccepted,
+} from "@/src/pets/runtime-activity";
 
 const AG_UI_URL = `${API_BASE_URL}/v1/chat/ag-ui`;
 const SAFE_SHORT_ID = /^[A-Za-z0-9][A-Za-z0-9._~-]{0,123}$/;
@@ -415,6 +420,7 @@ function ProductRuntimeScope({
 				agentProfile: activeAgentProfile,
 				onAccepted: (runId) => {
 					activeRunIdRef.current = runId;
+					publishPetMessageAccepted(activeAgentThreadId, runId);
 					void loadThreads();
 				},
 			}),
@@ -425,6 +431,15 @@ function ProductRuntimeScope({
 			session.authorizedFetch,
 		],
 	);
+
+	useEffect(() => {
+		clearPetActivityFeed();
+		const subscription = agent.subscribe(createPetActivityAgentSubscriber());
+		return () => {
+			subscription.unsubscribe();
+			clearPetActivityFeed();
+		};
+	}, [agent]);
 
 	const history = useMemo<ThreadHistoryAdapter>(
 		() => ({

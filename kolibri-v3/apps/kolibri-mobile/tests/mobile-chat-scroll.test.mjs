@@ -9,11 +9,18 @@ test("the pet overlay lets mobile chat gestures reach the message list", () => {
 	const pet = read("components/pet/pet-mini-assistant.tsx");
 	const thread = read("components/assistant-ui/thread.tsx");
 
-	assert.match(pet, /style=\{\[StyleSheet\.absoluteFill, styles\.passThroughOverlay\]\}/);
-	assert.match(pet, /passThroughOverlay: \{ pointerEvents: "none" \}/);
-	assert.match(pet, /borderColor: pet\.accent,[\s\S]{0,80}pointerEvents: "auto"/);
-	assert.match(pet, /pointerEvents:\s*panelPointerEvents/);
-	assert.doesNotMatch(pet, /pointerEvents="box-none"/);
+	assert.match(
+		pet,
+		/<View pointerEvents="box-none" style=\{StyleSheet\.absoluteFill\}>/,
+	);
+	assert.match(pet, /pointerEvents=\{open \? "auto" : "none"\}/);
+	assert.match(pet, /accessibilityElementsHidden=\{!open\}/);
+	assert.match(
+		pet,
+		/importantForAccessibility=\{open \? "yes" : "no-hide-descendants"\}/,
+	);
+	assert.match(pet, /\{open \? \([\s\S]*?<PetComposer accent=\{pet\.accent\} \/>/);
+	assert.doesNotMatch(pet, /passThroughOverlay/);
 
 	assert.match(thread, /<ThreadPrimitive\.MessagesFlatList/);
 	assert.match(thread, /style=\{styles\.flex\}/);

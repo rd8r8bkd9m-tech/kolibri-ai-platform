@@ -10,6 +10,9 @@ import {
 
 export const NATIVE_PET_SELECTION_KEY = "kolibri.mobile.pet-id.v1";
 
+const isWebRuntime = () =>
+	Platform.OS === "web" || typeof globalThis.window !== "undefined";
+
 export function isNativePetId(value: unknown): value is NativePetId {
 	return (
 		typeof value === "string" &&
@@ -26,7 +29,7 @@ export function getNativePet(id: NativePetId): NativePetDefinition {
 export async function readNativePetId(): Promise<NativePetId> {
 	try {
 		const stored =
-			Platform.OS === "web"
+			isWebRuntime()
 				? globalThis.localStorage?.getItem(NATIVE_PET_SELECTION_KEY)
 				: await SecureStore.getItemAsync(NATIVE_PET_SELECTION_KEY);
 		return isNativePetId(stored) ? stored : DEFAULT_NATIVE_PET.id;
@@ -38,7 +41,7 @@ export async function readNativePetId(): Promise<NativePetId> {
 export async function persistNativePetId(id: NativePetId): Promise<boolean> {
 	if (!isNativePetId(id)) return false;
 	try {
-		if (Platform.OS === "web") {
+		if (isWebRuntime()) {
 			globalThis.localStorage?.setItem(NATIVE_PET_SELECTION_KEY, id);
 		} else {
 			await SecureStore.setItemAsync(NATIVE_PET_SELECTION_KEY, id, {

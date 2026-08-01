@@ -14,6 +14,7 @@ import {
 	derivePetActivityFromRuntime,
 	getPetFrameAtElapsedMs,
 	parsePetActivityEventV1,
+	projectPetActivityFromAgUiEvent,
 	reducePetMotion,
 } from "../lib/pets/motion.ts";
 
@@ -171,6 +172,48 @@ test("one portable contract owns semantic state, ordered events and atlas timing
 	});
 	assert.equal(model.state, "review", "stale server events must be ignored");
 	assert.equal(parsePetActivityEventV1({ ...activity, sequence: -1 }), null);
+
+	assert.deepEqual(projectPetActivityFromAgUiEvent({ type: "RUN_STARTED" }), {
+		kind: "state",
+		state: "thinking",
+		reason: "RUN_STARTED",
+	});
+	assert.deepEqual(
+		projectPetActivityFromAgUiEvent({ type: "TOOL_CALL_START" }),
+		{ kind: "state", state: "running", reason: "TOOL_CALL_START" },
+	);
+	assert.deepEqual(
+		projectPetActivityFromAgUiEvent({
+			type: "RUN_FINISHED",
+			outcome: {
+				type: "interrupt",
+				interrupts: [{ id: "interrupt_01", reason: "confirmation" }],
+			},
+		}),
+		{ kind: "state", state: "approval", reason: "RUN_FINISHED" },
+	);
+	assert.deepEqual(
+		projectPetActivityFromAgUiEvent({
+			type: "RUN_FINISHED",
+			outcome: {
+				type: "interrupt",
+				interrupts: [{ id: "interrupt_02", reason: "missing_input" }],
+			},
+		}),
+		{ kind: "state", state: "waiting", reason: "RUN_FINISHED" },
+	);
+	assert.deepEqual(
+		projectPetActivityFromAgUiEvent({
+			type: "CUSTOM",
+			name: PET_ACTIVITY_EVENT_TYPE,
+			value: activity,
+		}),
+		{ kind: "contract", value: activity },
+	);
+	assert.equal(
+		projectPetActivityFromAgUiEvent({ type: "CUSTOM", name: "other" }),
+		null,
+	);
 });
 
 test("desktop and mobile render the same living entity without another runtime", async () => {
@@ -179,11 +222,16 @@ test("desktop and mobile render the same living entity without another runtime",
 		desktopHost,
 		webSprite,
 		webMotion,
+		runtimeActivity,
+		desktopRuntime,
 		mobile,
 		mobileSprite,
 		mobileMotion,
+		mobileRuntimeActivity,
+		mobileRuntime,
 		mobileThread,
 		mobileWebAssets,
+		mobileSelection,
 	] = await Promise.all([
 		readSource("components/kolibri-shell/kolibri-pet.tsx"),
 		readSource(
@@ -191,11 +239,16 @@ test("desktop and mobile render the same living entity without another runtime",
 		),
 		readSource("components/kolibri-shell/pet/pet-sprite.tsx"),
 		readSource("components/kolibri-shell/pet/use-web-pet-motion.ts"),
+		readSource("lib/pets/runtime-activity.ts"),
+		readSource("app/MyRuntimeProvider.tsx"),
 		readSource("apps/kolibri-mobile/components/pet/pet-mini-assistant.tsx"),
 		readSource("apps/kolibri-mobile/components/pet/pet-sprite.tsx"),
 		readSource("apps/kolibri-mobile/components/pet/use-pet-motion.ts"),
+		readSource("apps/kolibri-mobile/src/pets/runtime-activity.ts"),
+		readSource("apps/kolibri-mobile/src/product-chat/runtime-provider.tsx"),
 		readSource("apps/kolibri-mobile/components/assistant-ui/thread.tsx"),
 		readSource("apps/kolibri-mobile/src/pets/assets.web.ts"),
+		readSource("apps/kolibri-mobile/src/pets/selection.ts"),
 	]);
 
 	assert.match(desktopHost, /<KolibriPetHost \/>/);
@@ -208,20 +261,55 @@ test("desktop and mobile render the same living entity without another runtime",
 	assert.match(webSprite, /PET_ATLAS_LAYOUT/);
 	assert.match(webSprite, /getPetFrameAtElapsedMs/);
 	assert.match(webMotion, /derivePetActivityFromRuntime/);
+	assert.match(webMotion, /subscribeToPetActivityFeed/);
+	assert.match(webMotion, /state\.threads\.mainThreadId/);
+	assert.match(webMotion, /getPetMessageAcceptedSnapshot/);
+	assert.match(runtimeActivity, /createPetActivityAgentSubscriber/);
+	assert.match(runtimeActivity, /publishPetMessageAccepted/);
+	assert.match(runtimeActivity, /source: "server-contract"/);
+	assert.match(runtimeActivity, /"local-connection"/);
+	assert.match(
+		desktopRuntime,
+		/agent\.subscribe\(createPetActivityAgentSubscriber\(\)\)/,
+	);
+	assert.match(desktopRuntime, /publishPetMessageAccepted\(threadId, runId\)/);
+	assert.doesNotMatch(desktop, /onMessageSent/);
 	assert.doesNotMatch(desktop, /kolibri-pet-art__idle|kolibri-pet-art__reaction/);
 
 	assert.match(mobile, /PetSprite/);
 	assert.match(mobile, /ComposerPrimitive\.Root/);
 	assert.match(mobileSprite, /PET_ATLAS_LAYOUT/);
 	assert.match(mobileMotion, /derivePetActivityFromRuntime/);
+	assert.match(mobileMotion, /subscribeToPetActivityFeed/);
+	assert.match(mobileMotion, /state\.threads\.mainThreadId/);
+	assert.match(mobileMotion, /getPetMessageAcceptedSnapshot/);
+	assert.match(mobileRuntimeActivity, /lib\/pets\/runtime-activity/);
+	assert.match(
+		mobileRuntime,
+		/agent\.subscribe\(createPetActivityAgentSubscriber\(\)\)/,
+	);
+	assert.match(
+		mobileRuntime,
+		/publishPetMessageAccepted\(activeAgentThreadId, runId\)/,
+	);
+	assert.doesNotMatch(mobile, /onMessageSent/);
 	assert.match(mobileThread, /useDrawerStatus/);
 	assert.match(mobileThread, /drawerOpen \? null/);
 	assert.match(mobileWebAssets, /PET_CATALOG\.map/);
 	assert.match(mobileWebAssets, /\/pets\/active\//);
 	assert.match(mobileWebAssets, /pet\.motionAssetVersion/);
 	assert.doesNotMatch(mobileWebAssets, /require\s*\(|unstable_path/);
+	assert.match(mobileSelection, /isWebRuntime\(\)/);
+	assert.match(mobileSelection, /typeof globalThis\.window !== "undefined"/);
 
-	for (const source of [desktop, webSprite, webMotion, mobile, mobileSprite]) {
+	for (const source of [
+		desktop,
+		webSprite,
+		webMotion,
+		runtimeActivity,
+		mobile,
+		mobileSprite,
+	]) {
 		assert.doesNotMatch(source, /\bfetch\s*\(/);
 	}
 });

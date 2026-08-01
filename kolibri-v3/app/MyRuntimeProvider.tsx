@@ -54,6 +54,11 @@ import {
 	ProductCapabilityManifestProvider,
 	type ProductCapabilityManifest,
 } from "@/lib/product-chat/capabilities";
+import {
+	clearPetActivityFeed,
+	createPetActivityAgentSubscriber,
+	publishPetMessageAccepted,
+} from "@/lib/pets/runtime-activity";
 
 type RuntimeProjection = {
 	readonly status: "inactive" | "loading" | "ready" | "error";
@@ -147,12 +152,23 @@ function ProductChatRuntimeScope({
 					getActiveThreadId: () => projectionRef.current.activeThreadId,
 					onAccepted: (runId) => {
 						activeRunIdRef.current = runId;
+						const threadId = projectionRef.current.activeThreadId;
+						if (threadId) publishPetMessageAccepted(threadId, runId);
 						return refreshThreadsRef.current();
 					},
 				}),
 			}),
 		[],
 	);
+
+	useEffect(() => {
+		clearPetActivityFeed();
+		const subscription = agent.subscribe(createPetActivityAgentSubscriber());
+		return () => {
+			subscription.unsubscribe();
+			clearPetActivityFeed();
+		};
+	}, [agent]);
 
 	const commitProjection = useCallback((next: RuntimeProjection) => {
 		projectionRef.current = next;
@@ -302,6 +318,14 @@ function ProductChatRuntimeScope({
 				throw new Error("Product Chat thread is not available.");
 			}
 
+			// Hydrate the target before publishing the selection. Publishing the
+			// projection first makes assistant-ui render the target id with the
+			// previous thread's messages for one frame (the visible "flash" when
+			// switching conversations). A failed history read must also leave the
+			// current conversation selected.
+			const hydration = hydrateProductChatMessages(
+				await client.listMessages(threadId),
+			);
 			agent.threadId = threadId;
 			commitProjection({
 				...projectionRef.current,
@@ -309,10 +333,6 @@ function ProductChatRuntimeScope({
 				activeThreadId: threadId,
 				draftThreadId: null,
 			});
-
-			const hydration = hydrateProductChatMessages(
-				await client.listMessages(threadId),
-			);
 
 			return { messages: hydration.messages };
 		},

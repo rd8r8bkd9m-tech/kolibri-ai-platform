@@ -156,14 +156,12 @@ export function PetAvatar({
 function PetMiniAssistant({
 	left,
 	onClose,
-	onMessageSent,
 	pet,
 	placement,
 	state,
 }: {
 	left: number;
 	onClose: () => void;
-	onMessageSent: () => void;
 	pet: KolibriPetDefinition;
 	placement: "above" | "below";
 	state: PetActivityState;
@@ -267,7 +265,6 @@ function PetMiniAssistant({
 								type="button"
 								aria-label="Отправить в текущий чат"
 								disabled={!authenticated || composerEmpty}
-								onClick={onMessageSent}
 								className="flex size-10 shrink-0 items-center justify-center rounded-full text-white outline-none transition disabled:bg-muted disabled:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring"
 								style={
 									authenticated && !composerEmpty
@@ -291,7 +288,6 @@ function PetMiniAssistant({
 export function KolibriPet({ className }: { className?: string }) {
 	const {
 		activityState: runState,
-		onMessageSent,
 		onTap,
 		state: visualState,
 	} = useWebPetMotion();
@@ -638,7 +634,6 @@ export function KolibriPet({ className }: { className?: string }) {
 						setAssistantOpen(false);
 						globalThis.requestAnimationFrame(() => buttonRef.current?.focus());
 					}}
-					onMessageSent={onMessageSent}
 					pet={selectedPet}
 					placement={panelPlacement}
 					state={runState}

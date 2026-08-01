@@ -1,5 +1,5 @@
 import { ComposerPrimitive, useAuiState } from "@assistant-ui/react-native";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
 	BackHandler,
 	Image,
@@ -116,13 +116,7 @@ function PetPicker({
 	);
 }
 
-function PetComposer({
-	accent,
-	onMessageSent,
-}: {
-	accent: string;
-	onMessageSent: () => void;
-}) {
+function PetComposer({ accent }: { accent: string }) {
 	const canSend = useAuiState((state) => state.composer.canSend);
 	const running = useAuiState((state) => state.thread.isRunning);
 	const { colors } = useTheme();
@@ -159,7 +153,6 @@ function PetComposer({
 					onPressIn={() => {
 						if (!canSend) return;
 						haptics.light();
-						onMessageSent();
 					}}
 					style={[
 						styles.send,
@@ -183,8 +176,9 @@ function PetComposer({
 
 export function PetMiniAssistant() {
 	const [open, setOpen] = useState(false);
+	const [pickerOpen, setPickerOpen] = useState(false);
 	const [pet, setPet] = useState<NativePetDefinition>(DEFAULT_NATIVE_PET);
-	const { activityState, onMessageSent, onTap, state } = usePetMotion();
+	const { activityState, onTap, state } = usePetMotion();
 	const reduceMotion = useReducedMotion();
 	const { colors } = useTheme();
 	const reveal = useSharedValue(0);
@@ -216,6 +210,7 @@ export function PetMiniAssistant() {
 			"hardwareBackPress",
 			() => {
 				Keyboard.dismiss();
+				setPickerOpen(false);
 				setOpen(false);
 				return true;
 			},
@@ -239,10 +234,8 @@ export function PetMiniAssistant() {
 			{ scale: 0.98 + reveal.value * 0.02 },
 		],
 	}));
-	const panelPointerEvents = useMemo(() => (open ? "auto" : "none"), [open]);
-
 	return (
-		<View style={[StyleSheet.absoluteFill, styles.passThroughOverlay]}>
+		<View pointerEvents="box-none" style={StyleSheet.absoluteFill}>
 			<Pressable
 				accessibilityHint="Нажмите для чата; удерживайте для быстрого выбора питомца"
 				accessibilityLabel={`${pet.name}, мобильный помощник`}
@@ -256,7 +249,11 @@ export function PetMiniAssistant() {
 					}
 					haptics.selection();
 					onTap();
-					setOpen((current) => !current);
+					setPickerOpen(false);
+					setOpen((current) => {
+						if (current) Keyboard.dismiss();
+						return !current;
+					});
 				}}
 				onLongPress={() => {
 					longPressConsumedRef.current = true;
@@ -269,6 +266,7 @@ export function PetMiniAssistant() {
 					}, 800);
 					haptics.medium();
 					onTap();
+					setPickerOpen(true);
 					setOpen(true);
 				}}
 				delayLongPress={380}
@@ -277,7 +275,6 @@ export function PetMiniAssistant() {
 					{
 						backgroundColor: colors.surfaceRaised,
 						borderColor: pet.accent,
-						pointerEvents: "auto",
 					},
 				]}
 			>
@@ -309,70 +306,83 @@ export function PetMiniAssistant() {
 			</Pressable>
 
 			<Animated.View
+				accessibilityElementsHidden={!open}
 				accessibilityViewIsModal={open}
+				importantForAccessibility={open ? "yes" : "no-hide-descendants"}
+				pointerEvents={open ? "auto" : "none"}
 				style={[
 					styles.panel,
 					{
 						backgroundColor: colors.surfaceRaised,
 						borderColor: colors.border,
-						pointerEvents: panelPointerEvents,
 					},
 					panelStyle,
 				]}
 			>
-				<View style={styles.panelHeader}>
-					<PetSprite
-						pet={pet}
-						reducedMotion={reduceMotion}
-						state={state}
-						width={50}
-					/>
-					<View style={styles.identity}>
-						<Text style={[styles.petName, { color: colors.foreground }]}>
-							{pet.name}
-						</Text>
-						<Text
-							numberOfLines={1}
-							style={[styles.petRole, { color: colors.mutedForeground }]}
-						>
-							{pet.role} · {pet.personality}
-						</Text>
-					</View>
-					<Pressable
-						accessibilityLabel="Закрыть помощника"
-						accessibilityRole="button"
-						hitSlop={8}
-						onPress={() => {
-							Keyboard.dismiss();
-							haptics.light();
-							setOpen(false);
-						}}
-						style={({ pressed }) => [
-							styles.close,
-							{ backgroundColor: colors.muted },
-							pressed && styles.pressed,
-						]}
-					>
-						<Icon name="close" color={colors.foreground} size={18} />
-					</Pressable>
-				</View>
-				<PetStatus accent={pet.accent} state={activityState} />
-				<PetPicker
-					selected={pet}
-					onSelect={(nextPet) => {
-						setPet(nextPet);
-						void persistNativePetId(nextPet.id);
-						onTap();
-					}}
-				/>
-				<PetComposer accent={pet.accent} onMessageSent={onMessageSent} />
+				{open ? (
+					<>
+						<View style={styles.panelHeader}>
+							<PetSprite
+								pet={pet}
+								reducedMotion={reduceMotion}
+								state={state}
+								width={50}
+							/>
+							<View style={styles.identity}>
+								<Text
+									style={[styles.petName, { color: colors.foreground }]}
+								>
+									{pet.name}
+								</Text>
+								<Text
+									numberOfLines={1}
+									style={[
+										styles.petRole,
+										{ color: colors.mutedForeground },
+									]}
+								>
+									{pet.role} · {pet.personality}
+								</Text>
+							</View>
+							<Pressable
+								accessibilityLabel="Закрыть помощника"
+								accessibilityRole="button"
+								hitSlop={8}
+								onPress={() => {
+									Keyboard.dismiss();
+									haptics.light();
+									setPickerOpen(false);
+									setOpen(false);
+								}}
+								style={({ pressed }) => [
+									styles.close,
+									{ backgroundColor: colors.muted },
+									pressed && styles.pressed,
+								]}
+							>
+								<Icon name="close" color={colors.foreground} size={18} />
+							</Pressable>
+						</View>
+						<PetStatus accent={pet.accent} state={activityState} />
+						{pickerOpen ? (
+							<PetPicker
+								selected={pet}
+								onSelect={(nextPet) => {
+									setPet(nextPet);
+									void persistNativePetId(nextPet.id);
+									onTap();
+								}}
+							/>
+						) : null}
+						<PetComposer accent={pet.accent} />
+					</>
+				) : null}
 			</Animated.View>
 		</View>
 	);
 }
 
 const styles = StyleSheet.create({
-	passThroughOverlay: { pointerEvents: "none" },
 	trigger: {
 		alignItems: "center",
 		borderRadius: 31,

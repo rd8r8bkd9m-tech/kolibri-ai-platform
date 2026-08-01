@@ -85,10 +85,15 @@ type PetActivityEventV1 = {
 ```
 
 Clients accept only events for their active thread/run and monotonically newer
-sequences. Until the backend emits this event, a thin adapter may derive only
-the states provable from assistant-ui (`isRunning`, completed, incomplete).
-It must not invent tool progress or successful completion. `offline` is a
-local connection state and yields to a newer healthy server run.
+sequences. The V1 compatibility bridge subscribes to the exact `HttpAgent`
+already owned by Product Chat and maps its ordered, provider-neutral AG-UI
+lifecycle (`RUN_STARTED`, steps, tool calls, text start, interrupts, completion,
+and failure) into these states. A backend-emitted `CUSTOM` or
+`ACTIVITY_SNAPSHOT` carrying `kolibri.pet.activity.v1` is authoritative for its
+run and cannot be overwritten by the generic bridge. The assistant-ui message
+projection is only a last-resort visual fallback; no second runtime, request,
+or provider-specific adapter is allowed. `offline` is a local transport state
+and yields to a newer healthy server run.
 
 ## Deterministic visual contract
 
