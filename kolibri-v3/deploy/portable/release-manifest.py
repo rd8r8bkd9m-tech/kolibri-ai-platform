@@ -99,6 +99,17 @@ CONTRACT_OUTPUTS = (
     "generated/contracts-v1.ts",
     "server/contracts_runtime.py",
 )
+# The mobile web client deliberately reuses the canonical V3 pet catalog. Git
+# stores that reuse as a directory symlink, while a portable release must be a
+# self-contained archive with no symlink entries. Keep this allow-list narrow:
+# the builder materializes only this known in-repository link and rejects every
+# other symlink.
+MATERIALIZED_INTERNAL_SYMLINKS = {
+    "apps/kolibri-mobile/public/pets": (
+        "../../../public/pets",
+        "public/pets",
+    ),
+}
 MIGRATION_PATTERN = re.compile(
     r"^backend/migrations/(?P<version>[0-9]{3,})_[^/]+[.]sql$"
 )
@@ -280,6 +291,38 @@ def normalize_project_path(project: str) -> str:
     ):
         raise ReleaseError("invalid_project_path")
     return normalized
+
+
+def iter_git_tree_records(
+    repo: Path, commit: str, path: str
+) -> list[tuple[str, str, str, str]]:
+    """Return committed tree records for ``path`` without following symlinks."""
+
+    listing = bytes(
+        git(
+            repo,
+            "ls-tree",
+            "-r",
+            "-z",
+            "--full-tree",
+            commit,
+            "--",
+            path,
+            binary=True,
+        )
+    )
+    records: list[tuple[str, str, str, str]] = []
+    for raw_record in listing.split(b"\0"):
+        if not raw_record:
+            continue
+        try:
+            metadata, raw_path = raw_record.split(b"\t", 1)
+            mode_text, object_type, object_id = metadata.decode("ascii").split()
+            full_path = raw_path.decode("utf-8")
+        except (UnicodeDecodeError, ValueError) as exc:
+            raise ReleaseError("invalid_git_tree_record") from exc
+        records.append((mode_text, object_type, object_id, full_path))
+    return records
 
 
 def audit_repository_release_lane(repo: Path, commit: str) -> str:
@@ -484,30 +527,11 @@ def read_source_files(
     if not commit_epoch_text.isdigit():
         raise ReleaseError("invalid_git_commit_time")
 
-    listing = bytes(
-        git(
-            repo,
-            "ls-tree",
-            "-r",
-            "-z",
-            "--full-tree",
-            resolved_commit,
-            "--",
-            project,
-            binary=True,
-        )
-    )
     prefix = "" if project == "." else f"{project}/"
     files: list[SourceFile] = []
-    for raw_record in listing.split(b"\0"):
-        if not raw_record:
-            continue
-        try:
-            metadata, raw_path = raw_record.split(b"\t", 1)
-            mode_text, object_type, object_id = metadata.decode("ascii").split()
-            full_path = raw_path.decode("utf-8")
-        except (UnicodeDecodeError, ValueError) as exc:
-            raise ReleaseError("invalid_git_tree_record") from exc
+    for mode_text, object_type, object_id, full_path in iter_git_tree_records(
+        repo, resolved_commit, project
+    ):
         if prefix and not full_path.startswith(prefix):
             raise ReleaseError("git_tree_path_outside_project")
         relative_path = full_path[len(prefix) :] if prefix else full_path
@@ -521,6 +545,63 @@ def read_source_files(
             or "\r" in relative_path
         ):
             raise ReleaseError("unsafe_source_path")
+        if object_type == "blob" and mode_text == "120000":
+            link_target = bytes(
+                git(repo, "cat-file", "blob", object_id, binary=True)
+            ).decode("utf-8")
+            allowed_link = MATERIALIZED_INTERNAL_SYMLINKS.get(relative_path)
+            if allowed_link is None or link_target != allowed_link[0]:
+                raise ReleaseError(
+                    f"unsupported_source_entry path={relative_path} mode={mode_text}"
+                )
+            target_relative = allowed_link[1]
+            target_path = f"{prefix}{target_relative}" if prefix else target_relative
+            target_prefix = f"{target_path}/"
+            target_records = iter_git_tree_records(
+                repo, resolved_commit, target_path
+            )
+            if not target_records:
+                raise ReleaseError(
+                    f"materialized_symlink_target_empty path={relative_path}"
+                )
+            for (
+                target_mode,
+                target_object_type,
+                target_object_id,
+                target_full_path,
+            ) in target_records:
+                if not target_full_path.startswith(target_prefix):
+                    raise ReleaseError("materialized_symlink_target_outside_project")
+                target_item_path = target_full_path[len(target_prefix) :]
+                materialized_path = f"{relative_path}/{target_item_path}"
+                target_candidate = PurePosixPath(target_item_path)
+                if (
+                    not target_item_path
+                    or target_candidate.is_absolute()
+                    or ".." in target_candidate.parts
+                    or target_item_path != target_candidate.as_posix()
+                ):
+                    raise ReleaseError("unsafe_materialized_symlink_path")
+                if (
+                    target_object_type != "blob"
+                    or target_mode not in {"100644", "100755"}
+                ):
+                    raise ReleaseError(
+                        "unsupported_materialized_symlink_target "
+                        f"path={target_full_path} mode={target_mode}"
+                    )
+                payload = bytes(
+                    git(repo, "cat-file", "blob", target_object_id, binary=True)
+                )
+                item = SourceFile(
+                    relative_path=materialized_path,
+                    mode=0o755 if target_mode == "100755" else 0o644,
+                    payload=payload,
+                    sha256=sha256_bytes(payload),
+                )
+                assert_safe_source(item)
+                files.append(item)
+            continue
         if object_type != "blob" or mode_text not in {"100644", "100755"}:
             raise ReleaseError(
                 f"unsupported_source_entry path={relative_path} mode={mode_text}"
