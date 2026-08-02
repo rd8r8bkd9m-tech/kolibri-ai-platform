@@ -235,7 +235,9 @@ export function PetMiniAssistant() {
 		],
 	}));
 	return (
-		<View pointerEvents="box-none" style={StyleSheet.absoluteFill}>
+		<View
+			style={[StyleSheet.absoluteFill, { pointerEvents: "box-none" }]}
+		>
 			<Pressable
 				accessibilityHint="Нажмите для чата; удерживайте для быстрого выбора питомца"
 				accessibilityLabel={`${pet.name}, мобильный помощник`}
@@ -309,12 +311,12 @@ export function PetMiniAssistant() {
 				accessibilityElementsHidden={!open}
 				accessibilityViewIsModal={open}
 				importantForAccessibility={open ? "yes" : "no-hide-descendants"}
-				pointerEvents={open ? "auto" : "none"}
 				style={[
 					styles.panel,
 					{
 						backgroundColor: colors.surfaceRaised,
 						borderColor: colors.border,
+						pointerEvents: open ? "auto" : "none",
 					},
 					panelStyle,
 				]}

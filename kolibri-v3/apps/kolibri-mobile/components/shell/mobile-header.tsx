@@ -9,6 +9,7 @@ import { Icon } from "@/components/ui/icon";
 import { Layout } from "@/constants/theme";
 import { useTheme } from "@/hooks/use-theme";
 import { haptics } from "@/lib/haptics";
+import { releaseWebFocus } from "@/src/accessibility/release-web-focus";
 
 export function MobileHeader() {
 	const navigation =
@@ -23,6 +24,7 @@ export function MobileHeader() {
 				accessibilityRole="button"
 				onPress={() => {
 					haptics.selection();
+					releaseWebFocus();
 					navigation.openDrawer();
 				}}
 			>

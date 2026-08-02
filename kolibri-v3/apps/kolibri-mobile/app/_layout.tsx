@@ -21,6 +21,7 @@ import {
 	useMobileSession,
 } from "@/src/auth/mobile-session";
 import { ProductRuntimeProvider } from "@/src/product-chat/runtime-provider";
+import { releaseWebFocus } from "@/src/accessibility/release-web-focus";
 
 function Navigation() {
 	const { width } = useWindowDimensions();
@@ -43,6 +44,9 @@ function Navigation() {
 		<NavigationThemeProvider value={theme}>
 			<Drawer
 				drawerContent={(props) => <DrawerContent {...props} />}
+				screenListeners={{
+					blur: releaseWebFocus,
+				}}
 				screenOptions={{
 					drawerStyle: {
 						backgroundColor: colors.background,
