@@ -13,6 +13,12 @@ function mobileAppUrl() {
 	return url.toString();
 }
 
+function hasUiGatewayAffinity() {
+	return document.cookie
+		.split(";")
+		.some((cookie) => cookie.trim().startsWith("kolibri_ui_client="));
+}
+
 function detectMobilePlatform() {
 	const userAgent = navigator.userAgent;
 	const isIpadOs =
@@ -38,7 +44,11 @@ export function MobileEnvironment() {
 		const mobileViewport = window.matchMedia(MOBILE_BREAKPOINT_QUERY);
 		let handoffScheduled = false;
 		const handoffToMobileWeb = () => {
-			if (handoffScheduled || !DESKTOP_APP_PATH.test(window.location.pathname)) {
+			if (
+				handoffScheduled ||
+				!hasUiGatewayAffinity() ||
+				!DESKTOP_APP_PATH.test(window.location.pathname)
+			) {
 				return;
 			}
 			handoffScheduled = true;

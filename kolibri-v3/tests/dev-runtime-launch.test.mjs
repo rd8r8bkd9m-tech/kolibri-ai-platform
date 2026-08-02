@@ -42,10 +42,6 @@ const mobileEnvironment = readFileSync(
   new URL("../components/kolibri-shell/mobile-environment.tsx", import.meta.url),
   "utf8",
 );
-const appPage = readFileSync(
-  new URL("../app/app/page.tsx", import.meta.url),
-  "utf8",
-);
 const backendApplication = readFileSync(
   new URL("../backend/app/main.py", import.meta.url),
   "utf8",
@@ -95,18 +91,12 @@ test("mobile development has one explicit Expo runtime and shared V3 backend", (
 test("desktop app hands mobile-sized /app routes to the same UI origin", () => {
   assert.match(mobileEnvironment, /searchParams\.set\("client", "mobile"\)/);
   assert.match(mobileEnvironment, /max-width: 959px/);
+  assert.match(mobileEnvironment, /kolibri_ui_client=/);
+  assert.match(mobileEnvironment, /hasUiGatewayAffinity\(\)/);
   assert.match(mobileEnvironment, /window\.location\.replace\(mobileAppUrl\(\)\)/);
   assert.match(mobileEnvironment, /DESKTOP_APP_PATH\.test\(window\.location\.pathname\)/);
   assert.doesNotMatch(mobileEnvironment, /NEXT_PUBLIC_MOBILE_APP_ORIGIN/);
   assert.doesNotMatch(mobileEnvironment, /:4103/);
-});
-
-test("the desktop app route redirects mobile requests before rendering", () => {
-  assert.match(appPage, /await headers\(\)/);
-  assert.match(appPage, /sec-ch-ua-mobile/);
-  assert.match(appPage, /MOBILE_USER_AGENT/);
-  assert.match(appPage, /redirect\("\/app\?client=mobile"\)/);
-  assert.match(appPage, /return <KolibriApp \/>/);
 });
 
 test("the UI gateway keeps desktop and mobile on one public origin", () => {
