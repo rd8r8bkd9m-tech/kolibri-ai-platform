@@ -179,7 +179,7 @@ function startMobile() {
 			env: {
 			...process.env,
 			KOLIBRI_V3_MOBILE_HOST: "localhost",
-			KOLIBRI_V3_MOBILE_INTERNAL_HOST: "::1",
+			KOLIBRI_V3_MOBILE_INTERNAL_HOST: "127.0.0.1",
 			KOLIBRI_V3_MOBILE_INTERNAL_PORT: String(mobileInternalPort),
 			KOLIBRI_V3_MOBILE_API_BASE_URL: "http://127.0.0.1:8002",
 		},
@@ -210,7 +210,7 @@ function startGateway() {
 			...process.env,
 			KOLIBRI_V3_UI_PORT: String(uiGatewayPort),
 			KOLIBRI_V3_DESKTOP_INTERNAL_PORT: String(desktopInternalPort),
-			KOLIBRI_V3_MOBILE_INTERNAL_HOST: "::1",
+			KOLIBRI_V3_MOBILE_INTERNAL_HOST: "127.0.0.1",
 			KOLIBRI_V3_MOBILE_INTERNAL_PORT: String(mobileInternalPort),
 		},
 		stdio: "inherit",

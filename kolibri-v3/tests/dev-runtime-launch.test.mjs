@@ -132,7 +132,16 @@ test("dev stack restarts only the canonical backend launcher", () => {
   assert.match(stackSupervisor, /KOLIBRI_V3_DESKTOP_INTERNAL_PORT[\s\S]*3104/);
   assert.match(stackSupervisor, /KOLIBRI_V3_MOBILE_INTERNAL_PORT[\s\S]*4103/);
   assert.match(stackSupervisor, /KOLIBRI_V3_MOBILE_HOST: "localhost"/);
-  assert.match(stackSupervisor, /KOLIBRI_V3_MOBILE_INTERNAL_HOST: "::1"/);
+  assert.equal(
+    stackSupervisor.match(
+      /KOLIBRI_V3_MOBILE_INTERNAL_HOST: "127\.0\.0\.1"/g,
+    )?.length,
+    2,
+  );
+  assert.doesNotMatch(
+    stackSupervisor,
+    /KOLIBRI_V3_MOBILE_INTERNAL_HOST: "::1"/,
+  );
   assert.match(stackSupervisor, /KOLIBRI_V3_UI_PORT[\s\S]*3103/);
   assert.match(stackSupervisor, /mobileLauncher = path\.join[\s\S]*dev-mobile\.mjs/);
   assert.match(stackSupervisor, /gatewayLauncher = path\.join[\s\S]*dev-ui-gateway\.mjs/);
