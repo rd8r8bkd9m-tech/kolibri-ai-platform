@@ -78,6 +78,7 @@ async function createFixture({ standalone = false } = {}) {
   await mkdir(path.join(project, "app", "api", "live"), { recursive: true });
   await mkdir(path.join(project, "backend", "app"), { recursive: true });
   await mkdir(path.join(project, "backend", "migrations"), { recursive: true });
+  await mkdir(path.join(project, "apps", "kolibri-mobile"), { recursive: true });
   await mkdir(path.join(project, "contracts", "generated", "v1"), {
     recursive: true,
   });
@@ -86,6 +87,7 @@ async function createFixture({ standalone = false } = {}) {
   await mkdir(portable, { recursive: true });
   await mkdir(path.join(project, "deploy", "workers"), { recursive: true });
   await mkdir(path.join(project, "server"), { recursive: true });
+  await mkdir(path.join(project, "scripts"), { recursive: true });
 
   await Promise.all([
     writeFile(path.join(project, "app", "layout.tsx"), "export default 1;\n"),
@@ -338,6 +340,34 @@ async function createFixture({ standalone = false } = {}) {
     ),
     writeFile(path.join(project, "package.json"), '{"private":true}\n'),
     writeFile(path.join(project, "package-lock.json"), '{"lockfileVersion":3}\n'),
+    writeFile(
+      path.join(project, "apps", "kolibri-mobile", "app.json"),
+      '{"expo":{"name":"Kolibri","slug":"kolibri-mobile"}}\n',
+    ),
+    writeFile(
+      path.join(project, "apps", "kolibri-mobile", "package.json"),
+      '{"private":true}\n',
+    ),
+    writeFile(
+      path.join(project, "apps", "kolibri-mobile", "package-lock.json"),
+      '{"lockfileVersion":3}\n',
+    ),
+    writeFile(
+      path.join(project, "apps", "kolibri-mobile", "metro.config.js"),
+      "module.exports = {};\n",
+    ),
+    copyFile(
+      path.join(PROJECT_ROOT, "scripts", "dev-ui-gateway.mjs"),
+      path.join(project, "scripts", "dev-ui-gateway.mjs"),
+    ),
+    copyFile(
+      path.join(PROJECT_ROOT, "scripts", "mobile-static-server.mjs"),
+      path.join(project, "scripts", "mobile-static-server.mjs"),
+    ),
+    copyFile(
+      path.join(PROJECT_ROOT, "scripts", "production-ui-stack.mjs"),
+      path.join(project, "scripts", "production-ui-stack.mjs"),
+    ),
     copyFile(
       path.join(PORTABLE_ROOT, "build-release.sh"),
       path.join(portable, "build-release.sh"),

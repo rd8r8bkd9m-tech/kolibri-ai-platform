@@ -20,6 +20,8 @@ work_root="$(mktemp -d "$temporary_root/kolibri-v3-smoke.XXXXXX")"
 work_root="$(cd -- "$work_root" && pwd -P)"
 backend_port="${KOLIBRI_SMOKE_BACKEND_PORT:-18082}"
 frontend_port="${KOLIBRI_SMOKE_FRONTEND_PORT:-13103}"
+desktop_port="${KOLIBRI_SMOKE_DESKTOP_PORT:-13104}"
+mobile_port="${KOLIBRI_SMOKE_MOBILE_PORT:-14103}"
 backend_pid=""
 frontend_pid=""
 product_worker_pid=""
@@ -93,13 +95,25 @@ python3 -m venv "$project_root/backend/venv"
   KOLIBRI_RELEASE_COMMIT="$release_commit" \
     npm run build
 )
+(
+  cd "$project_root/apps/kolibri-mobile"
+  npm ci
+  npm run typecheck
+  npm test
+  EXPO_PUBLIC_API_BASE_URL=https://smoke.kolibri.invalid npm run export:web
+)
 
 mkdir -p "$project_root/runtime/frontend/.next"
+mkdir -p "$project_root/runtime/mobile"
 mkdir -p "$work_root/home"
 cp -a "$project_root/.next/standalone/." "$project_root/runtime/frontend/"
 cp -a "$project_root/.next/static" \
   "$project_root/runtime/frontend/.next/static"
 cp -a "$project_root/public" "$project_root/runtime/frontend/public"
+cp -a "$project_root/apps/kolibri-mobile/dist-web/." \
+  "$project_root/runtime/mobile/"
+ln -s "$project_root" "$work_root/source"
+ln -s "$project_root/runtime" "$work_root/runtime"
 
 KOLIBRI_V3_ENV=production \
 KOLIBRI_V3_DATABASE_URL="sqlite:///$work_root/kolibri-v3.db" \
@@ -188,17 +202,17 @@ curl -fsS --max-time 5 "http://127.0.0.1:$backend_port/v1/ready" |
     "$release_id" "$release_commit" ||
   { cat "$work_root/product-worker.log" >&2; exit 3; }
 
-(
-  cd "$project_root/runtime/frontend"
-  HOME="$work_root/home" \
-  NODE_ENV=production \
-  HOSTNAME=127.0.0.1 \
-  PORT="$frontend_port" \
-  KOLIBRI_V3_BACKEND_URL="http://127.0.0.1:$backend_port" \
-  KOLIBRI_RELEASE_ID="$release_id" \
-  KOLIBRI_RELEASE_COMMIT="$release_commit" \
-  node server.js
-) >"$work_root/frontend.log" 2>&1 &
+HOME="$work_root/home" \
+NODE_ENV=production \
+PORT="$frontend_port" \
+KOLIBRI_V3_DESKTOP_INTERNAL_PORT="$desktop_port" \
+KOLIBRI_V3_MOBILE_INTERNAL_PORT="$mobile_port" \
+KOLIBRI_V3_RELEASE_ROOT="$work_root" \
+KOLIBRI_V3_BACKEND_URL="http://127.0.0.1:$backend_port" \
+KOLIBRI_RELEASE_ID="$release_id" \
+KOLIBRI_RELEASE_COMMIT="$release_commit" \
+node "$project_root/scripts/production-ui-stack.mjs" \
+  >"$work_root/frontend.log" 2>&1 &
 frontend_pid=$!
 
 for _ in $(seq 1 60); do
@@ -211,6 +225,14 @@ for _ in $(seq 1 60); do
 done
 curl -fsS --max-time 10 "http://127.0.0.1:$frontend_port/app" >/dev/null ||
   { cat "$work_root/frontend.log" >&2; exit 3; }
+curl -fsS --max-time 10 \
+  -A "Mozilla/5.0 (iPhone) Mobile/15E148" \
+  -D "$work_root/mobile.headers" \
+  "http://127.0.0.1:$frontend_port/app?client=mobile" \
+  > "$work_root/mobile.html" ||
+  { cat "$work_root/frontend.log" >&2; exit 3; }
+grep -qi '^x-kolibri-ui-target: mobile' "$work_root/mobile.headers"
+grep -q '/_expo/static/js/web/' "$work_root/mobile.html"
 curl -fsSI --max-time 10 "http://127.0.0.1:$frontend_port/app" |
   python3 -c '
 import sys

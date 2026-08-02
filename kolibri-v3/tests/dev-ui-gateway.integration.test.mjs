@@ -18,7 +18,7 @@ function close(server) {
   return new Promise((resolve) => server.close(resolve));
 }
 
-function request(port, path) {
+function request(port, path, userAgent = "Mozilla/5.0 (iPhone) Mobile/15E148") {
   return new Promise((resolve, reject) => {
     const outgoing = http.get(
       {
@@ -26,7 +26,7 @@ function request(port, path) {
         port,
         path,
         headers: {
-          "user-agent": "Mozilla/5.0 (iPhone) Mobile/15E148",
+          "user-agent": userAgent,
         },
       },
       (response) => {
@@ -43,6 +43,13 @@ function request(port, path) {
 }
 
 test("mobile /app reaches the IPv4 Expo upstream through the public gateway", async (t) => {
+  const desktop = http.createServer((request, response) => {
+    response.writeHead(200, { "content-type": "text/plain" });
+    response.end(`desktop:${request.url}`);
+  });
+  const desktopPort = await listen(desktop);
+  t.after(() => close(desktop));
+
   const mobile = http.createServer((request, response) => {
     response.writeHead(200, { "content-type": "text/plain" });
     response.end(`mobile:${request.url}`);
@@ -61,7 +68,7 @@ test("mobile /app reaches the IPv4 Expo upstream through the public gateway", as
       env: {
         ...process.env,
         KOLIBRI_V3_UI_PORT: String(gatewayPort),
-        KOLIBRI_V3_DESKTOP_INTERNAL_PORT: String(mobilePort),
+        KOLIBRI_V3_DESKTOP_INTERNAL_PORT: String(desktopPort),
         KOLIBRI_V3_MOBILE_INTERNAL_HOST: "127.0.0.1",
         KOLIBRI_V3_MOBILE_INTERNAL_PORT: String(mobilePort),
       },
@@ -93,4 +100,17 @@ test("mobile /app reaches the IPv4 Expo upstream through the public gateway", as
   assert.equal(response.headers["x-kolibri-ui-target"], "mobile");
   assert.match(response.headers["set-cookie"][0], /kolibri_ui_client=mobile/);
   assert.equal(body, "mobile:/app");
+
+  const desktopResult = await request(
+    gatewayPort,
+    "/app?client=mobile",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)",
+  );
+  assert.equal(desktopResult.response.statusCode, 200);
+  assert.equal(desktopResult.response.headers["x-kolibri-ui-target"], "desktop");
+  assert.match(
+    desktopResult.response.headers["set-cookie"][0],
+    /kolibri_ui_client=desktop/,
+  );
+  assert.equal(desktopResult.body, "desktop:/app?client=mobile");
 });

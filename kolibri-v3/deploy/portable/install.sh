@@ -87,7 +87,8 @@ while IFS= read -r config_line <&5 || [[ -n "$config_line" ]]; do
   case "$config_key" in
     KOLIBRI_INSTANCE|KOLIBRI_SERVICE_USER|KOLIBRI_INSTALL_ROOT|\
 KOLIBRI_CONFIG_ROOT|KOLIBRI_BACKUP_ROOT|KOLIBRI_BACKEND_PORT|\
-KOLIBRI_FRONTEND_PORT|KOLIBRI_DOMAIN|KOLIBRI_PUBLIC_SCHEME|\
+KOLIBRI_FRONTEND_PORT|KOLIBRI_DESKTOP_INTERNAL_PORT|\
+KOLIBRI_MOBILE_INTERNAL_PORT|KOLIBRI_DOMAIN|KOLIBRI_PUBLIC_SCHEME|\
 KOLIBRI_ENABLE_NGINX|KOLIBRI_NGINX_SITE|KOLIBRI_TLS_CERTIFICATE|\
 KOLIBRI_TLS_CERTIFICATE_KEY|KOLIBRI_DIRECT_MODEL_RUNTIME|\
 KOLIBRI_CODEX_BIN|KOLIBRI_REQUIRE_MIMO|KOLIBRI_MIMO_BASE_URL|\
@@ -123,6 +124,8 @@ release_archive="${2:-${KOLIBRI_RELEASE_ARCHIVE:-}}"
 : "${KOLIBRI_PUBLIC_SCHEME:?KOLIBRI_PUBLIC_SCHEME is required}"
 
 KOLIBRI_ENABLE_NGINX="${KOLIBRI_ENABLE_NGINX:-true}"
+KOLIBRI_DESKTOP_INTERNAL_PORT="${KOLIBRI_DESKTOP_INTERNAL_PORT:-3104}"
+KOLIBRI_MOBILE_INTERNAL_PORT="${KOLIBRI_MOBILE_INTERNAL_PORT:-4103}"
 KOLIBRI_NGINX_SITE="${KOLIBRI_NGINX_SITE:-/etc/nginx/sites-enabled/${KOLIBRI_INSTANCE}.conf}"
 KOLIBRI_DIRECT_MODEL_RUNTIME="${KOLIBRI_DIRECT_MODEL_RUNTIME:-true}"
 KOLIBRI_CODEX_BIN="${KOLIBRI_CODEX_BIN:-/usr/local/bin/codex}"
@@ -162,11 +165,21 @@ done
   echo "install_error=product_worker_required" >&2
   exit 2
 }
-for port in "$KOLIBRI_BACKEND_PORT" "$KOLIBRI_FRONTEND_PORT"; do
+for port in \
+  "$KOLIBRI_BACKEND_PORT" \
+  "$KOLIBRI_FRONTEND_PORT" \
+  "$KOLIBRI_DESKTOP_INTERNAL_PORT" \
+  "$KOLIBRI_MOBILE_INTERNAL_PORT"; do
   [[ "$port" =~ ^[0-9]+$ ]] && (( port >= 1024 && port <= 65535 )) ||
     { echo "install_error=invalid_port value=$port" >&2; exit 2; }
 done
-[[ "$KOLIBRI_BACKEND_PORT" != "$KOLIBRI_FRONTEND_PORT" ]] ||
+[[ "$(
+  printf '%s\n' \
+    "$KOLIBRI_BACKEND_PORT" \
+    "$KOLIBRI_FRONTEND_PORT" \
+    "$KOLIBRI_DESKTOP_INTERNAL_PORT" \
+    "$KOLIBRI_MOBILE_INTERNAL_PORT" | sort -u | wc -l
+)" == "4" ]] ||
   { echo "install_error=ports_must_differ" >&2; exit 2; }
 [[ "$KOLIBRI_HEALTH_TIMEOUT_SECONDS" =~ ^[0-9]+$ ]] &&
   (( KOLIBRI_HEALTH_TIMEOUT_SECONDS >= 10 &&
@@ -504,11 +517,21 @@ run_as_service env \
   KOLIBRI_RELEASE_ID="$release_id" \
   KOLIBRI_RELEASE_COMMIT="$release_commit" \
   bash -lc "cd '$build_root' && npm run build"
+run_as_service bash -lc \
+  "cd '$build_root/apps/kolibri-mobile' && npm ci"
+run_as_service bash -lc \
+  "cd '$build_root/apps/kolibri-mobile' && npm run typecheck && npm test"
+run_as_service env \
+  EXPO_PUBLIC_API_BASE_URL="$allowed_origin" \
+  bash -lc \
+  "cd '$build_root/apps/kolibri-mobile' && npm run export:web"
 
 install -d -o "$KOLIBRI_SERVICE_USER" -g "$service_group" -m 755 \
-  "$runtime_root/frontend" "$runtime_root/frontend/.next"
+  "$runtime_root/frontend" "$runtime_root/frontend/.next" \
+  "$runtime_root/mobile"
 cp -a "$build_root/.next/standalone/." "$runtime_root/frontend/"
 cp -a "$build_root/.next/static" "$runtime_root/frontend/.next/static"
+cp -a "$build_root/apps/kolibri-mobile/dist-web/." "$runtime_root/mobile/"
 
 post_build_verification="$(
   python3 "$script_dir/release-manifest.py" verify \
@@ -731,6 +754,9 @@ NODE_ENV=production
 KOLIBRI_V3_BACKEND_URL=http://127.0.0.1:$KOLIBRI_BACKEND_PORT
 KOLIBRI_RELEASE_ID=$release_id
 KOLIBRI_RELEASE_COMMIT=$release_commit
+KOLIBRI_V3_RELEASE_ROOT=$release_root
+KOLIBRI_V3_DESKTOP_INTERNAL_PORT=$KOLIBRI_DESKTOP_INTERNAL_PORT
+KOLIBRI_V3_MOBILE_INTERNAL_PORT=$KOLIBRI_MOBILE_INTERNAL_PORT
 EOF
 
 cat > "$backend_unit.new" <<EOF
@@ -774,7 +800,7 @@ EnvironmentFile=$frontend_env_file
 Environment=HOSTNAME=127.0.0.1
 Environment=PORT=$KOLIBRI_FRONTEND_PORT
 WorkingDirectory=$current_link/frontend
-ExecStart=$(command -v node) $current_link/frontend/server.js
+ExecStart=$(command -v node) $release_root/source/scripts/production-ui-stack.mjs
 Restart=always
 RestartSec=3s
 TimeoutStartSec=60s
@@ -899,6 +925,20 @@ server {
         proxy_connect_timeout 3s;
         proxy_read_timeout 5s;
         proxy_buffering off;
+    }
+    location ^~ /v1/ {
+        proxy_pass http://127.0.0.1:$KOLIBRI_BACKEND_PORT;
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header Connection "";
+        proxy_connect_timeout 10s;
+        proxy_send_timeout 1800s;
+        proxy_read_timeout 1800s;
+        proxy_buffering off;
+        proxy_request_buffering off;
     }
     location / {
         proxy_pass http://127.0.0.1:$KOLIBRI_FRONTEND_PORT;
@@ -1222,6 +1262,9 @@ wait_for_release_health \
 systemctl restart "${KOLIBRI_INSTANCE}-frontend.service"
 wait_for_url "http://127.0.0.1:$KOLIBRI_FRONTEND_PORT/api/live"
 wait_for_url "http://127.0.0.1:$KOLIBRI_FRONTEND_PORT/app"
+wait_for_url \
+  "http://127.0.0.1:$KOLIBRI_FRONTEND_PORT/app?client=mobile" \
+  -A "Mozilla/5.0 (iPhone) Mobile/15E148"
 wait_for_release_health \
   "http://127.0.0.1:$KOLIBRI_FRONTEND_PORT/api/health"
 if [[ "$KOLIBRI_ENABLE_NGINX" == "true" ]]; then

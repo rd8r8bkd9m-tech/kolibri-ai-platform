@@ -23,7 +23,7 @@
 | `backend/tests/` | backend unit/contract/integration tests | production modules |
 | `packages/` | Rust-ядра с собственной границей FFI/CLI | web UI |
 | `apps/kolibri-mobile/` | нативный Expo-клиент | копии backend-логики |
-| `deploy/portable/` | единственный production release lane | dev-runtime |
+| `deploy/portable/` | единственный production release lane; собирает desktop и mobile UI за same-origin gateway | dev-runtime |
 | `deploy/workers/` | шаблоны и launcher фоновых workers | второй release lane |
 | `scripts/` | воспроизводимые dev/verify операции | бизнес-правила |
 | `server/` | генерация и проверка общих контрактов | HTTP product backend |

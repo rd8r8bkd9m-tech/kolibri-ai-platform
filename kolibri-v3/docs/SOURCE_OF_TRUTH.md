@@ -12,7 +12,7 @@
 | runtime health и instance identity | V3 backend process, запущенный supervisor | Next health proxy, UI |
 | provider credentials/execution | Provider Execution Authority | V3 хранит только безопасный статус и intent |
 | тарифы, payment intents, подписки и проверенные T-Банк события | V3 backend billing domain + append-only migrations | web/mobile payment state, redacted platform-admin read models |
-| production release artifact | чистый Git commit + `deploy/portable` builder | tarball, manifest, evidence |
+| production release artifact и UI topology | чистый Git commit + `deploy/portable` builder | tarball, manifest, evidence, process state |
 | development database | `var/kolibri-v3.db`, которой владеет `scripts/dev-backend.sh` | backup files |
 | история чата для agent runtime | V3 backend: `chat_messages` и связанные run records | `agent_runtime_session_cache` и provider threads — только disposable acceleration cache |
 | общие генерируемые контракты | генераторы/validators в `server/` | `generated/` (не редактировать вручную) |

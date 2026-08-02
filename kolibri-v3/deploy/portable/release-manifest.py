@@ -35,6 +35,10 @@ REQUIRED_FILES = frozenset(
     {
         "app/layout.tsx",
         "app/api/live/route.ts",
+        "apps/kolibri-mobile/app.json",
+        "apps/kolibri-mobile/metro.config.js",
+        "apps/kolibri-mobile/package-lock.json",
+        "apps/kolibri-mobile/package.json",
         "backend/app/main.py",
         "backend/app/product_run_worker.py",
         "backend/app/provider_enrollment_worker.py",
@@ -75,6 +79,9 @@ REQUIRED_FILES = frozenset(
         "package.json",
         "server/contracts_runtime.py",
         "server/generate_contract_manifest.py",
+        "scripts/dev-ui-gateway.mjs",
+        "scripts/mobile-static-server.mjs",
+        "scripts/production-ui-stack.mjs",
     }
 )
 FORBIDDEN_ALTERNATE_RELEASE_PATHS = frozenset(

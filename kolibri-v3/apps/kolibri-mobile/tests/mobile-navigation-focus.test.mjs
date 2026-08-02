@@ -28,3 +28,11 @@ test("mobile navigation releases web focus before hiding a route or drawer", () 
 	);
 	assert.match(layout, /blur: releaseWebFocus/);
 });
+
+test("mobile production bundling can resolve the shared V3 runtime", () => {
+	const metro = read("metro.config.js");
+
+	assert.match(metro, /workspaceRoot = path\.resolve\(projectRoot, "\.\.\/\.\."\)/);
+	assert.match(metro, /config\.watchFolders = \[workspaceRoot\]/);
+	assert.match(metro, /path\.join\(workspaceRoot, "node_modules"\)/);
+});

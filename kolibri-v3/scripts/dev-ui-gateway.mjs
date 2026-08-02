@@ -36,16 +36,17 @@ function cookieClient(request) {
 }
 
 function isMobileRequest(request, url = requestUrl(request)) {
-	const explicitClient = url.searchParams.get("client");
-	if (explicitClient === "mobile") return true;
-	if (explicitClient === "desktop") return false;
 	// A direct /app navigation is a new client selection. This lets a desktop
 	// browser leave a previous mobile handoff without requiring a stale cookie
-	// to be cleared manually. Static chunks keep using the affinity cookie.
+	// or query parameter to be cleared manually. Device signals own this entry;
+	// static chunks keep using the affinity cookie selected here.
 	if (/^\/app(?:\/|$)/.test(url.pathname)) {
 		if (request.headers["sec-ch-ua-mobile"] === "?1") return true;
 		return mobileUserAgent.test(request.headers["user-agent"] || "");
 	}
+	const explicitClient = url.searchParams.get("client");
+	if (explicitClient === "mobile") return true;
+	if (explicitClient === "desktop") return false;
 	const affinity = cookieClient(request);
 	if (affinity === "mobile") return true;
 	if (affinity === "desktop") return false;
@@ -173,6 +174,7 @@ server.listen(listenPort, listenHost, () => {
 
 function shutdown(signal) {
 	server.close(() => process.exit(signal === "SIGINT" ? 130 : 0));
+	server.closeAllConnections?.();
 }
 
 process.on("SIGINT", () => shutdown("SIGINT"));
