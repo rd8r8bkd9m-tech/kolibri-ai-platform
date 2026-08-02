@@ -132,7 +132,7 @@ for _ in $(seq 1 60); do
 done
 curl -fsS --max-time 5 "http://127.0.0.1:$backend_port/v1/health" |
   python3 -c \
-    'import json, sys; payload=json.load(sys.stdin); assert payload == {"status": "ok", "service": "kolibri-v3", "releaseId": sys.argv[1], "releaseCommit": sys.argv[2]}' \
+    'import json, sys; payload=json.load(sys.stdin); assert payload == {"status": "ok", "service": "kolibri-v3", "agentRuntimeContract": "kolibri.agent-runtime@1.1", "releaseId": sys.argv[1], "releaseCommit": sys.argv[2]}' \
   "$release_id" "$release_commit" ||
   { cat "$work_root/backend.log" >&2; exit 3; }
 
@@ -184,7 +184,7 @@ for _ in $(seq 1 60); do
 done
 curl -fsS --max-time 5 "http://127.0.0.1:$backend_port/v1/ready" |
   python3 -c \
-    'import json, sys; payload=json.load(sys.stdin); assert payload == {"status": "ok", "service": "kolibri-v3", "releaseId": sys.argv[1], "releaseCommit": sys.argv[2]}' \
+    'import json, sys; payload=json.load(sys.stdin); assert payload == {"status": "ok", "service": "kolibri-v3", "agentRuntimeContract": "kolibri.agent-runtime@1.1", "releaseId": sys.argv[1], "releaseCommit": sys.argv[2]}' \
     "$release_id" "$release_commit" ||
   { cat "$work_root/product-worker.log" >&2; exit 3; }
 
@@ -228,7 +228,7 @@ assert headers.get("x-kolibri-release") == expected
 
 curl -fsS --max-time 5 "http://127.0.0.1:$frontend_port/api/health" |
   python3 -c \
-    'import json, sys; payload=json.load(sys.stdin); assert payload == {"status": "ok", "service": "kolibri-v3", "releaseId": sys.argv[1], "releaseCommit": sys.argv[2]}' \
+    'import json, sys; payload=json.load(sys.stdin); assert payload == {"status": "ok", "service": "kolibri-v3", "agentRuntimeContract": "kolibri.agent-runtime@1.1", "releaseId": sys.argv[1], "releaseCommit": sys.argv[2]}' \
     "$release_id" "$release_commit"
 
 curl -fsS --max-time 5 \

@@ -1107,6 +1107,10 @@ test("smoke test accepts only a verified canonical release archive", async () =>
   assert.match(smoke, /chmod 600 "\$work_root\/kolibri-v3[.]db"/);
   assert.doesNotMatch(smoke, /-m app[.]product_run_worker/);
   assert.match(smoke, /\/v1\/ready/);
+  assert.match(
+    smoke,
+    /"agentRuntimeContract": "kolibri[.]agent-runtime@1[.]1"/,
+  );
   assert.match(smoke, /x-kolibri-release/);
   assert.doesNotMatch(smoke, /-C "\$project_root" -cf - [.] \|/);
 });
