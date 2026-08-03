@@ -672,11 +672,93 @@ def parse_generated_estimate_plan(text: str) -> GeneratedEstimatePlan:
     return GeneratedEstimatePlan.model_validate(value)
 
 
+def _repair_estimate_section(value: dict[str, Any]) -> dict[str, Any]:
+    """Fix common AI output issues before validation."""
+    # Ensure section name exists
+    if not value.get("section"):
+        value["section"] = "Untitled Section"
+
+    # Ensure operations list exists and has at least one item
+    operations = value.get("operations", [])
+    if not operations:
+        raise ValueError("estimate section has no operations")
+
+    for i, op in enumerate(operations):
+        # Fix operationId pattern
+        oid = op.get("operationId", "")
+        if not oid or not re.match(r"^operation_[A-Za-z0-9._~-]{4,96}$", oid):
+            op["operationId"] = f"operation_{uuid.uuid4().hex[:16]}"
+
+        # Fix required string fields
+        for field in ("wbsCode", "section", "zone", "system"):
+            if not op.get(field):
+                op[field] = op.get("section") or value.get("section") or "default"
+
+        # Ensure sequence
+        if not isinstance(op.get("sequence"), int) or op["sequence"] < 1:
+            op["sequence"] = i + 1
+
+        # Ensure name
+        if not op.get("name"):
+            op["name"] = f"Operation {i + 1}"
+
+        # Ensure method
+        if not op.get("method"):
+            op["method"] = "Standard construction method"
+
+        # Ensure unit
+        if not op.get("unit"):
+            op["unit"] = "компл."
+
+        # Fix quantityFormula - provide a default constant only if missing/null
+        qf = op.get("quantityFormula")
+        if qf is None:
+            op["quantityFormula"] = {
+                "op": "constant",
+                "value": "1.00",
+                "unit": "компл.",
+            }
+        elif isinstance(qf, str):
+            # Reject free-form strings - let validation catch it
+            pass
+
+        # Fix resources - ensure at least one
+        resources = op.get("resources", [])
+        if not resources:
+            resources = [{
+                "resourceId": f"resource_{uuid.uuid4().hex[:12]}",
+                "kind": "work",
+                "description": op.get("name", f"Resource {i + 1}"),
+                "quantityBasis": "Estimated",
+                "proposedUnitPrice": "0.00",
+                "priceBasis": "preliminary",
+            }]
+        for j, res in enumerate(resources):
+            rid = res.get("resourceId", "")
+            if not rid or not re.match(r"^resource_[A-Za-z0-9._~-]{4,96}$", rid):
+                res["resourceId"] = f"resource_{uuid.uuid4().hex[:12]}"
+            if not res.get("kind"):
+                res["kind"] = "work"
+            if not res.get("description"):
+                res["description"] = f"Resource {j + 1}"
+            if not res.get("quantityBasis"):
+                res["quantityBasis"] = "Estimated"
+            if not res.get("proposedUnitPrice"):
+                res["proposedUnitPrice"] = "0.00"
+            if not res.get("priceBasis"):
+                res["priceBasis"] = "preliminary"
+        op["resources"] = resources
+
+    value["operations"] = operations
+    return value
+
+
 def parse_generated_estimate_section(text: str) -> GeneratedEstimateSection:
     try:
         value = json.loads(text)
     except json.JSONDecodeError:
         raise ValueError("estimate section is not valid JSON") from None
+    value = _repair_estimate_section(value)
     return GeneratedEstimateSection.model_validate(value)
 
 

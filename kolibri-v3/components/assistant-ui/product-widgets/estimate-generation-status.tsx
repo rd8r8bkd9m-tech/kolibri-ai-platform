@@ -204,11 +204,14 @@ export function EstimateGenerationStatus() {
 				}
 
 				const status = selected?.status ?? trackedStatusRef.current;
+				const isTerminalStatus =
+					status === "failed" || status === "ready" || status === "cancelled";
 				if (
-					(status !== null &&
+					!isTerminalStatus &&
+					((status !== null &&
 						ESTIMATE_GENERATION_POLLING_STATUSES.has(status)) ||
 					chatRunIsActive ||
-					shouldKeepDiscovering()
+					shouldKeepDiscovering())
 				) {
 					schedule(document.hidden ? RETRY_INTERVAL_MS : POLL_INTERVAL_MS);
 				}
