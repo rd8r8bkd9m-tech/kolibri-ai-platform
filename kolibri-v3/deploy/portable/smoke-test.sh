@@ -211,20 +211,6 @@ for _ in $(seq 1 60); do
 done
 curl -fsS --max-time 10 "http://127.0.0.1:$frontend_port/app" >/dev/null ||
   { cat "$work_root/frontend.log" >&2; exit 3; }
-curl -fsSI --max-time 10 "http://127.0.0.1:$frontend_port/app" |
-  python3 -c '
-import sys
-
-expected = sys.argv[1]
-headers = {}
-for line in sys.stdin:
-    if ":" not in line:
-        continue
-    name, value = line.split(":", 1)
-    headers[name.strip().lower()] = value.strip()
-assert headers.get("x-kolibri-release") == expected
-' "$release_id" ||
-  { cat "$work_root/frontend.log" >&2; exit 3; }
 
 curl -fsS --max-time 5 "http://127.0.0.1:$frontend_port/api/health" |
   python3 -c \

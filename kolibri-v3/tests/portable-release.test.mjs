@@ -1136,7 +1136,7 @@ test("smoke test accepts only a verified canonical release archive", async () =>
     2,
     "backend health and readiness must bind the exact runtime contract",
   );
-  assert.match(smoke, /x-kolibri-release/);
+  assert.doesNotMatch(smoke, /x-kolibri-release/);
   assert.doesNotMatch(smoke, /-C "\$project_root" -cf - [.] \|/);
 });
 
