@@ -1,7 +1,36 @@
+"use client";
+
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
 import type { PublicCommerceConfig } from "@/lib/server/public-commerce";
 import { PublicBrand } from "./public-brand";
+
+function PublicNavigationLink({
+	href,
+	children,
+	className,
+}: {
+	href: string;
+	children: ReactNode;
+	className?: string;
+}) {
+	const pathname = usePathname();
+	const isHomeAnchor = href.startsWith("/#");
+	const targetPath = href.split("#", 1)[0] || "/";
+	const active = pathname === targetPath && !isHomeAnchor;
+
+	return (
+		<Link
+			className={className}
+			href={href}
+			aria-current={active ? "page" : undefined}
+			prefetch
+		>
+			{children}
+		</Link>
+	);
+}
 
 export function PublicShell({
 	children,
@@ -19,15 +48,23 @@ export function PublicShell({
 				<div className="kp-container kp-header-inner">
 					<PublicBrand />
 					<nav className="kp-main-nav" aria-label="Основная навигация">
-						<Link href="/#features">Возможности</Link>
-						<Link href="/#workflow">Как работает</Link>
-						<Link href="/pricing">Тарифы</Link>
+						<PublicNavigationLink href="/#features">
+							Возможности
+						</PublicNavigationLink>
+						<PublicNavigationLink href="/#workflow">
+							Как работает
+						</PublicNavigationLink>
+						<PublicNavigationLink href="/pricing">Тарифы</PublicNavigationLink>
 					</nav>
 					<div className="kp-header-actions">
-						<Link className="kp-login-link" href="/app">
+						<Link className="kp-login-link" href="/app" prefetch>
 							Войти
 						</Link>
-						<Link className="kp-button kp-button-small kp-button-primary" href="/app">
+						<Link
+							className="kp-button kp-button-small kp-button-primary"
+							href="/app"
+							prefetch
+						>
 							Открыть Kolibri
 						</Link>
 					</div>
@@ -41,10 +78,14 @@ export function PublicShell({
 						<p>AI-рабочая среда для смет, проектов и связанных документов.</p>
 					</div>
 					<nav aria-label="Документы и контакты">
-						<Link href="/legal/offer">Публичная оферта</Link>
-						<Link href="/legal/privacy">Конфиденциальность</Link>
-						<Link href="/legal/payment-and-refund">Оплата и возврат</Link>
-						<Link href="/contacts">Контакты</Link>
+						<PublicNavigationLink href="/legal/offer">Публичная оферта</PublicNavigationLink>
+						<PublicNavigationLink href="/legal/privacy">
+							Конфиденциальность
+						</PublicNavigationLink>
+						<PublicNavigationLink href="/legal/payment-and-refund">
+							Оплата и возврат
+						</PublicNavigationLink>
+						<PublicNavigationLink href="/contacts">Контакты</PublicNavigationLink>
 					</nav>
 					<div className="kp-footer-legal">
 						{commerce.ready ? (

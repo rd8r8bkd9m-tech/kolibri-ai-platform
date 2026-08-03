@@ -1,6 +1,6 @@
 "use client";
 
-import { makeAssistantToolUI } from "@assistant-ui/react";
+import type { ToolCallMessagePartComponent } from "@assistant-ui/react";
 import { DownloadIcon, ImageIcon, LoaderCircleIcon } from "lucide-react";
 import { uiClassTokens } from "@/components/ui/class-names";
 import { IconActionLink } from "@/components/ui/shared-wrappers";
@@ -130,9 +130,12 @@ const GeneratedImageCard = ({
 	</figure>
 );
 
-export const GeneratedImageToolUI = makeAssistantToolUI({
-	toolName: "generate_image",
-	render: ({ args, result, status }) => {
+type GeneratedImageArgs = { readonly prompt?: unknown };
+
+export const GeneratedImageToolUI: ToolCallMessagePartComponent<
+	GeneratedImageArgs,
+	unknown
+> = ({ args, result, status }) => {
 		if (status.type === "running") {
 			return (
 				<div
@@ -165,5 +168,4 @@ export const GeneratedImageToolUI = makeAssistantToolUI({
 			);
 		}
 		return <GeneratedImageCard image={image} />;
-	},
-});
+};

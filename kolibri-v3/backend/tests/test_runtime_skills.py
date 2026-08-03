@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -9,6 +10,14 @@ from types import SimpleNamespace
 import app.direct_model_runtime as direct_model_runtime
 import app.runtime_skills as runtime_skills_module
 import pytest
+from app.agent_runtime import (
+    AgentRuntimeCapabilities,
+    AgentRuntimeDescriptor,
+    AgentRuntimeRegistry,
+    AgentRuntimeRequest,
+    AgentRuntimeResult,
+    DelegatingAgentRuntime,
+)
 from app.chat.execution_adapter import PreparedChatExecution
 from app.chat.models import AgUiRunInput
 from app.chat.service import accept_run
@@ -225,6 +234,114 @@ def _complete_intake() -> PlasteringIntake:
     )
 
 
+def _universal_estimate_fixture_result(
+    request: AgentRuntimeRequest,
+) -> AgentRuntimeResult:
+    profile = request.execution_profile
+    if profile == "estimate-plan":
+        payload: dict[str, object] = {
+            "title": "Смета штукатурных работ 358 м²",
+            "region": "Республика Татарстан",
+            "assumptions": ["Объёмы подтверждаются рабочей документацией."],
+            "sections": ["Штукатурные работы"],
+        }
+    elif profile.startswith("estimate-pricing:"):
+        payload = {
+            "section": "Штукатурные работы",
+            "candidates": [
+                {
+                    "resourceId": "resource_fixture_plastering_work",
+                    "unitPrice": "500.00",
+                    "evidence": {
+                        "sourceType": "ai_preliminary",
+                        "sourceReference": "Тестовая предварительная цена без внешнего источника.",
+                        "sourceUrl": None,
+                        "observedAt": "2026-08-02",
+                        "region": "Республика Татарстан",
+                        "unit": "м²",
+                        "vatTreatment": "not_specified",
+                        "deliveryIncluded": False,
+                        "validUntil": None,
+                        "snapshotHash": None,
+                        "confidence": "preliminary",
+                    },
+                }
+            ],
+        }
+    elif profile.startswith("estimate-review:"):
+        payload = {"passed": True, "issues": []}
+    else:
+        assert profile.startswith("estimate-role:")
+        payload = {
+            "section": "Штукатурные работы",
+            "operations": [
+                {
+                    "operationId": "operation_fixture_plastering",
+                    "wbsCode": "1",
+                    "section": "Штукатурные работы",
+                    "zone": "Объект",
+                    "system": "Стены",
+                    "sequence": 1,
+                    "name": "Механизированная штукатурка стен",
+                    "method": "Подготовить основание и нанести штукатурный состав.",
+                    "unit": "м²",
+                    "quantityFormula": {
+                        "op": "constant",
+                        "value": "358",
+                        "unit": "м²",
+                    },
+                    "resources": [
+                        {
+                            "resourceId": "resource_fixture_plastering_work",
+                            "kind": "work",
+                            "description": "Механизированная штукатурка стен",
+                            "unit": "м²",
+                            "quantityFormula": {
+                                "op": "constant",
+                                "value": "358",
+                                "unit": "м²",
+                            },
+                            "inputProvenance": ["Площадь из запроса пользователя."],
+                            "quantityBasis": "Площадь стен из запроса пользователя.",
+                            "proposedUnitPrice": "500.00",
+                            "priceBasis": "Цена требует подтверждения снабженцем.",
+                        }
+                    ],
+                    "qualityChecks": ["Проверить плоскостность готовой поверхности."],
+                }
+            ],
+        }
+    return AgentRuntimeResult(text=json.dumps(payload, ensure_ascii=False))
+
+
+def _universal_estimate_runtime_registry(
+    executors: dict[
+        str,
+        Callable[[AgentRuntimeRequest], AgentRuntimeResult],
+    ],
+) -> AgentRuntimeRegistry:
+    registry = AgentRuntimeRegistry()
+    for profile, execute in executors.items():
+        registry.register(
+            DelegatingAgentRuntime(
+                descriptor=AgentRuntimeDescriptor(
+                    profile_id=profile,
+                    runtime_id=f"{profile}-fixture",
+                    display_name=f"{profile} fixture",
+                    capabilities=AgentRuntimeCapabilities(
+                        modes=frozenset({"structured"}),
+                        streaming=False,
+                        structured_output=True,
+                        activity_events=False,
+                        persistent_sessions=False,
+                    ),
+                ),
+                execute=execute,
+            )
+        )
+    return registry
+
+
 def test_estimate_runtime_skill_plan_is_deterministic_and_bounded() -> None:
     first = estimate_runtime_skill_plan()
     second = estimate_runtime_skill_plan()
@@ -239,7 +356,7 @@ def test_estimate_runtime_skill_plan_is_deterministic_and_bounded() -> None:
         "estimate_verification",
     ]
     guidance = first.guidance_for_stage("project_case_analysis")
-    assert "факты и допущения" in guidance
+    assert "факты и условия расчёта" in guidance
     assert "не выполняй расчёт" in guidance
     assert ".agents/skills" not in guidance
     assert "api_key" not in guidance.casefold()
@@ -570,13 +687,13 @@ def test_failed_engine_materialization_closes_every_started_tool_stage(
     finally:
         database.close()
 
-    captured: dict[str, str] = {}
+    requests: list[AgentRuntimeRequest] = []
 
-    def intake_stub(*_args: object, **kwargs: object) -> PlasteringIntake:
-        guidance = kwargs.get("runtime_guidance")
-        assert isinstance(guidance, str)
-        captured["guidance"] = guidance
-        return _complete_intake()
+    def universal_estimate_fixture(
+        request: AgentRuntimeRequest,
+    ) -> AgentRuntimeResult:
+        requests.append(request)
+        return _universal_estimate_fixture_result(request)
 
     def persistence_failure(*_args: object, **_kwargs: object) -> object:
         raise RuntimeError("simulated estimate persistence failure")
@@ -588,12 +705,7 @@ def test_failed_engine_materialization_closes_every_started_tool_stage(
     )
     monkeypatch.setattr(
         direct_model_runtime,
-        "_codex_plastering_intake",
-        intake_stub,
-    )
-    monkeypatch.setattr(
-        direct_model_runtime,
-        "materialize_engine_estimate_widget",
+        "materialize_generated_estimate_widget",
         persistence_failure,
     )
 
@@ -608,7 +720,9 @@ def test_failed_engine_materialization_closes_every_started_tool_stage(
     direct_model_runtime.execute_direct_run(
         settings,
         accepted,
-        _runtime_registry(settings, codex_runtime=object()),
+        _universal_estimate_runtime_registry(
+            {"codex-cli": universal_estimate_fixture}
+        ),
     )
 
     database = connect_database(database_path)
@@ -637,21 +751,33 @@ def test_failed_engine_materialization_closes_every_started_tool_stage(
         }
         assert started
         assert set(started).issubset(finished)
-        technology_id = next(
+        technology_ids = {
             tool_id
             for tool_id, tool_name in started.items()
-            if tool_name == "technology_card_build"
-        )
-        technology_result = next(
-            event
+            if tool_name == "estimate_technology_role"
+        }
+        technology_results = [
+            json.loads(event["content"])
             for event in events
             if event["type"] == "TOOL_CALL_RESULT"
-            and event["toolCallId"] == technology_id
-        )
-        assert json.loads(technology_result["content"]) == {
-            "errorCode": "estimate_persistence_failed",
-            "status": "failed",
+            and event["toolCallId"] in technology_ids
+        ]
+        assert len(technology_results) == 5
+        assert {result["role"] for result in technology_results} == {
+            "technologist",
+            "quantity_engineer",
+            "resource_normer",
+            "technical_researcher",
+            "logistics",
         }
+        assert all(
+            result["status"] == "complete"
+            and result["section"] == "Штукатурные работы"
+            and result["operationCount"] == 1
+            for result in technology_results
+        )
+        run_error = next(event for event in events if event["type"] == "RUN_ERROR")
+        assert run_error["code"] == "estimate_persistence_failed"
         run = database.execute(
             """
             SELECT status, error_code
@@ -667,8 +793,27 @@ def test_failed_engine_materialization_closes_every_started_tool_stage(
     finally:
         database.close()
 
-    assert "kolibri-supply-pricing" in captured["guidance"]
-    assert "kolibri-estimate-domain" in captured["guidance"]
+    execution_profiles = {request.execution_profile for request in requests}
+    role_profiles = {
+        profile for profile in execution_profiles if profile.startswith("estimate-role:")
+    }
+    role_hashes = {profile.rsplit(":", 1)[-1] for profile in role_profiles}
+    assert execution_profiles == {
+        "estimate-plan",
+        *(f"estimate-role:{role}:{section_hash}" for role in (
+            "technologist",
+            "quantity_engineer",
+            "resource_normer",
+            "technical_researcher",
+            "logistics",
+        ) for section_hash in role_hashes),
+        *(f"estimate-pricing:{section_hash}" for section_hash in role_hashes),
+        *(f"estimate-review:{section_hash}" for section_hash in role_hashes),
+    }
+    assert len(role_hashes) == 1
+    combined_instructions = "\n".join(request.instructions for request in requests)
+    assert "kolibri-supply-pricing" in combined_instructions
+    assert "kolibri-estimate-domain" in combined_instructions
 
 
 def test_codex_and_mimo_receive_the_same_reviewed_runtime_guidance(
@@ -676,26 +821,10 @@ def test_codex_and_mimo_receive_the_same_reviewed_runtime_guidance(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     plan = estimate_runtime_skill_plan()
-    expected_guidance = "\n\n".join(
-        guidance
-        for guidance in (
-            plan.guidance_for_stage("project_case_analysis"),
-            plan.guidance_for_stage("technology_card_build"),
-            plan.guidance_for_stage("price_candidates_verify"),
-            plan.guidance_for_stage("estimate_engine_calculate"),
-            plan.guidance_for_stage("estimate_verification"),
-        )
-        if guidance
-    )
-    captured: dict[str, str] = {}
-
-    def codex_stub(*_args: object, **kwargs: object) -> PlasteringIntake:
-        captured["codex-cli"] = str(kwargs["runtime_guidance"])
-        return _complete_intake()
-
-    def mimo_stub(*_args: object, **kwargs: object) -> PlasteringIntake:
-        captured["mimo-code"] = str(kwargs["runtime_guidance"])
-        return _complete_intake()
+    captured: dict[str, list[AgentRuntimeRequest]] = {
+        "codex-cli": [],
+        "mimo-code": [],
+    }
 
     def persistence_failure(*_args: object, **_kwargs: object) -> object:
         raise RuntimeError("stop after provider guidance capture")
@@ -707,18 +836,20 @@ def test_codex_and_mimo_receive_the_same_reviewed_runtime_guidance(
     )
     monkeypatch.setattr(
         direct_model_runtime,
-        "_codex_plastering_intake",
-        codex_stub,
-    )
-    monkeypatch.setattr(
-        direct_model_runtime,
-        "_mimo_plastering_intake",
-        mimo_stub,
-    )
-    monkeypatch.setattr(
-        direct_model_runtime,
-        "materialize_engine_estimate_widget",
+        "materialize_generated_estimate_widget",
         persistence_failure,
+    )
+
+    runtimes = _universal_estimate_runtime_registry(
+        {
+            profile: (
+                lambda request, profile=profile: (
+                    captured[profile].append(request)
+                    or _universal_estimate_fixture_result(request)
+                )
+            )
+            for profile in captured
+        }
     )
 
     for profile in ("codex-cli", "mimo-code"):
@@ -762,17 +893,30 @@ def test_codex_and_mimo_receive_the_same_reviewed_runtime_guidance(
                 run_id=RUN_ID,
                 public_run_id=RUN_ID,
             ),
-            _runtime_registry(
-                settings,
-                codex_runtime=object(),
-                mimo_runtime=object(),
-            ),
+            runtimes,
         )
 
-    assert captured == {
-        "codex-cli": expected_guidance,
-        "mimo-code": expected_guidance,
+    instructions_by_profile = {
+        provider: {
+            request.execution_profile: request.instructions
+            for request in requests
+        }
+        for provider, requests in captured.items()
     }
+    assert instructions_by_profile["codex-cli"] == instructions_by_profile["mimo-code"]
+    expected_stage_guidance = {
+        "estimate-plan": plan.guidance_for_stage("project_case_analysis"),
+        "estimate-role:": plan.guidance_for_stage("technology_card_build"),
+        "estimate-pricing:": plan.guidance_for_stage("price_candidates_verify"),
+        "estimate-review:": plan.guidance_for_stage("estimate_verification"),
+    }
+    for execution_profile, instructions in instructions_by_profile["codex-cli"].items():
+        profile_family = next(
+            family
+            for family in expected_stage_guidance
+            if execution_profile == family or execution_profile.startswith(family)
+        )
+        assert instructions.endswith(expected_stage_guidance[profile_family])
 
 
 def test_intake_prompt_accepts_only_server_resolved_runtime_guidance() -> None:

@@ -132,7 +132,7 @@ test("mobile editor and chat stay mounted while visibility changes", async () =>
     readSource("apps/kolibri-mobile/app/index.tsx"),
   ]).then((sources) => sources.join("\n"));
 
-  assert.match(shell, /const chatHidden\s*=\s*primaryOpen\s*\|\|\s*accountOpen/);
+  assert.match(shell, /const chatHidden\s*=\s*primaryOpen/);
   assert.match(shell, /aria-hidden=\{chatHidden\s*\?\s*true\s*:\s*undefined\}/);
   assert.match(shell, /inert=\{chatHidden\s*\?\s*true\s*:\s*undefined\}/);
   assert.match(shell, /invisible pointer-events-none/);

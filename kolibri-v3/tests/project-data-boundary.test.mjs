@@ -49,20 +49,25 @@ test("the workspace shell does not fabricate projects or project metadata", asyn
 });
 
 test("an empty account gets honest project and desktop states", async () => {
-  const [overview, desktop, auxiliary, header] = await Promise.all([
-    readSource("components/kolibri-workspace/projects-overview.tsx"),
-    readSource("components/kolibri-shell/desktop-workspace/desktop-workspace.tsx"),
-    readSource("components/kolibri-shell/desktop-workspace/use-auxiliary-canvas.ts"),
-    readSource("components/kolibri-shell/workspace-header.tsx"),
-  ]);
+	const [overview, desktop, auxiliary, header, projectPicker] = await Promise.all([
+		readSource("components/kolibri-workspace/projects-overview.tsx"),
+		readSource(
+			"components/kolibri-shell/desktop-workspace/desktop-workspace.tsx",
+		),
+		readSource(
+			"components/kolibri-shell/desktop-workspace/use-auxiliary-canvas.ts",
+		),
+		readSource("components/kolibri-shell/workspace-header.tsx"),
+		readSource("components/kolibri-shell/workspace-project-picker.tsx"),
+	]);
 
   assert.match(overview, /Проектов пока нет/);
   assert.match(overview, /после сохранения сервером/);
   assert.match(overview, /disabled=\{projects\.length === 0\}/);
   assert.match(auxiliary, /content:\s*\{\s*kind:\s*["']files["']/);
   assert.match(desktop, /activeProject\?\.(?:id|name)/);
-  assert.match(header, /projectName\?\.trim\(\) \|\| null/);
-  assert.match(header, /Проект не выбран/);
+	assert.match(header, /projectName\?\.trim\(\) \|\| null/);
+	assert.match(projectPicker, /Проект не выбран/);
 });
 
 test("project rows open directly and remain distinguishable", async () => {

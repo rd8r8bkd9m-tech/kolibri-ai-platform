@@ -86,7 +86,7 @@ test("storage admin UI is mobile-first and honest about unavailable execution", 
   );
   const panel = read("components/kolibri-shell/storage-admin.tsx");
 
-  assert.match(section, /title="Хранилище"/);
+  assert.match(section, /title="Home и Primary"/);
   assert.match(section, /<StorageAdmin \/>/);
   assert.match(section, /icon=\{HardDrive\}/);
   assert.match(panel, /data-slot="storage-admin"/);

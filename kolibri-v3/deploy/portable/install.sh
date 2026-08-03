@@ -867,12 +867,12 @@ server {
     ssl_session_cache shared:KolibriSSL:10m;
     ssl_session_timeout 1d;
     ssl_session_tickets off;
+    server_tokens off;
     keepalive_timeout 65s;
     tcp_nodelay on;
     client_max_body_size 64m;
-    add_header X-Content-Type-Options nosniff always;
-    add_header X-Frame-Options SAMEORIGIN always;
-    add_header Referrer-Policy strict-origin-when-cross-origin always;
+    proxy_hide_header Server;
+    add_header Strict-Transport-Security "max-age=15552000" always;
     location = /livez {
         access_log off;
         proxy_pass http://127.0.0.1:$KOLIBRI_FRONTEND_PORT/api/live;

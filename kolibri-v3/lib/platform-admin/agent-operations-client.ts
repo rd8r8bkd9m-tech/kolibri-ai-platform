@@ -7,7 +7,7 @@ import {
 	platformAdminRequest,
 } from "@/lib/platform-admin/client";
 
-const SAFE_OPERATION_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,191}$/;
+const SAFE_OPERATION_ID = /^[A-Za-z0-9][A-Za-z0-9._:~-]{0,191}$/;
 const SAFE_CURSOR = /^[A-Za-z0-9_-]{1,2048}$/;
 const SAFE_VALUE = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const SAFE_TIMESTAMP = /^[0-9T:+Z. -]{1,64}$/;
@@ -106,6 +106,20 @@ export type AgentOperationsPage = {
 		providersTruncated: boolean;
 		runtimes: AgentRuntimeAvailability[];
 		runtimesTruncated: boolean;
+	};
+};
+
+export type AgentOperationDetail = {
+	task: AgentOperation["task"] & { publicThreadId: string };
+	messages: Array<{
+		id: string;
+		role: "assistant" | "user";
+		text: string;
+		createdAt: string;
+	}>;
+	control: {
+		canUseComposer: boolean;
+		canCancel: boolean;
 	};
 };
 
@@ -464,6 +478,62 @@ function parsePage(value: unknown): AgentOperationsPage {
 	};
 }
 
+function parseDetail(value: unknown): AgentOperationDetail {
+	if (
+		!isRecord(value) ||
+		!isRecord(value.task) ||
+		!Array.isArray(value.messages) ||
+		!isRecord(value.control)
+	) {
+		throw new Error("Контур агентов вернул некорректную задачу.");
+	}
+	const tenantId = safeId(value.task.tenantId);
+	const runId = safeId(value.task.runId);
+	const projectId = safeId(value.task.projectId);
+	const threadId = safeId(value.task.threadId);
+	const publicThreadId = safeId(value.task.publicThreadId);
+	const messages = value.messages.map((message) => {
+		if (!isRecord(message)) return null;
+		const id = safeId(message.id);
+		const createdAt = timestamp(message.createdAt);
+		if (
+			!id ||
+			!createdAt ||
+			(message.role !== "assistant" && message.role !== "user") ||
+			typeof message.text !== "string" ||
+			message.text.length > 200_000
+		) {
+			return null;
+		}
+		return {
+			id,
+			role: message.role,
+			text: message.text,
+			createdAt,
+		};
+	});
+	if (
+		!tenantId ||
+		!runId ||
+		!projectId ||
+		!threadId ||
+		!publicThreadId ||
+		messages.some((message) => message === null) ||
+		typeof value.control.canUseComposer !== "boolean" ||
+		typeof value.control.canCancel !== "boolean"
+	) {
+		throw new Error("Контур агентов вернул некорректную задачу.");
+	}
+	return {
+		task: { tenantId, runId, projectId, threadId, publicThreadId },
+		messages: messages as AgentOperationDetail["messages"],
+		control: {
+			canUseComposer: value.control.canUseComposer,
+			canCancel: value.control.canCancel,
+		},
+	};
+}
+
 export async function getAgentOperationsPage(
 	cursor?: string,
 	signal?: AbortSignal,
@@ -479,4 +549,30 @@ export async function getAgentOperationsPage(
 			{ signal },
 		),
 	);
+}
+
+export async function getAgentOperationDetail(
+	operation: Pick<AgentOperation, "task">,
+	signal?: AbortSignal,
+): Promise<AgentOperationDetail> {
+	const { runId, tenantId } = operation.task;
+	if (!SAFE_OPERATION_ID.test(tenantId) || !SAFE_OPERATION_ID.test(runId)) {
+		throw new Error("Некорректная агентная задача.");
+	}
+	return parseDetail(
+		await platformAdminRequest(
+			`/api/superadmin/agent-operations/${encodeURIComponent(tenantId)}/${encodeURIComponent(runId)}`,
+			{ signal },
+		),
+	);
+}
+
+export function agentOperationEventsUrl(
+	operation: Pick<AgentOperation, "task">,
+) {
+	const { runId, tenantId } = operation.task;
+	if (!SAFE_OPERATION_ID.test(tenantId) || !SAFE_OPERATION_ID.test(runId)) {
+		throw new Error("Некорректная агентная задача.");
+	}
+	return `/api/superadmin/agent-operations/${encodeURIComponent(tenantId)}/${encodeURIComponent(runId)}/events?after=0`;
 }

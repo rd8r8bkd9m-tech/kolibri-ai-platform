@@ -30,12 +30,13 @@ from app.chat.models import AgUiRunInput
 from app.chat.service import AcceptedRun, accept_run
 from app.config import Settings
 from app.database import connect_database, initialize_database, migration_paths
-from app.direct_model_runtime import _finish_success
+from app.direct_model_runtime import _finish_success, execute_direct_run
 from app.direct_run_outbox import (
     DIRECT_RUN_INTERRUPTED_CODE,
     DirectRunLeaseError,
     DirectRunStore,
 )
+from app.estimate_generation import create_generation_run
 from app.home_runtime import HomeRuntimeResponse
 from app.main import create_app
 import app.main as main_module
@@ -110,12 +111,13 @@ def _accept(
     run_id: str,
     thread_id: str = "thread_recovery_01",
     message_id: str = "message_recovery_01",
+    prompt: str = "Проанализируй уникальный контекст перезапуска сервиса.",
 ) -> AcceptedRun:
     run_input = _run_input(
         thread_id=thread_id,
         run_id=run_id,
         message_id=message_id,
-        prompt="Проанализируй уникальный контекст перезапуска сервиса.",
+        prompt=prompt,
     )
     database = connect_database(settings.database_url)
     try:
@@ -381,6 +383,174 @@ def test_expired_direct_lease_fails_closed_without_duplicate_commit(
     assert assistant_count == 0
 
 
+def test_estimate_ack_hands_off_and_expired_continuation_is_requeued(
+    tmp_path: Path,
+) -> None:
+    base = Settings.for_testing(database_url=tmp_path / "estimate-handoff.db")
+    identity = _register(base, email="estimate-handoff@example.com")
+    settings = replace(base, direct_model_runtime_enabled=True)
+    accepted = _accept(
+        settings,
+        identity,
+        execution_plane="direct",
+        run_id="run_estimate_handoff_01",
+    )
+    store = DirectRunStore(settings.database_url)
+    source_claim = store.claim_next(
+        worker_id="direct-estimate-ack",
+        lease_seconds=30,
+    )
+    assert source_claim is not None
+    database = connect_database(settings.database_url)
+    try:
+        generation = create_generation_run(
+            database,
+            tenant_id=accepted.tenant_id,
+            project_id=accepted.project_id,
+            created_by_user_id=identity.user_id,
+            project_case={
+                "schemaId": "kolibri.project_case",
+                "schemaVersion": "2.0",
+                "analysisStatus": "pending",
+                "region": "Регион не указан",
+                "currency": "RUB",
+                "object": {},
+                "facts": [],
+                "variables": {},
+                "assumptions": [],
+                "blockingQuestions": [],
+            },
+            idempotency_key="estimate-handoff-generation-01",
+            source_run_id=accepted.run_id,
+        )
+    finally:
+        database.close()
+
+    _finish_success(
+        settings,
+        source_claim,
+        "Смета принята в фоновую работу.",
+        continuation_generation_run_id=str(generation["id"]),
+    )
+    assert _run_status(settings, accepted) == "succeeded"
+    continuation = store.claim_next_generation(
+        worker_id="estimate-worker-before-restart",
+        lease_seconds=30,
+    )
+    assert continuation is not None
+    assert continuation.generation_run_id == generation["id"]
+
+    database = connect_database(settings.database_url)
+    try:
+        database.execute(
+            """
+            UPDATE direct_run_outbox
+            SET lease_until = '1970-01-01T00:00:00+00:00'
+            WHERE tenant_id = ? AND run_id = ?
+            """,
+            (continuation.tenant_id, continuation.run_id),
+        )
+    finally:
+        database.close()
+
+    assert store.recover() == 1
+    with pytest.raises(DirectRunLeaseError):
+        store.fence_generation(continuation)
+    resumed = store.claim_next_generation(
+        worker_id="estimate-worker-after-restart",
+        lease_seconds=30,
+    )
+    assert resumed is not None
+    assert resumed.generation_run_id == continuation.generation_run_id
+    assert resumed.fencing_token > continuation.fencing_token
+    assert _run_status(settings, accepted) == "succeeded"
+
+
+def test_exact_house_prompt_finishes_chat_before_provider_generation(
+    tmp_path: Path,
+) -> None:
+    base = Settings.for_testing(database_url=tmp_path / "estimate-fast-ack.db")
+    identity = _register(base, email="estimate-fast-ack@example.com")
+    identity = replace(
+        identity,
+        product_entitlements=("construction.estimates.use",),
+        product_entitlement_epoch=1,
+    )
+    settings = replace(base, direct_model_runtime_enabled=True)
+    accepted = _accept(
+        settings,
+        identity,
+        execution_plane="direct",
+        run_id="run_estimate_fast_ack_01",
+        prompt="Хочу построить кирпичный дом 38 м²",
+    )
+    store = DirectRunStore(settings.database_url)
+    claim = store.claim_next(worker_id="direct-fast-ack", lease_seconds=30)
+    assert claim is not None
+
+    # No provider is registered: the direct phase must only journal and ack.
+    execute_direct_run(settings, claim, AgentRuntimeRegistry())
+
+    database = connect_database(settings.database_url)
+    try:
+        run = database.execute(
+            """
+            SELECT status, assistant_message_id
+            FROM chat_runs WHERE tenant_id = ? AND id = ?
+            """,
+            (accepted.tenant_id, accepted.run_id),
+        ).fetchone()
+        message = database.execute(
+            """
+            SELECT content_text, content_json
+            FROM chat_messages
+            WHERE tenant_id = ? AND id = ?
+            """,
+            (accepted.tenant_id, run["assistant_message_id"]),
+        ).fetchone()
+        generation = database.execute(
+            """
+            SELECT id, status, source_run_id
+            FROM estimate_generation_runs
+            WHERE tenant_id = ? AND source_run_id = ?
+            """,
+            (accepted.tenant_id, accepted.run_id),
+        ).fetchone()
+        outbox = database.execute(
+            """
+            SELECT state FROM direct_run_outbox
+            WHERE tenant_id = ? AND run_id = ?
+            """,
+            (accepted.tenant_id, accepted.run_id),
+        ).fetchone()
+    finally:
+        database.close()
+    assert run["status"] == "succeeded"
+    assert message["content_text"] == "Формирование сметы"
+    activity = json.loads(message["content_json"])
+    assert activity["type"] == "tool-call"
+    assert activity["toolName"] == "present"
+    assert activity["args"] == {
+        "$type": "EstimateGenerationActivity",
+        "activitySchemaVersion": "1.0",
+        "activityProjectId": accepted.project_id,
+        "generationRunId": generation["id"],
+        "projectCaseVersion": 1,
+    }
+    assert "Оркестратор создал" not in message["content_text"]
+    assert "Смета принята в очередь" not in message["content_text"]
+    assert generation["status"] == "queued"
+    assert generation["source_run_id"] == accepted.run_id
+    assert outbox["state"] == "queued"
+
+    continuation = store.claim_next_generation(
+        worker_id="estimate-after-fast-ack",
+        lease_seconds=30,
+    )
+    assert continuation is not None
+    assert continuation.generation_run_id == generation["id"]
+
+
 def test_migration_38_backfills_running_direct_as_expired_lease(
     tmp_path: Path,
 ) -> None:
@@ -405,6 +575,15 @@ def test_migration_38_backfills_running_direct_as_expired_lease(
         database.execute("DROP TABLE direct_run_outbox")
         database.execute("DROP TABLE runtime_worker_heartbeats")
         database.execute("DROP TABLE agent_runtime_session_cache")
+        database.execute("DROP TABLE chat_run_workspace_contexts")
+        database.execute("DROP TABLE construction_agent_configuration_history")
+        database.execute("DROP TABLE construction_agent_configurations")
+        database.execute(
+            "ALTER TABLE document_slots DROP COLUMN estimate_lifecycle_status"
+        )
+        database.execute(
+            "ALTER TABLE estimate_versions DROP COLUMN lifecycle_status"
+        )
         database.execute("PRAGMA user_version = 38")
     finally:
         database.close()

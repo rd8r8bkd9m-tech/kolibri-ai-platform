@@ -34,6 +34,37 @@ AgentProfile: TypeAlias = Annotated[
 ]
 ExecutionMode = Literal["standard", "developer"]
 AccessMode = Literal["standard", "auto", "full"]
+WorkspaceSurface = Literal[
+    "chat",
+    "settings",
+    "projects",
+    "references",
+    "files",
+    "artifact",
+    "tool",
+    "launcher",
+]
+WorkspaceTabKind = Literal[
+    "settings",
+    "projects",
+    "references",
+    "files",
+    "tool",
+    "launcher",
+]
+WorkspaceSettingsSection = Literal[
+    "general",
+    "profile",
+    "appearance",
+    "pet",
+    "ai-models",
+    "security",
+    "billing",
+    "platform-admin",
+    "marketplaces",
+    "integrations",
+]
+WorkspaceToolMode = Literal["review", "terminal", "browser", "files"]
 
 
 class StrictModel(BaseModel):
@@ -159,6 +190,98 @@ AgUiMessage = Annotated[
 ]
 
 
+class WorkspaceContextTab(StrictModel):
+    id: str = Field(
+        strict=True,
+        min_length=1,
+        max_length=180,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9._~:/-]{0,179}$",
+    )
+    title: str = Field(strict=True, min_length=1, max_length=240)
+    kind: WorkspaceTabKind
+    project_id: str | None = Field(
+        default=None,
+        alias="projectId",
+        pattern=r"^project_[A-Za-z0-9._~-]{8,96}$",
+    )
+    settings_section: WorkspaceSettingsSection | None = Field(
+        default=None,
+        alias="settingsSection",
+    )
+    tool_mode: WorkspaceToolMode | None = Field(
+        default=None,
+        alias="toolMode",
+    )
+    minimized: bool
+
+    @model_validator(mode="after")
+    def validate_tab(self) -> "WorkspaceContextTab":
+        if (self.kind == "settings") != (self.settings_section is not None):
+            raise ValueError("settings tabs require exactly one settings section")
+        if (self.kind == "tool") != (self.tool_mode is not None):
+            raise ValueError("tool tabs require exactly one tool mode")
+        return self
+
+
+class WorkspaceContextArtifact(StrictModel):
+    id: str = Field(strict=True, min_length=1, max_length=180)
+    document_id: str | None = Field(
+        default=None,
+        alias="documentId",
+        pattern=r"^document_[A-Za-z0-9._~-]{8,96}$",
+    )
+    name: str = Field(strict=True, min_length=1, max_length=240)
+    kind: Literal["attachment", "contract", "document", "drawing", "estimate"]
+    version: int | None = Field(default=None, ge=1)
+    editable: bool
+
+    @model_validator(mode="after")
+    def validate_artifact(self) -> "WorkspaceContextArtifact":
+        if (self.document_id is None) != (self.version is None):
+            raise ValueError("versioned artifacts require a document and version")
+        return self
+
+
+class WorkspaceContext(StrictModel):
+    schema_version: Literal["1.0"] = Field(alias="schemaVersion")
+    surface: WorkspaceSurface
+    thread_project_id: str | None = Field(
+        default=None,
+        alias="threadProjectId",
+        pattern=r"^project_[A-Za-z0-9._~-]{8,96}$",
+    )
+    active_tab: WorkspaceContextTab | None = Field(
+        default=None,
+        alias="activeTab",
+    )
+    active_artifact: WorkspaceContextArtifact | None = Field(
+        default=None,
+        alias="activeArtifact",
+    )
+    open_tabs: list[WorkspaceContextTab] = Field(
+        default_factory=list,
+        max_length=20,
+        alias="openTabs",
+    )
+
+    @model_validator(mode="after")
+    def validate_surface(self) -> "WorkspaceContext":
+        if self.surface == "chat":
+            if self.active_tab is not None or self.active_artifact is not None:
+                raise ValueError("chat cannot have an active canvas tab")
+            return self
+        if self.active_tab is None:
+            raise ValueError("canvas surfaces require an active tab")
+        if self.surface == "artifact":
+            if self.active_artifact is None:
+                raise ValueError("artifact surfaces require an active artifact")
+        elif self.active_artifact is not None:
+            raise ValueError("only artifact surfaces accept an active artifact")
+        elif self.active_tab.kind != self.surface:
+            raise ValueError("active tab kind must match the current surface")
+        return self
+
+
 class ForwardedProps(StrictModel):
     agent_profile: AgentProfile | None = Field(
         default=None,
@@ -171,6 +294,10 @@ class ForwardedProps(StrictModel):
     access_mode: AccessMode = Field(
         default="standard",
         alias="accessMode",
+    )
+    workspace_context: WorkspaceContext | None = Field(
+        default=None,
+        alias="workspaceContext",
     )
 
     @model_validator(mode="after")
@@ -260,4 +387,13 @@ def canonical_run_payload(run_input: AgUiRunInput) -> dict[str, Any]:
         forwarded_props = payload.get("forwardedProps")
         if isinstance(forwarded_props, dict):
             forwarded_props.pop("accessMode", None)
+    workspace_context_was_omitted = (
+        "workspace_context" not in run_input.forwarded_props.model_fields_set
+    )
+    if workspace_context_was_omitted:
+        forwarded_props = payload.get("forwardedProps")
+        if isinstance(forwarded_props, dict):
+            # Preserve the canonical hash of pre-workspace-context clients.
+            # An explicit null remains distinct from an omitted field.
+            forwarded_props.pop("workspaceContext", None)
     return payload

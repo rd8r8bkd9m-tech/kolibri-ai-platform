@@ -1515,3 +1515,336 @@
   transform: none;
   transition: none;
 }
+
+.estimate-document-preview-shell {
+  overflow: hidden;
+  border: 1px solid color-mix(in oklab, var(--border) 80%, transparent);
+  border-radius: 1rem;
+  background: color-mix(in oklab, var(--muted) 22%, var(--background));
+}
+
+.estimate-document-preview-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid color-mix(in oklab, var(--border) 82%, transparent);
+  background: var(--card);
+}
+
+.estimate-preview-status {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.75rem;
+  padding: 0.25rem 0.6rem;
+  border: 1px solid color-mix(in oklab, var(--border) 88%, transparent);
+  border-radius: 999px;
+  color: var(--muted-foreground);
+  font-size: 0.6875rem;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+.estimate-preview-status.issued {
+  border-color: color-mix(in oklab, #128f88 42%, var(--border));
+  color: #0b6e68;
+}
+
+.estimate-preview-status.preliminary {
+  border-color: color-mix(in oklab, #a16207 34%, var(--border));
+  color: #8a5707;
+}
+
+.estimate-document-preview-pages {
+  display: grid;
+  gap: 1rem;
+  padding: 1rem;
+}
+
+.estimate-preview-page {
+  width: min(100%, 794px);
+  min-height: 1123px;
+  margin: 0 auto;
+  padding: 42px 48px 52px;
+  background-color: #fff;
+  background-image: url("/pets/masters/kolibri-v1.png");
+  background-repeat: no-repeat;
+  background-position: 48px 22px;
+  background-size: 34px 34px;
+  color: #111;
+  box-shadow: 0 8px 26px rgb(16 36 29 / 9%);
+  font-family: "Noto Sans", "Segoe UI", sans-serif;
+  font-size: 12px;
+  line-height: 1.42;
+}
+
+.estimate-preview-page::before {
+  display: block;
+  height: 1px;
+  margin-bottom: 34px;
+  background: #128f88;
+  content: "";
+}
+
+.estimate-preview-heading {
+  margin-bottom: 18px;
+  text-align: center;
+}
+
+.estimate-preview-heading h3 {
+  margin: 0;
+  color: #10241d;
+  font-size: 19px;
+  font-weight: 800;
+  line-height: 1.18;
+}
+
+.estimate-preview-heading p {
+  margin: 5px 0 0;
+  color: #111;
+  font-size: 11px;
+}
+
+.estimate-preview-meta {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  margin-bottom: 24px;
+  border: 1px solid #a8b4ae;
+}
+
+.estimate-preview-meta > div {
+  display: grid;
+  grid-template-columns: 94px minmax(0, 1fr);
+  min-width: 0;
+  border-bottom: 1px solid #a8b4ae;
+}
+
+.estimate-preview-meta > div:nth-last-child(-n + 2) {
+  border-bottom: 0;
+}
+
+.estimate-preview-meta > div:nth-child(odd) {
+  border-right: 1px solid #a8b4ae;
+}
+
+.estimate-preview-meta b,
+.estimate-preview-meta span {
+  padding: 7px 8px;
+}
+
+.estimate-preview-meta b {
+  background: #f2f5f3;
+  color: #10241d;
+  font-size: 10px;
+}
+
+.estimate-preview-meta span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 10px;
+}
+
+.estimate-preview-page h4 {
+  margin: 20px 0 9px;
+  color: #10241d;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.estimate-preview-table-wrap {
+  overflow-x: auto;
+  border: 1px solid #a8b4ae;
+}
+
+.estimate-preview-page table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 10px;
+}
+
+.estimate-preview-page th,
+.estimate-preview-page td {
+  border: 1px solid #a8b4ae;
+  padding: 6px 7px;
+  text-align: left;
+  vertical-align: top;
+}
+
+.estimate-preview-page th {
+  background: #f2f5f3;
+  color: #10241d;
+  font-weight: 800;
+}
+
+.estimate-preview-page td.is-number,
+.estimate-preview-page th:last-child {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.estimate-preview-lines {
+  min-width: 680px;
+}
+
+.estimate-preview-totals {
+  margin-top: 18px;
+  border-top: 1px solid #128f88;
+}
+
+.estimate-preview-totals > div,
+.estimate-preview-facts > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 7px 10px;
+  border-bottom: 1px solid #d7deda;
+}
+
+.estimate-preview-totals .is-total {
+  background: #e5ebe8;
+  border-top: 1px solid #10241d;
+  color: #10241d;
+  font-weight: 800;
+}
+
+.estimate-preview-facts {
+  margin-top: 18px;
+  border: 1px solid #a8b4ae;
+}
+
+.estimate-preview-facts b {
+  color: #10241d;
+}
+
+.estimate-preview-page ol,
+.estimate-preview-page ul {
+  margin: 0;
+  padding-left: 1.4rem;
+}
+
+.estimate-preview-page li {
+  margin: 4px 0;
+}
+
+.estimate-preview-columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  margin-top: 16px;
+}
+
+.estimate-preview-columns > div {
+  min-width: 0;
+  border: 1px solid #a8b4ae;
+  padding: 0 12px 12px;
+}
+
+.estimate-preview-note {
+  margin: 18px 0 0;
+  color: #66756d;
+  font-size: 10px;
+}
+
+.estimate-preview-total-line {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 12px;
+  padding: 9px 10px;
+  border-top: 1px solid #128f88;
+  background: #e5ebe8;
+  color: #10241d;
+}
+
+.estimate-preview-error,
+.estimate-preview-success {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  font-size: 0.75rem;
+}
+
+.estimate-preview-error {
+  color: #9a3412;
+  background: #fff7ed;
+  border-bottom: 1px solid #fed7aa;
+}
+
+.estimate-preview-success {
+  color: #0b6e68;
+  background: #f0fdfa;
+  border-bottom: 1px solid #99f6e4;
+}
+
+@media (max-width: 720px) {
+  .estimate-document-preview-toolbar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .estimate-document-preview-pages {
+    padding: 0.5rem;
+  }
+
+  .estimate-preview-page {
+    min-height: auto;
+    padding: 28px 18px 36px;
+    font-size: 11px;
+    background-position: 18px 14px;
+    background-size: 30px 30px;
+  }
+
+  .estimate-preview-meta {
+    grid-template-columns: 1fr;
+  }
+
+  .estimate-preview-meta > div,
+  .estimate-preview-meta > div:nth-child(odd) {
+    border-right: 0;
+    border-bottom: 1px solid #a8b4ae;
+  }
+
+  .estimate-preview-meta > div:last-child {
+    border-bottom: 0;
+  }
+
+  .estimate-preview-columns {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media print {
+  .estimate-document-preview-shell {
+    overflow: visible;
+    border: 0;
+    background: #fff;
+  }
+
+  .estimate-document-preview-toolbar,
+  .estimate-preview-error,
+  .estimate-preview-success {
+    display: none;
+  }
+
+  .estimate-document-preview-pages {
+    display: block;
+    padding: 0;
+  }
+
+  .estimate-preview-page {
+    width: 100%;
+    min-height: 0;
+    margin: 0;
+    padding: 18mm;
+    background-position: 18mm 12mm;
+    background-size: 12mm 12mm;
+    box-shadow: none;
+    break-after: page;
+  }
+
+  .estimate-preview-page:last-child {
+    break-after: auto;
+  }
+}

@@ -1,12 +1,13 @@
-"""Truthful, read-only platform view of agent task execution.
+"""Truthful owner view of agent task execution and its durable event journal.
 
-The projection deliberately excludes chat messages, prompts, command payloads,
-lease credentials, filesystem paths, provider evidence, and stored secrets.
-It has no mutation or execution endpoints.
+The list projection excludes prompts and event payloads.  An explicitly
+selected task can expose its bounded conversation and saved AG-UI events to
+the live platform owner after the authority grant is re-checked.
 """
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import binascii
 import json
@@ -15,9 +16,12 @@ import sqlite3
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
+from fastapi.responses import StreamingResponse
 
 from .agent_runtime import AgentRuntimeRegistry
-from .database import get_database
+from .chat.events import SSE_HEADERS, encode_heartbeat, encode_sse
+from .config import Settings
+from .database import connect_database, get_database
 from .identity import require_user
 from .schemas import UserSession
 
@@ -37,11 +41,16 @@ RunStatusFilter = Annotated[
     Literal["running", "succeeded", "failed"] | None,
     Query(alias="status"),
 ]
+EventCursor = Annotated[
+    int | None,
+    Query(alias="after", ge=0, le=9_223_372_036_854_775_807),
+]
 
 _CURSOR_VERSION = 1
 _MAX_CURSOR_LENGTH = 2_048
 _MAX_RUNTIME_ROWS = 64
 _MAX_PROVIDER_ROWS = 100
+_SAFE_OPERATION_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:~-]{0,191}$")
 _SAFE_ERROR_CODE = re.compile(r"^[a-z][a-z0-9_.:-]{2,127}$")
 _SAFE_MODEL_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$")
 _SENSITIVE_PREFIXES = (
@@ -184,6 +193,101 @@ def _safe_model(value: object) -> tuple[str | None, bool]:
     ):
         return normalized, False
     return None, True
+
+
+def _event_cursor(request: Request, after: int | None) -> int:
+    raw_cursor = request.headers.get("last-event-id")
+    if raw_cursor is None:
+        return after or 0
+    if (
+        not raw_cursor
+        or len(raw_cursor) > 20
+        or not raw_cursor.isascii()
+        or not raw_cursor.isdecimal()
+    ):
+        raise _error(400, "run_cursor_invalid", "Run cursor is invalid.")
+    cursor = int(raw_cursor)
+    if cursor > 9_223_372_036_854_775_807:
+        raise _error(400, "run_cursor_invalid", "Run cursor is invalid.")
+    return cursor
+
+
+def _selected_run(
+    database: sqlite3.Connection,
+    *,
+    tenant_id: str,
+    run_id: str,
+) -> sqlite3.Row | None:
+    return database.execute(
+        """
+        SELECT run.*, COALESCE(mapping.client_thread_id, run.thread_id)
+                   AS public_thread_id
+        FROM chat_runs AS run
+        LEFT JOIN chat_client_threads AS mapping
+          ON mapping.tenant_id = run.tenant_id
+         AND mapping.thread_id = run.thread_id
+        WHERE run.tenant_id = ? AND run.id = ?
+        LIMIT 1
+        """,
+        (tenant_id, run_id),
+    ).fetchone()
+
+
+async def _stream_operation_events(
+    *,
+    settings: Settings,
+    tenant_id: str,
+    run_id: str,
+    start_after: int,
+) -> object:
+    cursor = start_after
+    while True:
+        database = connect_database(settings.database_url)
+        try:
+            rows = database.execute(
+                """
+                SELECT sequence, event_type, event_json
+                FROM chat_run_events
+                WHERE tenant_id = ? AND run_id = ? AND sequence > ?
+                ORDER BY sequence ASC
+                LIMIT 100
+                """,
+                (tenant_id, run_id, cursor),
+            ).fetchall()
+            run = (
+                None
+                if rows
+                else database.execute(
+                    """
+                    SELECT status, last_event_sequence
+                    FROM chat_runs
+                    WHERE tenant_id = ? AND id = ?
+                    LIMIT 1
+                    """,
+                    (tenant_id, run_id),
+                ).fetchone()
+            )
+        finally:
+            database.close()
+        if rows:
+            for row in rows:
+                value = json.loads(str(row["event_json"]))
+                value["sequence"] = int(row["sequence"])
+                cursor = int(row["sequence"])
+                yield encode_sse(value)
+                if str(row["event_type"]) in {"RUN_FINISHED", "RUN_ERROR"}:
+                    return
+            continue
+        if (
+            run is None
+            or (
+                str(run["status"]) != "running"
+                and cursor >= int(run["last_event_sequence"])
+            )
+        ):
+            return
+        yield encode_heartbeat()
+        await asyncio.sleep(settings.product_run_poll_seconds)
 
 
 def _run_projection(row: sqlite3.Row) -> dict[str, Any]:
@@ -461,3 +565,110 @@ def list_agent_operations(
             "runtimesTruncated": runtimes_truncated,
         },
     }
+
+
+@router.get("/{tenant_id}/{run_id}")
+def get_agent_operation(
+    tenant_id: str,
+    run_id: str,
+    database: DatabaseDependency,
+    identity: IdentityDependency,
+) -> dict[str, Any]:
+    try:
+        require_platform_audit_authority(database, identity=identity)
+    except PlatformAuditAuthorityError as exc:
+        raise _error(exc.status_code, exc.code, exc.message) from exc
+    if (
+        _SAFE_OPERATION_ID.fullmatch(tenant_id) is None
+        or _SAFE_OPERATION_ID.fullmatch(run_id) is None
+    ):
+        raise _error(404, "agent_operation_not_found", "Agent task was not found.")
+    run = _selected_run(database, tenant_id=tenant_id, run_id=run_id)
+    if run is None:
+        raise _error(404, "agent_operation_not_found", "Agent task was not found.")
+
+    message_ids = [str(run["input_message_id"])]
+    if run["assistant_message_id"] is not None:
+        message_ids.append(str(run["assistant_message_id"]))
+    placeholders = ",".join("?" for _ in message_ids)
+    messages = database.execute(
+        f"""
+        SELECT id, role, content_text, created_at
+        FROM chat_messages
+        WHERE tenant_id = ? AND thread_id = ?
+          AND id IN ({placeholders})
+        ORDER BY sequence ASC
+        """,
+        (tenant_id, str(run["thread_id"]), *message_ids),
+    ).fetchall()
+    can_control = (
+        tenant_id == identity.tenant_id
+        and str(run["requested_by_user_id"]) == identity.user_id
+    )
+    return {
+        "task": {
+            "tenantId": tenant_id,
+            "runId": run_id,
+            "projectId": str(run["project_id"]),
+            "threadId": str(run["thread_id"]),
+            "publicThreadId": str(run["public_thread_id"]),
+        },
+        "messages": [
+            {
+                "id": str(message["id"]),
+                "role": str(message["role"]),
+                "text": str(message["content_text"]),
+                "createdAt": str(message["created_at"]),
+            }
+            for message in messages
+        ],
+        "control": {
+            "canUseComposer": can_control,
+            "canCancel": can_control and str(run["status"]) == "running",
+        },
+    }
+
+
+@router.get("/{tenant_id}/{run_id}/events")
+def stream_agent_operation_events(
+    tenant_id: str,
+    run_id: str,
+    request: Request,
+    database: DatabaseDependency,
+    identity: IdentityDependency,
+    after: EventCursor = None,
+) -> StreamingResponse:
+    try:
+        require_platform_audit_authority(database, identity=identity)
+    except PlatformAuditAuthorityError as exc:
+        raise _error(exc.status_code, exc.code, exc.message) from exc
+    if (
+        _SAFE_OPERATION_ID.fullmatch(tenant_id) is None
+        or _SAFE_OPERATION_ID.fullmatch(run_id) is None
+    ):
+        raise _error(404, "agent_operation_not_found", "Agent task was not found.")
+    cursor = _event_cursor(request, after)
+    run = _selected_run(database, tenant_id=tenant_id, run_id=run_id)
+    if run is None:
+        raise _error(404, "agent_operation_not_found", "Agent task was not found.")
+    if cursor > int(run["last_event_sequence"]):
+        raise _error(
+            status.HTTP_409_CONFLICT,
+            "run_cursor_ahead",
+            "Run cursor is ahead of the durable event stream.",
+        )
+    settings: Settings = request.app.state.settings
+    return StreamingResponse(
+        _stream_operation_events(
+            settings=settings,
+            tenant_id=tenant_id,
+            run_id=run_id,
+            start_after=cursor,
+        ),
+        status_code=status.HTTP_200_OK,
+        media_type="text/event-stream",
+        headers={
+            **SSE_HEADERS,
+            "X-Kolibri-Run-Id": run_id,
+        },
+    )

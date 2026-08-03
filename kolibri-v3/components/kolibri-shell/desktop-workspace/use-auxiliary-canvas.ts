@@ -1,10 +1,15 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import {
+	profileSettingsSectionLabel,
+	type ProfileSettingsSection,
+} from "@/components/kolibri-shell/profile-settings-surface";
 import type { WorkspaceFile } from "@/components/kolibri-workspace";
 import {
 	activateCanvasTab,
 	type CanvasTabContent,
+	type CanvasTabPlacement,
 	closeCanvasTab,
 	createCanvasSession,
 	getActiveCanvasTab,
@@ -27,10 +32,16 @@ import type { WorkspaceProject } from "@/lib/workspace-types";
 type OpenAuxiliaryTabInput = {
 	content: CanvasTabContent;
 	id: string;
+	maximized?: boolean;
+	placement?: CanvasTabPlacement;
 	projectId?: string | null;
 	selectedFile?: WorkspaceFile | null;
 	title: string;
 };
+
+// The desktop shell has one central Canvas projection. Main destinations are
+// states of that projection, not independent pages or an accumulating tab bar.
+const PRIMARY_CANVAS_SURFACE_ID = "workspace:primary-surface";
 
 function toolTitle(mode: ContextPanelMode) {
 	return (
@@ -52,8 +63,16 @@ export function useAuxiliaryCanvas({
 	const [visible, setVisible] = useState(false);
 	const activeTab = getActiveCanvasTab(session);
 	const open = visible && activeTab !== null;
-	const fullscreen = open && Boolean(activeTab?.maximized);
-	const visibleTabs = session.tabs.filter((tab) => !tab.minimized);
+	const fullscreen =
+		open && activeTab?.placement === "right" && Boolean(activeTab.maximized);
+	const primaryOpen = open && activeTab?.placement === "primary" && !fullscreen;
+	const rightOpen = open && activeTab?.placement === "right" && !fullscreen;
+	const visibleTabs = activeTab
+		? session.tabs.filter(
+				(tab) =>
+					!tab.minimized && tab.placement === activeTab.placement,
+			)
+		: [];
 	const activeTool: ContextPanelMode | null =
 		activeTab?.content.kind === "files"
 			? "files"
@@ -83,20 +102,30 @@ export function useAuxiliaryCanvas({
 		({
 			content,
 			id,
+			maximized,
+			placement = "right",
 			projectId = activeProject?.id ?? null,
 			selectedFile = null,
 			title,
 		}: OpenAuxiliaryTabInput) => {
-			setSession((current) =>
-				openCanvasTab(current, {
+			setSession((current) => {
+				const baseSession =
+					placement === "primary"
+						? createCanvasSession(
+								current.tabs.filter((tab) => tab.placement !== "primary"),
+								current.activeTabId,
+							)
+						: current;
+				return openCanvasTab(baseSession, {
 					content,
-					id,
-					placement: "right",
+					id: placement === "primary" ? PRIMARY_CANVAS_SURFACE_ID : id,
+					maximized,
+					placement,
 					projectId,
 					selectedFile,
 					title,
-				}),
-			);
+				});
+			});
 			setVisible(true);
 			onInteraction();
 		},
@@ -121,6 +150,7 @@ export function useAuxiliaryCanvas({
 		openTab({
 			content: { kind: "projects" },
 			id: "auxiliary:projects",
+			placement: "primary",
 			title: "Проекты",
 		});
 	}, [openTab]);
@@ -128,25 +158,42 @@ export function useAuxiliaryCanvas({
 	const openReferences = useCallback(() => {
 		openTab({
 			content: { kind: "references" },
-			id: "auxiliary:references",
+			id: `auxiliary:references:${activeProject?.id ?? "none"}`,
+			placement: "primary",
+			projectId: activeProject?.id ?? null,
 			title: "Справочники",
 		});
-	}, [openTab]);
+	}, [activeProject?.id, openTab]);
+
+	const openSettings = useCallback(
+		(section: ProfileSettingsSection = "general") => {
+			openTab({
+				content: { kind: "settings", section },
+				id: "workspace:settings",
+				placement: "primary",
+				projectId: null,
+				title: `Настройки · ${profileSettingsSectionLabel(section)}`,
+			});
+		},
+		[openTab],
+	);
 
 	const openFiles = useCallback(
-		(input: {
-			category?: WorkspaceFile["category"];
-			projectId?: string | null;
-			title?: string;
-		} = {}) => {
+		(
+			input: {
+				category?: WorkspaceFile["category"];
+				projectId?: string | null;
+				title?: string;
+			} = {},
+		) => {
 			const projectId = input.projectId ?? activeProject?.id ?? null;
 			openTab({
 				content: { kind: "files", category: input.category ?? "all" },
 				id: `auxiliary:files:${projectId ?? "workspace"}`,
+				placement: "primary",
 				projectId,
 				title:
-					input.title ??
-					(projectId ? `Документы · ${projectId}` : "Документы"),
+					input.title ?? (projectId ? `Документы · ${projectId}` : "Документы"),
 			});
 		},
 		[activeProject?.id, openTab],
@@ -157,6 +204,7 @@ export function useAuxiliaryCanvas({
 			openTab({
 				content: { kind: "files", category: "all" },
 				id: `auxiliary:project:${project.id}`,
+				placement: "primary",
 				projectId: project.id,
 				title: project.name,
 			});
@@ -164,11 +212,33 @@ export function useAuxiliaryCanvas({
 		[openTab],
 	);
 
+	const selectProject = useCallback(
+		(project: WorkspaceProject) => {
+			if (!activeTab) {
+				openProject(project);
+				return;
+			}
+
+			setSession((current) =>
+				updateCanvasTab(current, activeTab.id, {
+					content: { kind: "files", category: "all" },
+					projectId: project.id,
+					selectedFile: null,
+					title: project.name,
+				}),
+			);
+			setVisible(true);
+			onInteraction();
+		},
+		[activeTab, onInteraction, openProject],
+	);
+
 	const openFile = useCallback(
 		(file: WorkspaceFile) => {
 			openTab({
 				content: { kind: "files", category: file.category },
 				id: `artifact:${file.documentId ?? file.id}`,
+				placement: "primary",
 				projectId: file.projectId ?? null,
 				selectedFile: file,
 				title: file.name,
@@ -178,20 +248,28 @@ export function useAuxiliaryCanvas({
 	);
 
 	const toggle = useCallback(() => {
-		if (open) {
+		if (open && activeTab?.placement === "right") {
 			setVisible(false);
 			return;
 		}
-		if (activeTab) {
+		const restorableRightTab = [...session.tabs]
+			.reverse()
+			.find((tab) => tab.placement === "right" && !tab.minimized);
+		if (restorableRightTab) {
+			setSession((current) =>
+				activateCanvasTab(current, restorableRightTab.id),
+			);
 			setVisible(true);
+			onInteraction();
 			return;
 		}
 		openTab({
 			content: { kind: "launcher" },
 			id: "auxiliary:launcher",
+			placement: "right",
 			title: "Инструменты",
 		});
-	}, [activeTab, open, openTab]);
+	}, [activeTab?.placement, onInteraction, open, openTab, session.tabs]);
 
 	const updateTool = useCallback(
 		(mode: ContextPanelMode | null) => {
@@ -216,14 +294,26 @@ export function useAuxiliaryCanvas({
 		if (!activeTab) return;
 		const next = closeCanvasTab(session, activeTab.id);
 		setSession(next);
-		setVisible(getActiveCanvasTab(next) !== null);
+		setVisible(
+			activeTab.placement === "right"
+				? false
+				: getActiveCanvasTab(next) !== null,
+		);
 	}, [activeTab, session]);
+
+	const dismiss = useCallback(() => {
+		setVisible(false);
+	}, []);
 
 	const minimize = useCallback(() => {
 		if (!activeTab) return;
 		const next = minimizeCanvasTab(session, activeTab.id);
 		setSession(next);
-		setVisible(getActiveCanvasTab(next) !== null);
+		setVisible(
+			activeTab.placement === "right"
+				? false
+				: getActiveCanvasTab(next) !== null,
+		);
 	}, [activeTab, session]);
 
 	const selectTab = useCallback((tabId: string) => {
@@ -233,6 +323,7 @@ export function useAuxiliaryCanvas({
 
 	const toggleFullscreen = useCallback(() => {
 		if (!activeTab) return;
+		if (activeTab.placement !== "right") return;
 		setSession((current) =>
 			updateCanvasTab(current, activeTab.id, {
 				maximized: !activeTab.maximized,
@@ -287,6 +378,7 @@ export function useAuxiliaryCanvas({
 			openTab({
 				content: { kind: "files", category: "estimates" },
 				id: `artifact:${detail.documentId}`,
+				placement: "primary",
 				projectId: detail.projectId,
 				selectedFile: file,
 				title: detail.title,
@@ -302,17 +394,22 @@ export function useAuxiliaryCanvas({
 		activeTab,
 		activeTool,
 		close,
+		dismiss,
 		fullscreen,
 		minimize,
 		open,
+		primaryOpen,
 		openFile,
 		openFiles,
 		openProject,
 		openProjects,
 		openReferences,
+		openSettings,
 		openTool,
 		restoreTab,
+		rightOpen,
 		selectFile,
+		selectProject,
 		selectTab,
 		session,
 		toggle,

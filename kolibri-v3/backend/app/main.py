@@ -27,8 +27,12 @@ from .billing.router import router as billing_router
 from .capability_manifest import router as capability_manifest_router
 from .config import Settings
 from .chat.cancellation import ActiveRunCancellationRegistry
-from .chat.execution_adapter import DirectRunDispatcher
+from .chat.execution_adapter import (
+    DirectRunDispatcher,
+    EstimateGenerationDispatcher,
+)
 from .chat.router import router as chat_router
+from .construction.admin_router import router as construction_agent_admin_router
 from .database import connect_database, initialize_database, migration_paths
 from .direct_model_runtime import build_agent_runtime_registry
 from .document_catalog import router as document_catalog_router
@@ -39,6 +43,9 @@ from .image_generation import (
     UnavailableImageGenerationProvider,
 )
 from .estimate_engine_router import router as estimate_engine_router
+from .estimate_generation_router import router as estimate_generation_router
+from .estimate_catalog_router import router as estimate_catalog_router
+from .estimate_document_router import router as estimate_document_router
 from .generated_image_artifacts import router as generated_artifacts_router
 from .local_provider_authority import ensure_local_provider_master_key
 from .market_catalog_router import router as market_catalog_router
@@ -106,7 +113,7 @@ def _public_error(
     code: str,
     message: str,
     headers: dict[str, str] | None = None,
-    details: dict[str, int] | None = None,
+    details: dict[str, object] | None = None,
 ) -> JSONResponse:
     response_headers = {**NO_STORE_HEADERS, **(headers or {})}
     return JSONResponse(
@@ -177,6 +184,12 @@ def create_app(
             else None
         )
         app.state.direct_model_executor = direct_model_executor
+        estimate_generation_executor = (
+            ThreadPoolExecutor(max_workers=1, thread_name_prefix="kolibri-estimate")
+            if configured.direct_model_runtime_enabled
+            else None
+        )
+        app.state.estimate_generation_executor = estimate_generation_executor
         direct_run_dispatcher = (
             DirectRunDispatcher(
                 settings=configured,
@@ -188,17 +201,37 @@ def create_app(
             else None
         )
         app.state.direct_run_dispatcher = direct_run_dispatcher
+        estimate_generation_dispatcher = (
+            EstimateGenerationDispatcher(
+                settings=configured,
+                executor=estimate_generation_executor,
+                runtime_registry=agent_runtimes,
+                cancellations=app.state.run_cancellations,
+            )
+            if estimate_generation_executor is not None
+            else None
+        )
+        app.state.estimate_generation_dispatcher = estimate_generation_dispatcher
         app.state.image_generation_provider = configured_image_provider
         if direct_run_dispatcher is not None:
             direct_run_dispatcher.start()
+        if estimate_generation_dispatcher is not None:
+            estimate_generation_dispatcher.start()
         try:
             yield
         finally:
             if direct_run_dispatcher is not None:
                 direct_run_dispatcher.close()
+            if estimate_generation_dispatcher is not None:
+                estimate_generation_dispatcher.close()
             app.state.run_cancellations.close()
             if direct_model_executor is not None:
                 direct_model_executor.shutdown(
+                    wait=False,
+                    cancel_futures=True,
+                )
+            if estimate_generation_executor is not None:
+                estimate_generation_executor.shutdown(
                     wait=False,
                     cancel_futures=True,
                 )
@@ -219,6 +252,8 @@ def create_app(
     app.state.run_cancellations = ActiveRunCancellationRegistry()
     app.state.direct_model_executor = None
     app.state.direct_run_dispatcher = None
+    app.state.estimate_generation_executor = None
+    app.state.estimate_generation_dispatcher = None
     app.state.image_generation_provider = configured_image_provider
     app.add_middleware(
         CORSMiddleware,
@@ -309,6 +344,12 @@ def create_app(
                     and not isinstance(value, bool)
                     and value >= 1
                 }
+                required_fields = error.detail.get("requiredFields")
+                if isinstance(required_fields, list) and all(
+                    isinstance(item, str) and 0 < len(item) <= 240
+                    for item in required_fields
+                ):
+                    public_details["requiredFields"] = required_fields[:20]
                 return _public_error(
                     error.status_code,
                     code=raw_code,
@@ -528,11 +569,15 @@ def create_app(
     app.include_router(provider_execution_router)
     app.include_router(model_catalog_router)
     app.include_router(platform_admin_router)
+    app.include_router(construction_agent_admin_router)
     app.include_router(trusted_agent_control_router)
     app.include_router(agent_operations_router)
     app.include_router(storage_admin_router)
     app.include_router(project_artifacts_router)
     app.include_router(estimate_engine_router)
+    app.include_router(estimate_generation_router)
+    app.include_router(estimate_catalog_router)
+    app.include_router(estimate_document_router)
     app.include_router(project_context_router)
     app.include_router(document_catalog_router)
     app.include_router(pricing_router)

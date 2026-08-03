@@ -134,6 +134,47 @@ test("history parser accepts only the documented EstimateEditor provenance alias
   assert.deepEqual(JSON.parse(part.argsText), currentArgs);
 });
 
+test("history stores EstimateEditor 1.4 as a compact document reference", () => {
+	const compact = {
+		$type: "EstimateEditor",
+		schemaVersion: "1.4",
+		projectId: "project_history_compatibility01",
+		documentId: "document_history_compatibility01",
+		version: 7,
+		rows: [],
+		rowPage: { offset: 0, limit: 0, totalRows: 12_480, hasMore: true },
+	};
+	const parsed = contracts.parseProductChatMessagePage(
+		page(
+			message(
+				"message_history_estimate_reference01",
+				toolPart({ args: compact, argsText: JSON.stringify(compact) }),
+			),
+		),
+		threadId,
+	);
+	assert.deepEqual(parsed.messages[0].content[0].args, compact);
+	assert.throws(
+		() =>
+			contracts.parseProductChatMessagePage(
+				page(
+					message(
+						"message_history_estimate_inline01",
+						toolPart({
+							args: { ...compact, rows: [{ id: "row_inline_12345678" }] },
+							argsText: JSON.stringify({
+								...compact,
+								rows: [{ id: "row_inline_12345678" }],
+							}),
+						}),
+					),
+				),
+				threadId,
+			),
+		contracts.ProductChatContractError,
+	);
+});
+
 test("history parser still rejects malformed or conflicting tool arguments", () => {
   const invalidParts = [
     toolPart({ args: undefined, argsText: undefined }),

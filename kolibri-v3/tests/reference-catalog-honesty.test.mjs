@@ -16,6 +16,7 @@ test("reference catalog preserves navigation without inventing source data", asy
   const catalog = await readSource(
     "components/kolibri-workspace/reference-catalog.tsx",
   );
+  const catalogRoute = await readSource("app/api/v3/pricing/catalog/route.ts");
 
   for (const category of [
     "Работы",
@@ -53,7 +54,10 @@ test("reference catalog preserves navigation without inventing source data", asy
 
   assert.doesNotMatch(catalog, /DEMO-[WMUICT]-\d+/);
   assert.doesNotMatch(catalog, /Демо-набор|Учебная позиция|snapshot\s*:/i);
-  assert.match(catalog, /["']\/api\/v3\/pricing\/catalog\?limit=100["']/);
+  assert.match(catalog, /\/api\/v3\/pricing\/catalog\?limit=100&projectId=/);
+  assert.match(catalog, /crossProjectEnabled:\s*false/);
+  assert.match(catalog, /confidence/);
+  assert.match(catalog, /aiPreliminary/);
   assert.match(catalog, /scope:\s*["']personal["']/);
   assert.match(catalog, /crossTenantEnabled:\s*false/);
   assert.match(catalog, /data_status:\s*catalogState/);
@@ -62,4 +66,7 @@ test("reference catalog preserves navigation without inventing source data", asy
   assert.match(catalog, /Не удалось загрузить справочник/);
   assert.match(catalog, /Цены появятся после создания и редактирования сметы/);
   assert.match(catalog, /<Input\b/);
+  assert.match(catalogRoute, /target\.set\("projectId", projectId\)/);
+  assert.match(catalogRoute, /target\.set\("category", category\)/);
+  assert.match(catalogRoute, /target\.set\("source", catalogSource\)/);
 });

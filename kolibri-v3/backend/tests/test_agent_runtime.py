@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 import inspect
+import json
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -9,6 +10,7 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
+import app.direct_model_runtime as direct_model_runtime_module
 import app.main as main_module
 from app.agent_runtime import (
     AGENT_RUNTIME_SCHEMA_ID,
@@ -290,3 +292,234 @@ def test_two_developer_turns_reuse_one_runtime_session_key(
         "tenant_runtime_contract:thread_runtime_contract:mimo-code-runtime"
     }
     assert first.session_id == second.session_id == "ses_runtime_contract"
+
+
+class _StructuredMimoResponse:
+    status_code = 200
+
+    @staticmethod
+    def json() -> dict[str, Any]:
+        return {"choices": [{"message": {"content": "{}"}}]}
+
+
+class _RecordingStructuredMimoTransport:
+    def __init__(self) -> None:
+        self.calls: list[dict[str, Any]] = []
+
+    def post(self, url: str, *, api_key: str, payload: dict[str, Any]):
+        self.calls.append(
+            {
+                "url": url,
+                "api_key": api_key,
+                "payload": payload,
+            }
+        )
+        return _StructuredMimoResponse()
+
+
+class _FailingCodexTransport:
+    def __init__(self, error: Exception) -> None:
+        self.error = error
+
+    def complete(self, **_kwargs: Any) -> None:
+        raise self.error
+
+
+def test_mimo_structured_profile_sends_complete_initial_prompt_once(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        direct_model_runtime_module,
+        "load_mimo_key",
+        lambda _settings, *, tenant_id: f"test-key-for-{tenant_id}",
+    )
+    transport = _RecordingStructuredMimoTransport()
+    runtime = _mimo_runtime_adapter(
+        Settings.for_testing(database_url=tmp_path / "runtime.db"),
+        client_transport=transport,  # type: ignore[arg-type]
+        developer_transport=None,
+    )
+    complete_stage_input = (
+        "CANONICAL_CONVERSATION_IN_INITIAL_PROMPT\n"
+        "PROJECT_CASE_SENTINEL\nATTACHMENT_CHUNK_SENTINEL"
+    )
+    request = AgentRuntimeRequest(
+        tenant_id="tenant_runtime_contract",
+        user_id="user_runtime_contract",
+        project_id="project_runtime_contract",
+        thread_id="thread_runtime_contract",
+        run_id="run_runtime_contract_structured",
+        credential_tenant_id="tenant_runtime_contract",
+        mode="structured",
+        execution_profile="estimate-plan",
+        messages=(
+            AgentRuntimeMessage(
+                role="user",
+                content="RAW_CANONICAL_MESSAGE_MUST_NOT_BE_DUPLICATED",
+            ),
+        ),
+        initial_prompt=complete_stage_input,
+        followup_prompt=complete_stage_input,
+        instructions="Верни только JSON.",
+        timeout_seconds=10,
+        output_schema={"type": "object"},
+    )
+
+    result = runtime.execute(request)
+
+    assert result.text == "{}"
+    assert len(transport.calls) == 1
+    [system_message, user_message] = transport.calls[0]["payload"]["messages"]
+    assert system_message["role"] == "system"
+    assert user_message == {"role": "user", "content": complete_stage_input}
+    payload_text = json.dumps(
+        transport.calls[0]["payload"]["messages"],
+        ensure_ascii=False,
+    )
+    assert "PROJECT_CASE_SENTINEL" in payload_text
+    assert "ATTACHMENT_CHUNK_SENTINEL" in payload_text
+    assert "RAW_CANONICAL_MESSAGE_MUST_NOT_BE_DUPLICATED" not in payload_text
+
+
+@pytest.mark.parametrize("mode", ["chat", "structured"])
+def test_codex_and_mimo_transient_failures_share_retry_contract(
+    mode: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fail_request(*_args: Any, **_kwargs: Any) -> None:
+        raise direct_model_runtime_module.DirectModelError(
+            "mimo_request_failed",
+            "MiMo Code сейчас недоступен. Повторите запрос.",
+        )
+
+    monkeypatch.setattr(
+        direct_model_runtime_module,
+        (
+            "_mimo_structured_response"
+            if mode == "structured"
+            else "_mimo_response"
+        ),
+        fail_request,
+    )
+    settings = Settings.for_testing(database_url=tmp_path / "runtime.db")
+    runtimes = (
+        (
+            direct_model_runtime_module._codex_runtime_adapter(
+                settings,
+                _FailingCodexTransport(
+                    direct_model_runtime_module.CodexAppServerError(
+                        "temporary Codex transport failure"
+                    )
+                ),
+            ),
+            "codex_request_failed",
+        ),
+        (
+            _mimo_runtime_adapter(
+                settings,
+                client_transport=object(),
+                developer_transport=None,
+            ),
+            "mimo_request_failed",
+        ),
+    )
+    request = _chat_request(run_id=f"run_mimo_{mode}_transport_failure")
+    if mode == "structured":
+        request = replace(
+            request,
+            mode="structured",
+            execution_profile="estimate-plan",
+            output_schema={"type": "object"},
+        )
+
+    errors: list[AgentRuntimeError] = []
+    for runtime, expected_code in runtimes:
+        with pytest.raises(AgentRuntimeError) as error:
+            runtime.execute(request)
+        assert error.value.code == expected_code
+        errors.append(error.value)
+
+    assert {(error.category, error.retryable) for error in errors} == {
+        ("unavailable", True)
+    }
+
+
+@pytest.mark.parametrize(
+    "error_code",
+    [
+        "mimo_api_key_rejected",
+        "mimo_base_url_invalid",
+        "mimo_web_search_unavailable",
+    ],
+)
+def test_mimo_client_policy_and_configuration_failures_are_not_retryable(
+    error_code: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fail_request(*_args: Any, **_kwargs: Any) -> None:
+        raise direct_model_runtime_module.DirectModelError(
+            error_code,
+            "Проверяемая ошибка MiMo.",
+        )
+
+    monkeypatch.setattr(
+        direct_model_runtime_module,
+        "_mimo_structured_response",
+        fail_request,
+    )
+    runtime = _mimo_runtime_adapter(
+        Settings.for_testing(database_url=tmp_path / "runtime.db"),
+        client_transport=object(),
+        developer_transport=None,
+    )
+    request = replace(
+        _chat_request(run_id=f"run_mimo_{error_code}"),
+        mode="structured",
+        execution_profile="estimate-plan",
+        output_schema={"type": "object"},
+    )
+
+    with pytest.raises(AgentRuntimeError) as error:
+        runtime.execute(request)
+
+    assert error.value.code == error_code
+    assert error.value.retryable is False
+
+
+def test_codex_auth_and_configuration_failures_are_not_retryable(
+    tmp_path: Path,
+) -> None:
+    settings = Settings.for_testing(database_url=tmp_path / "runtime.db")
+    auth_runtime = direct_model_runtime_module._codex_runtime_adapter(
+        settings,
+        _FailingCodexTransport(
+            direct_model_runtime_module.CodexAppServerAuthenticationError(
+                "Codex login required"
+            )
+        ),
+    )
+    config_runtime = direct_model_runtime_module._codex_runtime_adapter(
+        settings,
+        object(),
+    )
+    config_request = replace(
+        _chat_request(run_id="run_codex_configuration_failure"),
+        configuration=AgentExecutionConfiguration(
+            selection=AgentModelSelection(model_id="gpt-test-only"),
+        ),
+    )
+
+    errors: list[AgentRuntimeError] = []
+    with pytest.raises(AgentRuntimeError) as auth_error:
+        auth_runtime.execute(_chat_request(run_id="run_codex_auth_failure"))
+    errors.append(auth_error.value)
+    with pytest.raises(AgentRuntimeError) as config_error:
+        config_runtime.execute(config_request)
+    errors.append(config_error.value)
+
+    assert auth_error.value.category == "authentication"
+    assert config_error.value.category == "configuration"
+    assert all(error.retryable is False for error in errors)

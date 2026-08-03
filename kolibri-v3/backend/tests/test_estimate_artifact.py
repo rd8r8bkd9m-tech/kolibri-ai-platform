@@ -8,7 +8,12 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from app.config import Settings
-from app.estimate_artifact import GeneratedEstimateProposal
+from app.estimate_artifact import (
+    ESTIMATE_PROPOSAL_SCHEMA,
+    GeneratedEstimateProposal,
+    estimate_plan_instructions,
+    estimate_proposal_instructions,
+)
 from app.main import create_app
 from app.product_widgets import materialize_generated_estimate_widget
 from docx import Document
@@ -34,12 +39,51 @@ def _proposal(*, unit_price: str = "500.00") -> GeneratedEstimateProposal:
                     "unit": "м²",
                     "quantity": "30",
                     "unitPrice": unit_price,
-                    "quantityBasis": "6 м² пола + 24 м² стен, допущение",
+                    "quantityBasis": "6 м² пола + 24 м² стен, условие расчёта",
                     "priceBasis": "Предварительная оценка AI; проверить",
                 }
             ],
         }
     )
+
+
+def test_generated_estimate_detail_accepts_thousands_of_rows() -> None:
+    value = _proposal().model_dump(by_alias=True)
+    original = value["rows"][0]
+    value["rows"] = [
+        {**original, "description": f"Детализированная позиция {index + 1}"}
+        for index in range(2_500)
+    ]
+
+    proposal = GeneratedEstimateProposal.model_validate(value)
+
+    assert len(proposal.rows) == 2_500
+    assert "maxItems" not in ESTIMATE_PROPOSAL_SCHEMA["properties"]["rows"]
+
+
+def test_estimate_instructions_require_scope_driven_detail() -> None:
+    instructions = estimate_proposal_instructions(today="2026-08-02")
+
+    assert "12–20" not in instructions
+    assert "фиксированное число строк" in instructions
+    assert "Не объединяй работу с материалом" in instructions
+    assert "доставку" in instructions
+    assert "Накладные расходы" in instructions
+
+
+def test_estimate_plan_uses_non_overlapping_section_contours_without_caps() -> None:
+    instructions = estimate_plan_instructions()
+    normalized = " ".join(instructions.split())
+
+    assert "неперекрывающихся самостоятельных" in instructions
+    assert "ровно к одному контуру" in instructions
+    assert "родительский" in instructions
+    assert "дочерние WBS-узлы" in instructions
+    assert "не оба уровня сразу" in instructions
+    assert "выполняют секционные агенты" in instructions
+    assert "Не ограничивай количество sections" in instructions
+    assert "не подразумевай максимумы для operations, resources или строк" in normalized
+    assert "разделы и\nподразделы" not in instructions
 
 
 def _seed_project(
@@ -182,14 +226,21 @@ def test_generated_estimate_is_filled_calculated_versioned_and_editable(
             provider_profile="codex-cli",
         )
         assert widget.arguments["$type"] == "EstimateEditor"
-        assert widget.arguments["rows"][0]["quantity"] == "30"
-        assert widget.arguments["rows"][0]["lineTotal"] == "15000.00"
+        assert widget.arguments["rows"] == []
+        assert widget.arguments["rowPage"] == {
+            "offset": 0,
+            "limit": 0,
+            "totalRows": 1,
+            "hasMore": True,
+        }
         assert widget.arguments["totals"]["total"] == "15000.00"
 
         estimate = client.get(
-            f"/v1/projects/{accepted.project_id}/estimate"
+            f"/v1/projects/{accepted.project_id}/estimate?offset=0&limit=100"
         )
         assert estimate.status_code == 200
+        assert estimate.json()["rows"][0]["quantity"] == "30"
+        assert estimate.json()["rows"][0]["lineTotal"] == "15000.00"
         assert estimate.json()["assumptions"]
         assert estimate.json()["generation"]["providerProfile"] == "codex-cli"
 
@@ -286,41 +337,46 @@ def test_generated_estimate_is_filled_calculated_versioned_and_editable(
 
         payload = estimate.json()
         payload["rows"][0]["unitPrice"] = "600.00"
+        edited_row = {
+            key: value
+            for key, value in payload["rows"][0].items()
+            if key
+            not in {
+                "lineTotal",
+                "priceEvidence",
+                "enginePriceProvenance",
+            }
+        }
         csrf = client.cookies.get("kolibri_v3_csrf")
         saved = client.patch(
-            f"/v1/projects/{accepted.project_id}/estimate",
+            f"/v1/projects/{accepted.project_id}/estimate/rows",
             headers={**ORIGIN, "X-CSRF-Token": csrf},
             json={
                 "version": payload["version"],
-                "title": payload["estimateTitle"],
-                "currency": payload["currency"],
-                "rows": [
-                        {
-                            key: value
-                            for key, value in payload["rows"][0].items()
-                            if key not in {"lineTotal", "priceEvidence"}
-                        }
-                ],
+                "upsertRows": [edited_row],
+                "deleteRowIds": [],
+                "returnPage": {"offset": 0, "limit": 100},
             },
         )
         assert saved.status_code == 200
         assert saved.json()["version"] == 2
         assert saved.json()["totals"]["total"] == "18000.00"
+        assert saved.json()["rows"][0]["unitPrice"] == "600.00"
+        assert saved.json()["rowPage"] == {
+            "offset": 0,
+            "limit": 100,
+            "totalRows": 1,
+            "hasMore": False,
+        }
 
         stale = client.patch(
-            f"/v1/projects/{accepted.project_id}/estimate",
+            f"/v1/projects/{accepted.project_id}/estimate/rows",
             headers={**ORIGIN, "X-CSRF-Token": csrf},
             json={
                 "version": 1,
-                "title": payload["estimateTitle"],
-                "currency": payload["currency"],
-                "rows": [
-                    {
-                        key: value
-                        for key, value in payload["rows"][0].items()
-                        if key not in {"lineTotal", "priceEvidence"}
-                    }
-                ],
+                "upsertRows": [edited_row],
+                "deleteRowIds": [],
+                "returnPage": {"offset": 0, "limit": 100},
             },
         )
         assert stale.status_code == 409

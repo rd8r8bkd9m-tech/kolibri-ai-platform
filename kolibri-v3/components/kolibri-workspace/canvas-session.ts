@@ -10,6 +10,7 @@ export type CanvasTabContent =
 	| { kind: "launcher" }
 	| { kind: "projects" }
 	| { kind: "references" }
+	| { kind: "settings"; section: string }
 	| { kind: "files"; category: WorkspaceFileCategory }
 	| { kind: "tool"; mode: ContextPanelMode };
 

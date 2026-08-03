@@ -29,7 +29,9 @@ const FORWARDED_RESPONSE_HEADERS = [
 	"x-kolibri-content-sha256",
 	"x-kolibri-estimate-version",
 	"x-kolibri-run-id",
+	"x-kolibri-estimate-run-id",
 	"x-kolibri-source-sha256",
+	"x-kolibri-renderer-version",
 	"www-authenticate",
 ] as const;
 

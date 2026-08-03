@@ -78,7 +78,7 @@ KOLIBRI_V3_ENV=development
 KOLIBRI_V3_DIRECT_MODEL_RUNTIME=true
 KOLIBRI_V3_DEVELOPER_AGENT_ENABLED=true
 KOLIBRI_V3_DEVELOPER_WORKSPACE_ROOT=/absolute/path/to/mutable-workspace
-KOLIBRI_V3_DEVELOPER_AGENT_TIMEOUT_SECONDS=1800
+KOLIBRI_V3_DEVELOPER_AGENT_TIMEOUT_SECONDS=3600
 ```
 
 The backend host must already have an authenticated supported agent runtime.

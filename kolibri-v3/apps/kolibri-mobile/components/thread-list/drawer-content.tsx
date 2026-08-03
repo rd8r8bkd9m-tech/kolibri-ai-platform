@@ -13,6 +13,7 @@ import { ThreadListItem } from "@/components/thread-list/thread-list-item";
 import { Layout, Radius } from "@/constants/theme";
 import { useTheme } from "@/hooks/use-theme";
 import { haptics } from "@/lib/haptics";
+import { releaseWebFocus } from "@/src/accessibility/release-web-focus";
 import { useMobileSession } from "@/src/auth/mobile-session";
 import { constructionEstimateAccess } from "@/src/verticals/construction-estimates/access";
 
@@ -24,6 +25,10 @@ export function DrawerContent({ navigation, state }: DrawerContentComponentProps
 	const drawerOpen = state.history.reduce((open, entry) => {
 		return entry.type === "drawer" ? entry.status === "open" : open;
 	}, false);
+	const closeDrawer = () => {
+		releaseWebFocus();
+		navigation.closeDrawer();
+	};
 
 	return (
 		<SafeAreaView
@@ -39,7 +44,7 @@ export function DrawerContent({ navigation, state }: DrawerContentComponentProps
 				<Pressable
 					accessibilityLabel="Закрыть меню"
 					accessibilityRole="button"
-					onPress={() => navigation.closeDrawer()}
+					onPress={closeDrawer}
 					style={({ pressed }) => [
 						styles.menuButton,
 						{ borderColor: colors.border },
@@ -60,7 +65,7 @@ export function DrawerContent({ navigation, state }: DrawerContentComponentProps
 					onPress={() => {
 						haptics.selection();
 						aui.threads.switchToNewThread();
-						navigation.closeDrawer();
+						closeDrawer();
 					}}
 					style={({ pressed }) => [
 						styles.newTask,
@@ -82,7 +87,7 @@ export function DrawerContent({ navigation, state }: DrawerContentComponentProps
 					contentContainerStyle={styles.listContent}
 					renderItem={({ index }) => (
 						<ThreadListItemByIndexProvider index={index} archived={false}>
-							<ThreadListItem onSelect={() => navigation.closeDrawer()} />
+							<ThreadListItem onSelect={closeDrawer} />
 						</ThreadListItemByIndexProvider>
 					)}
 					showsVerticalScrollIndicator={false}
@@ -101,6 +106,7 @@ export function DrawerContent({ navigation, state }: DrawerContentComponentProps
 					disabled={!estimateAccess.enabled}
 					onPress={() => {
 						haptics.selection();
+						releaseWebFocus();
 						navigation.navigate("estimates", { client: "mobile" });
 					}}
 					style={({ pressed }) => [
@@ -141,6 +147,7 @@ export function DrawerContent({ navigation, state }: DrawerContentComponentProps
 					accessibilityRole="button"
 					onPress={() => {
 						haptics.selection();
+						releaseWebFocus();
 						navigation.navigate("account", { client: "mobile" });
 						navigation.closeDrawer();
 					}}
@@ -178,6 +185,7 @@ export function DrawerContent({ navigation, state }: DrawerContentComponentProps
 					hitSlop={8}
 					onPress={() => {
 						haptics.selection();
+						releaseWebFocus();
 						void session.logout();
 					}}
 					style={({ pressed }) => [styles.logout, pressed && styles.pressed]}

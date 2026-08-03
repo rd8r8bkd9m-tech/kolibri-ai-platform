@@ -15,6 +15,10 @@
 | production release artifact | чистый Git commit + `deploy/portable` builder | tarball, manifest, evidence |
 | development database | `var/kolibri-v3.db`, которой владеет `scripts/dev-backend.sh` | backup files |
 | история чата для agent runtime | V3 backend: `chat_messages` и связанные run records | `agent_runtime_session_cache` и provider threads — только disposable acceleration cache |
+| durable-генерация сметы, checkpoints, evidence и построчная lineage | V3 backend, append-only migration 051; exact `ProjectCase` и project `technology_cards` revision | provider tasks/threads, AG-UI progress и QA reports — только производные представления |
+| каталог смет, кандидаты и technology cards | V3 backend: `catalog_entries`, `catalog_candidates`, `technology_card_*` и EstimateVersion snapshots | autocomplete/UI state и AI proposal — только производные кандидаты |
+| официальные сметные документы | V3 backend migration 050: immutable `estimate_document_issues.snapshot_json` and final-byte `estimate_document_artifacts` in tenant CAS | PDF/DOCX/XLSX/ZIP downloads and Assistant UI card |
+| личные ценовые наблюдения и market aggregates | V3 backend: расширенная `price_observations`, consent events и `market_price_aggregates` | aggregate API/UI показывает только обезличенную статистику |
 | общие генерируемые контракты | генераторы/validators в `server/` | `generated/` (не редактировать вручную) |
 
 ## Правила изменения

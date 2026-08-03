@@ -152,6 +152,7 @@ record = {
             "MIMOCODE_DISABLE_MODELS_FETCH",
             "MIMOCODE_MIMO_ONLY",
             "MIMOCODE_ENABLE_ANALYSIS",
+            "MIMOCODE_CONFIG_CONTENT",
         )
     },
     "prompt": sys.stdin.read(),
@@ -240,6 +241,7 @@ print(json.dumps({
             "MIMOCODE_DISABLE_MODELS_FETCH": "1",
             "MIMOCODE_MIMO_ONLY": "1",
             "MIMOCODE_ENABLE_ANALYSIS": "0",
+            "MIMOCODE_CONFIG_CONTENT": '{"snapshot":false}',
         }
         for record in records
     )
@@ -289,6 +291,7 @@ print(json.dumps({
         "state": {
             "status": "completed",
             "input": {"command": "pwd"},
+            "output": "/workspace/kolibri-v3",
             "metadata": {"exit": 0},
             "time": {"start": 1000, "end": 1025},
         },
@@ -329,6 +332,7 @@ print(json.dumps({
     assert completed["status"] == "completed"
     assert completed["exitCode"] == 0
     assert completed["durationMs"] == 25
+    assert completed["output"] == "/workspace/kolibri-v3"
 
 
 def test_runtime_starts_one_server_for_its_lifespan(

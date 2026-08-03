@@ -28,6 +28,12 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { withCsrfHeader } from "@/lib/csrf";
+import {
+	ESTIMATE_ROW_PAGE_SIZE,
+	EstimateClientError,
+	loadEstimateWindow,
+	saveEstimateRowDelta,
+} from "@/lib/estimate/document";
 import { kolibriGenerativeUIComponentSchemas } from "@/lib/generative-ui/schema";
 import {
 	diffEstimateDrafts,
@@ -40,7 +46,8 @@ import {
 	announceDocumentsChanged,
 } from "@/lib/workspace-events";
 import { toAmount, formatMoney, readResponseError, emptyRow } from "./helpers";
-import { loadEstimateDocument } from "./estimate-document-common";
+import { CatalogAutocomplete } from "./catalog-autocomplete";
+import type { CatalogAutocompleteEntry } from "@/lib/estimate/catalog";
 
 import type {
 	EstimateWidgetProps,
@@ -60,6 +67,8 @@ type EstimateConflictState = {
 	authoritative: EstimateWidgetProps | null;
 	diff: EstimateDraftConflictDiff | null;
 };
+
+const ESTIMATE_ROWS_PER_PAGE = ESTIMATE_ROW_PAGE_SIZE;
 
 const editableRowsFromEstimate = (estimate: EstimateWidgetProps) =>
 	estimate.rows.map(({ lineTotal: _lineTotal, ...row }) => row);
@@ -137,7 +146,18 @@ const estimateKindLabel = (kind: EditableEstimateRow["kind"]) => {
 	if (kind === "work") return "работа";
 	if (kind === "material") return "материал";
 	if (kind === "equipment") return "оборудование";
+	if (kind === "overhead") return "накладные расходы";
+	if (kind === "tax") return "налог";
+	if (kind === "contingency") return "резерв";
 	return "услуга";
+};
+
+const estimateStatusLabel = (status: EstimateWidgetProps["status"]) => {
+	if (status === "needs_input") return "Нужны исходные данные";
+	if (status === "calculating") return "Выполняется расчёт";
+	if (status === "ready") return "Расчёт готов";
+	if (status === "failed") return "Расчёт не выполнен";
+	return "Черновик";
 };
 
 function EstimateRowEvidence({
@@ -177,7 +197,7 @@ function EstimateRowEvidence({
 						) : (
 							<p>
 								Цена с доставкой:{" "}
-								{formatMoney(Number(row.priceEvidence.landedUnitPrice))}
+								{formatMoney(row.priceEvidence.landedUnitPrice)}
 							</p>
 						)}
 						<a
@@ -479,11 +499,29 @@ export function EstimateEditorWidget({
 	const [version, setVersion] = useState(initial.version);
 	const [title, setTitle] = useState(initial.estimateTitle);
 	const [region, setRegion] = useState(initial.estimateRegion);
-	const [assumptions, setAssumptions] = useState(initial.assumptions);
+	const [assumptions, setAssumptions] = useState(
+		initial.calculationConditions.length > 0
+			? initial.calculationConditions
+			: initial.assumptions,
+	);
 	const [pricing, setPricing] = useState(initial.pricing);
+	const [totals, setTotals] = useState(initial.totals);
 	const [rows, setRows] = useState<EditableEstimateRow[]>(() =>
 		initial.rows.map(({ lineTotal: _lineTotal, ...row }) => row),
 	);
+	const remotelyPaged = initial.rowPage !== undefined;
+	const [rowWindow, setRowWindow] = useState(() =>
+		initial.rowPage ?? {
+			offset: 0,
+			limit: initial.rows.length,
+			totalRows: initial.rows.length,
+			hasMore: false,
+		},
+	);
+	const [rowPage, setRowPage] = useState(() =>
+		Math.floor((initial.rowPage?.offset ?? 0) / ESTIMATE_ROWS_PER_PAGE),
+	);
+	const [pageLoading, setPageLoading] = useState(false);
 	const [savedSnapshot, setSavedSnapshot] = useState(() =>
 		JSON.stringify({ title: initial.estimateTitle, rows }),
 	);
@@ -501,9 +539,104 @@ export function EstimateEditorWidget({
 	>("idle");
 	const [offerRowId, setOfferRowId] = useState<string | null>(null);
 
-	const currentSnapshot = JSON.stringify({ title, rows });
+	const currentSnapshot = useMemo(
+		() => JSON.stringify({ title, rows }),
+		[title, rows],
+	);
 	latestSnapshotRef.current = currentSnapshot;
 	const dirty = currentSnapshot !== savedSnapshot;
+	const totalRows = remotelyPaged ? rowWindow.totalRows : rows.length;
+	const rowPageCount = Math.max(
+		1,
+		Math.ceil(totalRows / ESTIMATE_ROWS_PER_PAGE),
+	);
+	const rowPageStart = remotelyPaged
+		? rowWindow.offset
+		: rowPage * ESTIMATE_ROWS_PER_PAGE;
+	const pagedRows = useMemo(
+		() => {
+			const visibleRows = remotelyPaged
+				? rows
+				: rows.slice(rowPageStart, rowPageStart + ESTIMATE_ROWS_PER_PAGE);
+			return visibleRows.map((row, offset) => ({
+				row,
+				index: rowPageStart + offset,
+			}));
+		},
+		[remotelyPaged, rows, rowPageStart],
+	);
+
+	useEffect(() => {
+		setRowPage((current) => Math.min(current, rowPageCount - 1));
+	}, [rowPageCount]);
+
+	const loadRowPage = useCallback(
+		async (nextPage: number) => {
+			if (dirty || pageLoading) return;
+			const offset = Math.max(0, nextPage) * ESTIMATE_ROWS_PER_PAGE;
+			setPageLoading(true);
+			setActionMessage("");
+			try {
+				const next = await loadEstimateWindow({
+				documentId: initial.documentId,
+				minimumVersion: version,
+				offset,
+				limit: ESTIMATE_ROWS_PER_PAGE,
+				projectId: initial.projectId,
+			});
+				const nextRows = editableRowsFromEstimate(next);
+				const nextSnapshot = JSON.stringify({
+					title: next.estimateTitle,
+					rows: nextRows,
+				});
+				setVersion(next.version);
+				setTitle(next.estimateTitle);
+				setRegion(next.estimateRegion);
+				setAssumptions(
+					next.calculationConditions.length > 0
+						? next.calculationConditions
+						: next.assumptions,
+				);
+				setPricing(next.pricing);
+				setTotals(next.totals);
+				setRows(nextRows);
+				setRowWindow(
+					next.rowPage ?? {
+						offset: 0,
+						limit: nextRows.length,
+						totalRows: nextRows.length,
+						hasMore: false,
+					},
+				);
+				setRowPage(
+					Math.floor((next.rowPage?.offset ?? 0) / ESTIMATE_ROWS_PER_PAGE),
+				);
+				setSavedSnapshot(nextSnapshot);
+				hasLocalEdits.current = false;
+				setSaveState("saved");
+			} catch (caught) {
+				setActionMessage(
+					caught instanceof Error
+						? caught.message
+						: "Не удалось загрузить страницу сметы.",
+				);
+			} finally {
+				setPageLoading(false);
+			}
+		},
+		[
+			dirty,
+			initial.documentId,
+			initial.projectId,
+			pageLoading,
+			version,
+		],
+	);
+
+	useEffect(() => {
+		if (!remotelyPaged || rowWindow.limit > 0 || pageLoading || dirty) return;
+		void loadRowPage(rowPage);
+	}, [dirty, loadRowPage, pageLoading, remotelyPaged, rowPage, rowWindow.limit]);
 
 	useEffect(() => {
 		if (
@@ -545,9 +678,25 @@ export function EstimateEditorWidget({
 		setVersion(initial.version);
 		setTitle(initial.estimateTitle);
 		setRegion(initial.estimateRegion);
-		setAssumptions(initial.assumptions);
+		setAssumptions(
+			initial.calculationConditions.length > 0
+				? initial.calculationConditions
+				: initial.assumptions,
+		);
 		setPricing(initial.pricing);
+		setTotals(initial.totals);
 		setRows(nextRows);
+		setRowWindow(
+			initial.rowPage ?? {
+				offset: 0,
+				limit: nextRows.length,
+				totalRows: nextRows.length,
+				hasMore: false,
+			},
+		);
+		setRowPage(
+			Math.floor((initial.rowPage?.offset ?? 0) / ESTIMATE_ROWS_PER_PAGE),
+		);
 		setSavedSnapshot(nextSnapshot);
 		hasLocalEdits.current = false;
 		setVersionConflict(null);
@@ -570,12 +719,17 @@ export function EstimateEditorWidget({
 				/^(?:0|[1-9]\d{0,11})(?:\.\d{1,6})?$/.test(row.quantity) &&
 				/^(?:0|[1-9]\d{0,11})(?:\.\d{1,2})?$/.test(row.unitPrice),
 		);
-	const total = useMemo(
-		() =>
-			rows.reduce((sum, row) => sum + toAmount(row.quantity, row.unitPrice), 0),
-		[rows],
-	);
+	const showCalculatedTotal = totalRows > 0;
+	const requiredFields =
+		initial.requiredFields.length > 0
+			? initial.requiredFields
+			: initial.status === "needs_input"
+				? ["Описание объекта", "Регион", "Размеры или объёмы"]
+				: [];
 	const materialRowCount = rows.filter((row) => row.kind === "material").length;
+	const canRefreshMaterialPrices = remotelyPaged
+		? totalRows > 0
+		: materialRowCount > 0;
 	const pricingLabel =
 		pricing.status === "sourced"
 			? `С источником ${pricing.sourcedRows} из ${pricing.totalRows}`
@@ -609,12 +763,48 @@ export function EstimateEditorWidget({
 						? {
 								priceBasis: "Введено пользователем",
 								priceEvidence: null,
+								enginePriceProvenance: undefined,
+								priceObservationId: undefined,
+								marketAggregateId: undefined,
+								evidenceId: undefined,
+								lineConfidence: "preliminary" as const,
 							}
 						: null),
 				};
 			}),
 		);
 		setSaveState((current) => (current === "conflict" ? current : "idle"));
+	};
+
+	const addCatalogEntry = (entry: CatalogAutocompleteEntry) => {
+		const range = entry.priceRange;
+		const median = range?.median && /^(?:0|[1-9]\d{0,11})(?:\.\d{1,2})?$/.test(range.median)
+			? range.median
+			: "0.00";
+		const priceBasis = range
+			? `Рыночный диапазон ${range.p25}–${range.p75} ₽/${entry.canonicalUnit}; медиана ${range.median}. Не обязательная цена.`
+			: "Цена не найдена в опубликованной статистике; введите вручную.";
+		hasLocalEdits.current = true;
+		setRows((current) => [
+			...current,
+			{
+				id: `row_${globalThis.crypto.randomUUID().replaceAll("-", "")}`,
+				section: entry.categoryId || "Справочник",
+				kind: entry.kind,
+				description: entry.canonicalName,
+				unit: entry.canonicalUnit,
+				quantity: "1",
+				unitPrice: median,
+				quantityBasis: "Введено пользователем",
+				priceBasis,
+				catalogEntryId: entry.id,
+				catalogEntryVersion: entry.version,
+				lineConfidence: range ? "preliminary" : "missing",
+				priceEvidence: null,
+			},
+		]);
+		setSaveState((current) => (current === "conflict" ? current : "idle"));
+		setActionMessage(`Добавлена позиция «${entry.canonicalName}» из справочника.`);
 	};
 
 	const downloadEstimate = (format: EstimateExportFormat) => {
@@ -645,125 +835,63 @@ export function EstimateEditorWidget({
 		if (!dirty || !valid || savingRef.current || versionConflict) return;
 		const snapshotAtStart = currentSnapshot;
 		const versionAtStart = version;
-		const titleAtStart = title.trim();
-		const rowsAtStart = rows.map(
-			({
-				priceEvidence: _priceEvidence,
-				enginePriceProvenance: _enginePriceProvenance,
-				...row
-			}) => ({
-				...row,
-				description: row.description.trim(),
-				unit: row.unit.trim(),
-			}),
-		);
+		const baseline = JSON.parse(savedSnapshot) as {
+			title: string;
+			rows: EditableEstimateRow[];
+		};
+		const rowsAtStart = rows.map((row) => ({
+			...row,
+			description: row.description.trim(),
+			unit: row.unit.trim(),
+		}));
 		savingRef.current = true;
 		setSaveState("saving");
 		setSaveMessage("");
 		try {
-			const headers = withCsrfHeader({
-				Accept: "application/json",
-				"Content-Type": "application/json",
-			});
-			const response = await fetch(
-				`/api/v3/projects/${encodeURIComponent(initial.projectId)}/estimate`,
-				{
-					method: "PATCH",
-					headers,
-					body: JSON.stringify({
-						version: versionAtStart,
-						title: titleAtStart,
-						currency: initial.currency,
-						rows: rowsAtStart,
-					}),
-					credentials: "same-origin",
-					cache: "no-store",
+			const next = await saveEstimateRowDelta({
+				baselineRows: baseline.rows,
+				baselineTitle: baseline.title,
+				estimate: {
+					documentId: initial.documentId,
+					projectId: initial.projectId,
+					version: versionAtStart,
 				},
-			);
-			if (!response.ok) {
-				let errorPayload: unknown = null;
-				try {
-					errorPayload = await response.clone().json();
-				} catch {
-					// The bounded fallback below remains available for non-JSON errors.
-				}
-				const conflict = parseEstimateVersionConflict(
-					response.status,
-					errorPayload,
-				);
-				if (conflict) {
-					let authoritative: EstimateWidgetProps | null = null;
-					try {
-						authoritative = await loadEstimateDocument({
-							documentId: initial.documentId,
-							minimumVersion: versionAtStart,
-							projectId: initial.projectId,
-						});
-					} catch {
-						// Keep the local draft even when the current server copy cannot
-						// be loaded yet. The user can retry the comparison explicitly.
-					}
-					const baseline = JSON.parse(savedSnapshot) as EstimateDraftSnapshot;
-					const local = JSON.parse(
-						latestSnapshotRef.current,
-					) as EstimateDraftSnapshot;
-					const currentVersion =
-						authoritative?.version ?? conflict.currentVersion;
-					setVersionConflict({
-						...conflict,
-						currentVersion,
-						authoritative,
-						diff: authoritative
-							? diffEstimateDrafts(
-									baseline,
-									local,
-									draftSnapshotFromEstimate(authoritative),
-								)
-							: null,
-					});
-					setSaveMessage(
-						authoritative
-							? `Серверная версия ${currentVersion} загружена для сравнения. Локальный черновик не изменён.`
-							: `На сервере уже версия ${currentVersion}. Локальный черновик не изменён; повторите загрузку сравнения.`,
-					);
-					setSaveErrorRetryable(false);
-					setSaveState("conflict");
-					return;
-				}
-				setSaveMessage(await readResponseError(response));
-				setSaveErrorRetryable(
-					response.status === 408 ||
-						response.status === 429 ||
-						response.status >= 500,
-				);
-				setSaveRetryAttempt((current) => current + 1);
-				setSaveState("error");
-				return;
-			}
-			const value = (await response.json()) as unknown;
-			const parsed =
-				kolibriGenerativeUIComponentSchemas.EstimateEditor.safeParse(value);
-			if (!parsed.success) {
-				setSaveMessage("Сервер вернул смету неизвестного формата.");
-				setSaveErrorRetryable(false);
-				setSaveState("error");
-				return;
-			}
-			const nextRows = parsed.data.rows.map(
+				limit: ESTIMATE_ROWS_PER_PAGE,
+				offset: rowPageStart,
+				rows: rowsAtStart,
+				title,
+			});
+			const nextRows = next.rows.map(
 				({ lineTotal: _lineTotal, ...row }) => row,
 			);
 			const nextSavedSnapshot = JSON.stringify({
-				title: parsed.data.estimateTitle,
+				title: next.estimateTitle,
 				rows: nextRows,
 			});
 			const noNewEdits = latestSnapshotRef.current === snapshotAtStart;
-			setVersion(parsed.data.version);
-			setRegion(parsed.data.estimateRegion);
-			setAssumptions(parsed.data.assumptions);
-			setPricing(parsed.data.pricing);
+			setVersion(next.version);
+			setRegion(next.estimateRegion);
+			setAssumptions(
+				next.calculationConditions.length > 0
+					? next.calculationConditions
+					: next.assumptions,
+			);
+			setPricing(next.pricing);
+			setTotals(next.totals);
+			setRowWindow(
+				next.rowPage ?? {
+					offset: 0,
+					limit: nextRows.length,
+					totalRows: nextRows.length,
+					hasMore: false,
+				},
+			);
+			setRowPage(
+				Math.floor((next.rowPage?.offset ?? 0) / ESTIMATE_ROWS_PER_PAGE),
+			);
 			setSavedSnapshot(nextSavedSnapshot);
 			if (noNewEdits) {
-				setTitle(parsed.data.estimateTitle);
+				setTitle(next.estimateTitle);
 				setRows(nextRows);
 				hasLocalEdits.current = false;
 			}
@@ -771,9 +899,60 @@ export function EstimateEditorWidget({
 			setSaveRetryAttempt(0);
 			setSaveErrorRetryable(false);
 			setSaveState(noNewEdits ? "saved" : "idle");
-		} catch {
-			setSaveMessage("Нет связи с сервером. Изменения остались в редакторе.");
-			setSaveErrorRetryable(true);
+		} catch (caught) {
+			const conflict =
+				caught instanceof EstimateClientError
+					? parseEstimateVersionConflict(caught.status, caught.payload)
+					: null;
+			if (conflict) {
+				let authoritative: EstimateWidgetProps | null = null;
+				try {
+					authoritative = await loadEstimateWindow({
+						documentId: initial.documentId,
+						minimumVersion: versionAtStart,
+						offset: rowPageStart,
+						limit: ESTIMATE_ROWS_PER_PAGE,
+						projectId: initial.projectId,
+					});
+				} catch {
+					// Keep the local draft if the current server window is unavailable.
+				}
+				const local = JSON.parse(
+					latestSnapshotRef.current,
+				) as EstimateDraftSnapshot;
+				const currentVersion = authoritative?.version ?? conflict.currentVersion;
+				setVersionConflict({
+					...conflict,
+					currentVersion,
+					authoritative,
+					diff: authoritative
+						? diffEstimateDrafts(
+								baseline,
+								local,
+								draftSnapshotFromEstimate(authoritative),
+							)
+						: null,
+				});
+				setSaveMessage(
+					authoritative
+						? `Серверная версия ${currentVersion} загружена для сравнения. Локальный черновик не изменён.`
+						: `На сервере уже версия ${currentVersion}. Локальный черновик не изменён; повторите загрузку сравнения.`,
+				);
+				setSaveErrorRetryable(false);
+				setSaveState("conflict");
+				return;
+			}
+			setSaveMessage(
+				caught instanceof Error
+					? caught.message
+					: "Нет связи с сервером. Изменения остались в редакторе.",
+			);
+			setSaveErrorRetryable(
+				!(caught instanceof EstimateClientError) ||
+					caught.status === 408 ||
+					caught.status === 429 ||
+					caught.status >= 500,
+			);
 			setSaveRetryAttempt((current) => current + 1);
 			setSaveState("error");
 		} finally {
@@ -782,8 +961,9 @@ export function EstimateEditorWidget({
 	}, [
 		currentSnapshot,
 		dirty,
-		initial.currency,
+		initial.documentId,
 		initial.projectId,
+		rowPageStart,
 		rows,
 		savedSnapshot,
 		title,
@@ -796,9 +976,11 @@ export function EstimateEditorWidget({
 		if (!versionConflict) return;
 		setSaveMessage("Загружаю текущую серверную версию для сравнения…");
 		try {
-			const authoritative = await loadEstimateDocument({
+			const authoritative = await loadEstimateWindow({
 				documentId: initial.documentId,
 				minimumVersion: version,
+				offset: rowPageStart,
+				limit: ESTIMATE_ROWS_PER_PAGE,
 				projectId: initial.projectId,
 			});
 			const baseline = JSON.parse(savedSnapshot) as EstimateDraftSnapshot;
@@ -830,6 +1012,7 @@ export function EstimateEditorWidget({
 	}, [
 		initial.documentId,
 		initial.projectId,
+		rowPageStart,
 		savedSnapshot,
 		version,
 		versionConflict,
@@ -846,9 +1029,27 @@ export function EstimateEditorWidget({
 		setVersion(authoritative.version);
 		setTitle(authoritative.estimateTitle);
 		setRegion(authoritative.estimateRegion);
-		setAssumptions(authoritative.assumptions);
+		setAssumptions(
+			authoritative.calculationConditions.length > 0
+				? authoritative.calculationConditions
+				: authoritative.assumptions,
+		);
 		setPricing(authoritative.pricing);
+		setTotals(authoritative.totals);
 		setRows(nextRows);
+		setRowWindow(
+			authoritative.rowPage ?? {
+				offset: 0,
+				limit: nextRows.length,
+				totalRows: nextRows.length,
+				hasMore: false,
+			},
+		);
+		setRowPage(
+			Math.floor(
+				(authoritative.rowPage?.offset ?? 0) / ESTIMATE_ROWS_PER_PAGE,
+			),
+		);
 		setSavedSnapshot(nextSnapshot);
 		hasLocalEdits.current = false;
 		setVersionConflict(null);
@@ -863,8 +1064,26 @@ export function EstimateEditorWidget({
 		if (!authoritative) return;
 		setVersion(authoritative.version);
 		setRegion(authoritative.estimateRegion);
-		setAssumptions(authoritative.assumptions);
+		setAssumptions(
+			authoritative.calculationConditions.length > 0
+				? authoritative.calculationConditions
+				: authoritative.assumptions,
+		);
 		setPricing(authoritative.pricing);
+		setTotals(authoritative.totals);
+		setRowWindow(
+			authoritative.rowPage ?? {
+				offset: 0,
+				limit: authoritative.rows.length,
+				totalRows: authoritative.rows.length,
+				hasMore: false,
+			},
+		);
+		setRowPage(
+			Math.floor(
+				(authoritative.rowPage?.offset ?? 0) / ESTIMATE_ROWS_PER_PAGE,
+			),
+		);
 		setSavedSnapshot(JSON.stringify(draftSnapshotFromEstimate(authoritative)));
 		hasLocalEdits.current = true;
 		setVersionConflict(null);
@@ -882,9 +1101,25 @@ export function EstimateEditorWidget({
 			setVersion(next.version);
 			setTitle(next.estimateTitle);
 			setRegion(next.estimateRegion);
-			setAssumptions(next.assumptions);
+			setAssumptions(
+				next.calculationConditions.length > 0
+					? next.calculationConditions
+					: next.assumptions,
+			);
 			setPricing(next.pricing);
+			setTotals(next.totals);
 			setRows(nextRows);
+			setRowWindow(
+				next.rowPage ?? {
+					offset: 0,
+					limit: nextRows.length,
+					totalRows: nextRows.length,
+					hasMore: false,
+				},
+			);
+			setRowPage(
+				Math.floor((next.rowPage?.offset ?? 0) / ESTIMATE_ROWS_PER_PAGE),
+			);
 			setSavedSnapshot(
 				JSON.stringify({ title: next.estimateTitle, rows: nextRows }),
 			);
@@ -1011,17 +1246,46 @@ export function EstimateEditorWidget({
 						}}
 					/>
 					<p className="mt-0.5 px-1 text-xs text-muted-foreground">
-						Черновик · версия {version}
+						{estimateStatusLabel(initial.status)} · версия {version}
 						{region ? ` · ${region}` : ""}
 					</p>
 				</div>
 				<div className="rounded-2xl bg-muted/40 px-3 py-2 text-left min-[960px]:bg-transparent min-[960px]:p-0 min-[960px]:text-right">
-					<p className="text-[11px] text-muted-foreground">Итого</p>
+					<p className="text-[11px] text-muted-foreground">
+						{showCalculatedTotal
+							? dirty
+								? "Итого сохранённой версии"
+								: "Итого"
+							: "Итого после ввода данных"}
+					</p>
 					<p className="text-lg font-semibold tabular-nums">
-						{formatMoney(total)}
+						{showCalculatedTotal ? formatMoney(totals.total) : "—"}
 					</p>
 				</div>
 			</header>
+
+			{initial.status === "needs_input" ? (
+				<section
+					className="border-b border-amber-300 bg-amber-50 px-4 py-3 text-amber-950 dark:border-amber-900 dark:bg-amber-950/35 dark:text-amber-100"
+					role="status"
+				>
+					<p className="text-sm font-semibold">Недостаточно данных для расчёта</p>
+					<p className="mt-1 text-xs">Уточните:</p>
+					<ul className="mt-1 list-disc space-y-0.5 pl-5 text-xs">
+						{requiredFields.map((field) => (
+							<li key={field}>{field}</li>
+						))}
+					</ul>
+				</section>
+			) : initial.status === "calculating" ? (
+				<p className="border-b border-border bg-muted/20 px-4 py-3 text-xs" role="status">
+					Расчёт выполняется. Итог появится после проверки входных данных.
+				</p>
+			) : initial.status === "failed" ? (
+				<p className="border-b border-destructive/40 bg-destructive/10 px-4 py-3 text-xs text-destructive" role="alert">
+					Расчёт не выполнен. Проверьте исходные данные и повторите попытку.
+				</p>
+			) : null}
 
 			{versionConflict ? (
 				<section
@@ -1134,7 +1398,7 @@ export function EstimateEditorWidget({
 					variant="outline"
 					size="sm"
 					disabled={
-						dirty || materialRowCount === 0 || priceRefreshState === "checking"
+						dirty || !canRefreshMaterialPrices || priceRefreshState === "checking"
 					}
 					onClick={() => void refreshOfficialPrices()}
 					className="min-h-11 w-full min-[960px]:min-h-0 min-[960px]:w-auto"
@@ -1153,7 +1417,7 @@ export function EstimateEditorWidget({
 				<div className="border-b border-border bg-muted/20 px-4 py-2.5 text-xs">
 					<details>
 						<summary className="cursor-pointer select-none font-medium text-foreground">
-							Предварительный расчёт · допущений: {assumptions.length}
+							Условия и границы расчёта: {assumptions.length}
 						</summary>
 						<ul className="mt-2 space-y-1 pl-4 text-muted-foreground">
 							{assumptions.map((assumption) => (
@@ -1166,17 +1430,60 @@ export function EstimateEditorWidget({
 				</div>
 			) : null}
 
+			{rowPageCount > 1 ? (
+				<nav
+					className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-2"
+					aria-label="Страницы позиций сметы"
+				>
+					<Button
+						type="button"
+						variant="outline"
+						size="sm"
+						disabled={rowPage === 0 || dirty || pageLoading}
+						onClick={() => {
+							const nextPage = Math.max(0, rowPage - 1);
+							if (remotelyPaged) void loadRowPage(nextPage);
+							else setRowPage(nextPage);
+						}}
+					>
+						Предыдущие 100
+					</Button>
+					<span className="text-xs tabular-nums text-muted-foreground">
+						Позиции {rowPageStart + 1}–
+						{Math.min(rowPageStart + pagedRows.length, totalRows)} из {totalRows}
+					</span>
+					<Button
+						type="button"
+						variant="outline"
+						size="sm"
+						disabled={rowPage >= rowPageCount - 1 || dirty || pageLoading}
+						onClick={() => {
+							const nextPage = Math.min(rowPageCount - 1, rowPage + 1);
+							if (remotelyPaged) void loadRowPage(nextPage);
+							else setRowPage(nextPage);
+						}}
+					>
+						Следующие 100
+					</Button>
+				</nav>
+			) : null}
+
 			<div
 				data-slot="estimate-mobile-list"
 				className="space-y-3 bg-muted/10 p-3 pb-28 min-[960px]:hidden"
 			>
-				{rows.length === 0 ? (
+				{pageLoading ? (
+					<div className="flex min-h-40 items-center justify-center gap-2 text-sm text-muted-foreground">
+						<LoaderCircleIcon aria-hidden="true" className="size-4 animate-spin" />
+						Загружаю позиции…
+					</div>
+				) : rows.length === 0 && totalRows === 0 ? (
 					<div className="rounded-3xl border border-dashed border-border bg-background px-5 py-10 text-center text-sm text-muted-foreground">
 						Позиций пока нет. Добавьте первую строку — расчёт появится
 						автоматически.
 					</div>
 				) : (
-					rows.map((row, index) => (
+					pagedRows.map(({ row, index }) => (
 						<article
 							key={row.id}
 							className="overflow-hidden rounded-3xl border border-border bg-background p-4 shadow-sm"
@@ -1344,7 +1651,13 @@ export function EstimateEditorWidget({
 						</tr>
 					</thead>
 					<tbody>
-						{rows.length === 0 ? (
+						{pageLoading ? (
+							<tr>
+								<td colSpan={7} className="px-4 py-8 text-center text-sm text-muted-foreground">
+									Загружаю позиции…
+								</td>
+							</tr>
+						) : rows.length === 0 && totalRows === 0 ? (
 							<tr>
 								<td
 									colSpan={7}
@@ -1355,7 +1668,7 @@ export function EstimateEditorWidget({
 								</td>
 							</tr>
 						) : (
-							rows.map((row, index) => (
+							pagedRows.map(({ row, index }) => (
 								<Fragment key={row.id}>
 									<tr className="border-b border-border last:border-0">
 										<td className="px-2 py-1.5 text-center text-xs text-muted-foreground">
@@ -1366,13 +1679,7 @@ export function EstimateEditorWidget({
 												<span>{row.section}</span>
 												<span aria-hidden="true">·</span>
 												<span>
-													{row.kind === "work"
-														? "работа"
-														: row.kind === "material"
-															? "материал"
-															: row.kind === "equipment"
-																? "оборудование"
-																: "услуга"}
+											{estimateKindLabel(row.kind)}
 												</span>
 												{row.priceEvidence ? (
 													<>
@@ -1456,9 +1763,7 @@ export function EstimateEditorWidget({
 														) : (
 															<p>
 																Цена с доставкой:{" "}
-																{formatMoney(
-																	Number(row.priceEvidence.landedUnitPrice),
-																)}
+															{formatMoney(row.priceEvidence.landedUnitPrice)}
 															</p>
 														)}
 														<a
@@ -1640,6 +1945,11 @@ export function EstimateEditorWidget({
 					data-slot="estimate-editor-footer-actions"
 					className="flex min-w-0 flex-wrap items-center gap-2"
 				>
+					<CatalogAutocomplete
+						projectId={initial.projectId}
+						region={region || undefined}
+						onSelect={addCatalogEntry}
+					/>
 					<Button
 						data-slot="estimate-add-row-action"
 						type="button"
@@ -1649,6 +1959,9 @@ export function EstimateEditorWidget({
 						onClick={() => {
 							hasLocalEdits.current = true;
 							setRows((current) => [...current, emptyRow()]);
+							if (!remotelyPaged) {
+								setRowPage(Math.floor(rows.length / ESTIMATE_ROWS_PER_PAGE));
+							}
 							setSaveState((current) =>
 								current === "conflict" ? current : "idle",
 							);
@@ -1699,7 +2012,7 @@ export function EstimateEditorWidget({
 					) : null}
 				</div>
 			</footer>
-			{rows.length > 0 && !dirty ? (
+			{totalRows > 0 && !dirty ? (
 				<div className="flex flex-col items-stretch gap-2 border-t border-border bg-muted/15 px-4 py-3 min-[960px]:flex-row min-[960px]:items-center min-[960px]:justify-between min-[960px]:py-2.5">
 					<div className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
 						<CheckCircle2Icon

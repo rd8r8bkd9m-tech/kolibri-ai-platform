@@ -3,7 +3,11 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 
-import { parseEstimateCatalog } from "../src/verticals/construction-estimates/contracts.ts";
+import {
+	estimatePatchBody,
+	parseEstimate,
+	parseEstimateCatalog,
+} from "../src/verticals/construction-estimates/contracts.ts";
 
 const root = new URL("..", import.meta.url).pathname;
 const read = (path) => readFileSync(join(root, path), "utf8");
@@ -209,14 +213,121 @@ test("mobile chat sends the canonical V1 AG-UI standard payload", () => {
 
 test("estimate editor preserves optimistic versioning and honest conflicts", () => {
   const screen = read("app/estimates.tsx");
+	const client = read("src/verticals/construction-estimates/client.ts");
   const contracts = read(
     "src/verticals/construction-estimates/contracts.ts",
   );
   assert.match(screen, /estimate_version_conflict/);
-  assert.match(screen, /client\.open\(estimate\.projectId\)/);
+	assert.match(screen, /client\.open\(estimate\.projectId,\s*\{/);
   assert.match(screen, /client\.save\(estimate, title, rows\)/);
   assert.match(screen, /Данные и сохранение не подменяются локальным демо/);
   assert.match(contracts, /version: estimate\.version/);
-  assert.match(contracts, /lineTotal: _lineTotal/);
-  assert.match(contracts, /isNativeEstimateDraftValid/);
+	assert.match(contracts, /lineTotal: _lineTotal/);
+	assert.match(client, /\/estimate\/rows/);
+	assert.match(client, /offset/);
+	assert.match(client, /body\.upsertRows\.length === 0/);
+	assert.match(client, /return this\.open\(estimate\.projectId, body\.returnPage\)/);
+	assert.match(contracts, /upsertRows/);
+	assert.match(contracts, /deleteRowIds/);
+	assert.doesNotMatch(contracts, /rows\.length <= 200/);
+	assert.match(contracts, /isNativeEstimateDraftValid/);
+});
+
+test("native estimates open 10000+ row documents through bounded windows and delta edits", () => {
+	const compact = parseEstimate({
+		schemaId: "kolibri.estimate_draft",
+		schemaVersion: "1.4",
+		projectId: "project_native_estimate_01",
+		documentId: "document_native_estimate_01",
+		version: 4,
+		status: "ready",
+		estimateTitle: "Девятиэтажный жилой дом",
+		currency: "RUB",
+		rows: [],
+		rowPage: { offset: 0, limit: 0, totalRows: 12_480, hasMore: true },
+		generation: {
+			providerProfile: "codex-cli",
+			runId: "run_native_contract_01",
+			estimateGenerationRunId: "estimate_generation_run_native_contract_01",
+			technologyCardRevisionId: "technology_card_revision_native_contract_01",
+			technologyCardHash:
+				"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			qualityStatus: "passed",
+		},
+		totals: { subtotal: "1200000000.00", total: "1440000000.00" },
+	});
+	assert.equal(compact.rowPage?.totalRows, 12_480);
+	assert.equal(
+		compact.generation?.estimateGenerationRunId,
+		"estimate_generation_run_native_contract_01",
+	);
+	assert.deepEqual(
+		estimatePatchBody(compact, compact.estimateTitle, compact.rows),
+		{
+			version: 4,
+			upsertRows: [],
+			deleteRowIds: [],
+			returnPage: { offset: 0, limit: 100 },
+		},
+	);
+	assert.throws(
+		() =>
+			parseEstimate({
+				...compact,
+				rowPage: { offset: 0, limit: 101, totalRows: 12_480, hasMore: true },
+			}),
+		/Estimate row page is invalid/,
+	);
+	const provenanceRow = {
+		id: "row_native_provenance_01",
+		section: "Фундамент",
+		kind: "work",
+		description: "Устройство монолитной плиты",
+		unit: "м3",
+		quantity: "12.5",
+		unitPrice: "25000.00",
+		lineTotal: "312500.00",
+		quantityBasis: "По рабочей документации",
+		priceBasis: "Предложение поставщика",
+		operationId: "operation_foundation_01",
+		resourceId: "resource_concrete_01",
+		evidenceId: "evidence_quote_01",
+		technologyCardVersion: "technology_card_01_v3",
+		wbsPath: "01/01.02/01.02.03",
+		specification: "Бетон B25 W8 F150",
+		quantityFormula: "foundation_area_m2 * slab_thickness_m",
+		lineConfidence: "verified",
+	};
+	const page = parseEstimate({
+		...compact,
+		rows: [provenanceRow],
+		rowPage: { offset: 100, limit: 100, totalRows: 12_480, hasMore: true },
+	});
+	assert.equal(page.rows[0].operationId, provenanceRow.operationId);
+	assert.equal(page.rows[0].resourceId, provenanceRow.resourceId);
+	assert.equal(page.rows[0].evidenceId, provenanceRow.evidenceId);
+	assert.equal(page.rows[0].wbsPath, provenanceRow.wbsPath);
+	assert.equal(page.rows[0].specification, provenanceRow.specification);
+	assert.equal(page.rows[0].quantityFormula, provenanceRow.quantityFormula);
+	const { lineTotal: _lineTotal, ...provenanceUpsert } = provenanceRow;
+	assert.deepEqual(
+		JSON.parse(
+			JSON.stringify(
+				estimatePatchBody(page, page.estimateTitle, [
+					{ ...page.rows[0], quantityFormula: "foundation_volume_m3" },
+				]),
+			),
+		),
+		{
+			version: 4,
+			upsertRows: [
+				{
+					...provenanceUpsert,
+					quantityFormula: "foundation_volume_m3",
+				},
+			],
+			deleteRowIds: [],
+			returnPage: { offset: 100, limit: 100 },
+		},
+	);
 });

@@ -326,6 +326,31 @@
 	background: rgb(255 139 104 / 8%);
 }
 
+.kp-plan-state.is-loading {
+	min-height: 13rem;
+	align-items: center;
+	background: var(--kp-ink);
+	color: rgb(255 255 255 / 62%);
+}
+
+.kp-plan-state.is-loading strong {
+	color: white;
+}
+
+.kp-plan-state.is-loading p {
+	color: rgb(255 255 255 / 62%);
+}
+
+.kp-plan-loading-line {
+	width: 2.35rem;
+	height: 2.35rem;
+	flex: 0 0 auto;
+	border: 2px solid rgb(255 255 255 / 18%);
+	border-top-color: var(--kp-teal);
+	border-radius: 999px;
+	animation: kp-spin 0.9s linear infinite;
+}
+
 .kp-spin {
 	animation: kp-spin 0.8s linear infinite;
 }

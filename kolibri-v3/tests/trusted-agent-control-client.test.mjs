@@ -106,7 +106,7 @@ test("owner console manages durable profiles without per-command approval UI", (
   );
 
   assert.match(section, /<TrustedAgentAdmin\s*\/>/);
-  assert.match(section, /Полномочия доверенных агентов/);
+  assert.match(section, /Реестр хостов/);
   assert.match(panel, /createTrustedAgentWorkspaceBinding/);
   assert.match(panel, /createTrustedAgentProfile/);
   assert.match(panel, /revokeTrustedAgentWorkspaceBinding/);

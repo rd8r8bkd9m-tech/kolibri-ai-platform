@@ -1,6 +1,10 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { PublicPlanCatalog } from "@/components/public-site/public-plan-catalog";
+import { Suspense } from "react";
+import {
+	PublicPlanCatalog,
+	PublicPlanCatalogFallback,
+} from "@/components/public-site/public-plan-catalog";
 import { PublicShell } from "@/components/public-site/public-shell";
 import { getPublicCommerceConfig } from "@/lib/server/public-commerce";
 
@@ -23,7 +27,9 @@ export default function PricingPage() {
 							Публичная страница не хранит и не подменяет цену.
 						</p>
 					</header>
-					<PublicPlanCatalog />
+					<Suspense fallback={<PublicPlanCatalogFallback />}>
+						<PublicPlanCatalog />
+					</Suspense>
 					<div className="kp-pricing-notes">
 						<h2>Как получить доступ</h2>
 						<ol>

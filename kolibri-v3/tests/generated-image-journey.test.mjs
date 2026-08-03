@@ -13,7 +13,7 @@ const readSource = (relativePath) =>
   readFile(path.join(APP_ROOT, relativePath), "utf8");
 
 test("generated images use the authenticated assistant-ui artifact path", async () => {
-  const [provider, thread, tool, contentRoute, artifactRoute] =
+  const [provider, thread, tool, toolkit, contentRoute, artifactRoute] =
     await Promise.all([
       readSource("app/MyRuntimeProvider.tsx"),
       Promise.all([
@@ -21,6 +21,7 @@ test("generated images use the authenticated assistant-ui artifact path", async 
         readSource("components/assistant-ui/thread/thread-suggestions-config.ts"),
       ]).then((sources) => sources.join("\n")),
       readSource("components/assistant-ui/generated-image-tool.tsx"),
+      readSource("components/assistant-ui/toolkit.ts"),
       readSource(
         "app/api/product/v1/attachments/[attachmentId]/content/route.ts",
       ),
@@ -29,14 +30,15 @@ test("generated images use the authenticated assistant-ui artifact path", async 
       ),
     ]);
 
-  assert.match(provider, /<GeneratedImageToolUI\s*\/>/);
+  assert.doesNotMatch(provider, /<GeneratedImageToolUI\s*\/>/);
+  assert.match(toolkit, /defineToolkit/);
+  assert.match(toolkit, /generate_image[\s\S]{0,600}GeneratedImageToolUI/);
   assert.match(thread, /label:\s*["']Создать изображение["']/);
   assert.match(thread, /prompt:\s*["'][^"']*Создай изображение/);
   assert.match(
     thread,
     /<ThreadPrimitive\.Suggestion[\s\S]{0,240}prompt=\{prompt\}[\s\S]{0,120}send=\{send\}[\s\S]{0,120}clearComposer=\{send\}/,
   );
-  assert.match(tool, /toolName:\s*["']generate_image["']/);
   assert.match(tool, /\$type\s*!==\s*["']GeneratedImage["']/);
   assert.match(tool, /schemaId\s*!==\s*["']kolibri\.product\.attachment["']/);
   assert.match(

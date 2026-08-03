@@ -10,6 +10,10 @@ export type EstimateWidgetProps = z.infer<
 	typeof kolibriGenerativeUIComponentSchemas.EstimateEditor
 >;
 
+export type EstimateDocumentPackWidgetProps = z.infer<
+	typeof kolibriGenerativeUIComponentSchemas.EstimateDocumentPack
+>;
+
 export type EstimateRow = EstimateWidgetProps["rows"][number];
 export type EditableEstimateRow = Omit<EstimateRow, "lineTotal">;
 export type PriceEvidence = NonNullable<EstimateRow["priceEvidence"]>;

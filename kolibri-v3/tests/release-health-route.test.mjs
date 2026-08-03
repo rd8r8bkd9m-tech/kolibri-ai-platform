@@ -10,6 +10,7 @@ const APP_ROOT = path.resolve(
   "..",
 );
 const ROUTE_PATH = path.join(APP_ROOT, "app/api/health/route.ts");
+const V1_ROUTE_PATH = path.join(APP_ROOT, "app/api/v1/health/route.ts");
 const BACKEND_URL_HOOK = "__kolibriReleaseHealthBackendUrl";
 const originalFetch = globalThis.fetch;
 const originalReleaseId = process.env.KOLIBRI_RELEASE_ID;
@@ -103,6 +104,14 @@ test("GET reports the bounded release identity only after exact backend readines
   assert.equal(request.options.redirect, "manual");
   assert.equal(request.options.headers.Accept, "application/json");
   assert.ok(request.options.signal instanceof AbortSignal);
+});
+
+test("/api/v1/health is an exact handler alias with static route config", async () => {
+  const alias = await readFile(V1_ROUTE_PATH, "utf8");
+  assert.match(alias, /export const dynamic = ["']force-dynamic["']/);
+  assert.match(alias, /export const revalidate = 0/);
+  assert.match(alias, /export \{ GET, HEAD \}/);
+  assert.match(alias, /from ["']\.\.\/\.\.\/health\/route["']/);
 });
 
 test("HEAD performs the same readiness probe and never returns a body", async () => {

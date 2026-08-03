@@ -237,3 +237,29 @@ system surfaces.
 - The reference contains English city/day labels; Kolibri uses Russian locale.
 - The reference is a static design example; Kolibri keeps source attribution
   and live observation metadata.
+
+## Desktop production acceptance QA — 2026-08-01
+
+Result: **blocked for production; local regression candidate passed**.
+
+- Local clean-room Playwright ran at 1363 × 936 and 1440 × 900 against a
+  disposable `[QA]` tenant. All 10 tests passed, covering app load/reload,
+  primary sections, settings/integrations, quick estimate action, multiple
+  task switching, semantic focus, zero-result honesty, pet overlap, app-origin
+  console errors and a 200% equivalent viewport. Teardown revoked sessions and
+  archived the QA tenant without deleting rows.
+- The pet had two defects: its initial position was rendered before the safe
+  desktop clamp, and live production still lets its collapse control intercept
+  the Projects button. The candidate clamps on mount and suppresses the pet
+  whenever workspace/settings/dialog surfaces own interaction.
+- A desktop browser crossing the responsive breakpoint at 200% zoom was sent
+  to the mobile client and lost its cookie session. The candidate keeps real
+  desktop browsers in the responsive Next workspace and reserves mobile
+  handoff for actual mobile/touch platforms.
+- Candidate screenshots are in `output/playwright/` for app, integrations,
+  quick estimate and zoom states. Live screenshots are
+  `output/playwright/live-1363x936-app.png` and
+  `output/playwright/live-1440x900-app.png`.
+- Live authenticated states were not exercised: no production QA storage state
+  or safely deployed archival command was available, and creating durable test
+  records without guaranteed cleanup is forbidden.

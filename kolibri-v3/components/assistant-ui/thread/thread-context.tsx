@@ -6,7 +6,11 @@ import {
 	groupPartByType,
 	type ToolCallMessagePartComponent,
 } from "@assistant-ui/react";
-import { createContext, type ComponentType, type PropsWithChildren } from "react";
+import {
+	createContext,
+	type ComponentType,
+	type PropsWithChildren,
+} from "react";
 
 export type ThreadGroupPart = MessagePrimitive.GroupedParts.GroupPart;
 
@@ -15,16 +19,15 @@ export type ThreadComponents = {
 	Welcome?: ComponentType | undefined;
 	ToolFallback?: ToolCallMessagePartComponent | undefined;
 	ToolGroup?:
-		| ComponentType<PropsWithChildren<{ group: ThreadGroupPart }>>
-		| undefined;
+		ComponentType<PropsWithChildren<{ group: ThreadGroupPart }>> | undefined;
 	ReasoningGroup?:
-		| ComponentType<PropsWithChildren<{ group: ThreadGroupPart }>>
-		| undefined;
+		ComponentType<PropsWithChildren<{ group: ThreadGroupPart }>> | undefined;
 };
 
 export type ThreadProps = {
 	compact?: boolean | undefined;
 	components?: ThreadComponents | undefined;
+	composerPlacement?: "viewport" | "workspace" | undefined;
 	onOpenAccount?: (() => void) | undefined;
 	onOpenContextPanel?: (() => void) | undefined;
 	workspaceOpen?: boolean | undefined;
@@ -56,11 +59,15 @@ const PRODUCT_STAGE_TOOLS = new Set([
 	"estimate_verification",
 ]);
 
-export const groupAssistantPart: typeof defaultAssistantPartGroup = (part, context) => {
+export const groupAssistantPart: typeof defaultAssistantPartGroup = (
+	part,
+	context,
+) => {
 	if (
 		part.type === "tool-call" &&
 		(part.toolName === "present" ||
 			part.toolName === "get_weather" ||
+			part.toolName === "create_estimate_document_pack" ||
 			PRODUCT_STAGE_TOOLS.has(part.toolName))
 	) {
 		return [];
@@ -68,7 +75,10 @@ export const groupAssistantPart: typeof defaultAssistantPartGroup = (part, conte
 	return defaultAssistantPartGroup(part, context);
 };
 
-export const weatherPartFingerprint = (part: { args: unknown; result?: unknown }) => {
+export const weatherPartFingerprint = (part: {
+	args: unknown;
+	result?: unknown;
+}) => {
 	try {
 		return JSON.stringify({
 			args: part.args,

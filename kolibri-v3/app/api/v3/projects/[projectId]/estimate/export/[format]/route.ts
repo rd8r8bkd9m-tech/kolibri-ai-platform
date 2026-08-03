@@ -25,9 +25,16 @@ export async function GET(
 		);
 	}
 	try {
+		const source = new URL(request.url);
+		const query = new URLSearchParams();
+		for (const key of ["version", "kind"]) {
+			const value = source.searchParams.get(key);
+			if (value) query.set(key, value.slice(0, 64));
+		}
+		const suffix = query.toString() ? `?${query.toString()}` : "";
 		const upstream = await fetchV3Backend(
 			request,
-			`/v1/projects/${encodeURIComponent(projectId)}/estimate/export/${format}`,
+			`/v1/projects/${encodeURIComponent(projectId)}/estimate/export/${format}${suffix}`,
 		);
 		return relayV3BackendResponse(upstream);
 	} catch {

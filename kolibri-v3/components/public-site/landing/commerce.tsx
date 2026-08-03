@@ -1,6 +1,10 @@
 import Link from "next/link";
+import { Suspense } from "react";
 import { CreditCard, KeyRound, RefreshCcw, ShieldCheck } from "lucide-react";
-import { PublicPlanCatalog } from "../public-plan-catalog";
+import {
+	PublicPlanCatalog,
+	PublicPlanCatalogFallback,
+} from "../public-plan-catalog";
 
 export function CommerceSection() {
 	return (
@@ -22,7 +26,9 @@ export function CommerceSection() {
 						Условия оплаты, отмены и возврата →
 					</Link>
 				</div>
-				<PublicPlanCatalog compact />
+				<Suspense fallback={<PublicPlanCatalogFallback compact />}>
+					<PublicPlanCatalog compact />
+				</Suspense>
 			</div>
 		</section>
 	);

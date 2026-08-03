@@ -69,15 +69,10 @@ test("canonical backend launcher pins the V3 database and auth surface", () => {
   assert.match(backendLauncher, /unset KOLIBRI_V3_CSRF_SECRET_FILE/);
   assert.match(backendLauncher, /KOLIBRI_V3_DEV_OWNER_EMAIL/);
   assert.match(backendLauncher, /--expected-owner-email/);
-  assert.match(
-    backendLauncher,
-    /KOLIBRI_V3_ALLOWED_ORIGINS=.*127\.0\.0\.1:4103.*localhost:4103/,
-  );
-  assert.match(backendLauncher, /--reload/);
-  assert.match(
-    backendLauncher,
-    /--reload-dir "\$\{v3_root\}\/backend"/,
-  );
+  assert.match(backendLauncher, /KOLIBRI_V3_ALLOWED_ORIGINS=.*127\.0\.0\.1:3103/);
+  assert.doesNotMatch(backendLauncher, /4103/);
+  assert.doesNotMatch(backendLauncher, /--reload/);
+  assert.doesNotMatch(backendLauncher, /--reload-dir/);
 });
 
 test("mobile development has one explicit Expo runtime and shared V3 backend", () => {
@@ -87,9 +82,11 @@ test("mobile development has one explicit Expo runtime and shared V3 backend", (
   assert.match(mobileLauncher, /"--port"[\s\S]*String\(mobilePort\)/);
   assert.match(mobileLauncher, /http:\/\/127\.0\.0\.1:8002/);
   assert.match(mobileLauncher, /KOLIBRI_V3_MOBILE_API_BASE_URL/);
-  assert.match(mobileLauncher, /3103 and 4103 are UI ports/);
+  assert.match(mobileLauncher, /KOLIBRI_V3_MOBILE_UPSTREAM_PORT.*4104/);
+  assert.match(mobileLauncher, /--web/);
+  assert.match(mobileLauncher, /private; browser traffic enters only through 3103/);
   assert.doesNotMatch(mobileLauncher, /EXPO_PUBLIC_API_BASE_URL\?\.trim/);
-  assert.match(mobileLauncher, /public UI origin is 3103/);
+  assert.match(mobileLauncher, /browser traffic enters only through 3103/);
 });
 
 test("desktop app hands mobile-sized /app routes to the same UI origin", () => {
@@ -109,15 +106,14 @@ test("the desktop app route redirects mobile requests before rendering", () => {
   assert.match(appPage, /return <KolibriApp \/>/);
 });
 
-test("the UI gateway keeps desktop and mobile on one public origin", () => {
+test("the UI gateway selects private mobile and desktop renderers behind 3103", () => {
   assert.match(uiGateway, /KOLIBRI_V3_UI_PORT.*3103/);
   assert.match(uiGateway, /KOLIBRI_V3_DESKTOP_INTERNAL_PORT.*3104/);
-  assert.match(uiGateway, /KOLIBRI_V3_MOBILE_INTERNAL_PORT[\s\S]*4103/);
-  assert.match(uiGateway, /KOLIBRI_V3_MOBILE_INTERNAL_HOST/);
-  assert.match(uiGateway, /client.*mobile/);
+  assert.match(uiGateway, /KOLIBRI_V3_MOBILE_INTERNAL_SOCKET/);
+  assert.match(uiGateway, /socketPath: target\.socketPath/);
+  assert.match(uiGateway, /explicitClient === "mobile"/);
   assert.match(uiGateway, /sec-ch-ua-mobile/);
   assert.match(uiGateway, /mobileUserAgent/);
-  assert.match(uiGateway, /url\.pathname\.slice\("\/app"\.length\)/);
   assert.match(uiGateway, /server\.on\("upgrade", proxyUpgrade\)/);
 });
 
@@ -140,11 +136,12 @@ test("dev stack restarts only the canonical backend launcher", () => {
     /KOLIBRI_V3_BACKEND_URL: "http:\/\/127\.0\.0\.1:8002"/,
   );
   assert.match(stackSupervisor, /KOLIBRI_V3_DESKTOP_INTERNAL_PORT[\s\S]*3104/);
-  assert.match(stackSupervisor, /KOLIBRI_V3_MOBILE_INTERNAL_PORT[\s\S]*4103/);
-  assert.match(stackSupervisor, /KOLIBRI_V3_MOBILE_HOST: "localhost"/);
-  assert.match(stackSupervisor, /KOLIBRI_V3_MOBILE_INTERNAL_HOST: "::1"/);
-  assert.match(stackSupervisor, /KOLIBRI_V3_UI_PORT[\s\S]*3103/);
+  assert.match(stackSupervisor, /KOLIBRI_V3_MOBILE_UPSTREAM_PORT[\s\S]*4104/);
+  assert.match(stackSupervisor, /mobileSocket = path\.join\(v3Root, "var", "mobile-web\.sock"\)/);
+  assert.match(stackSupervisor, /KOLIBRI_V3_MOBILE_INTERNAL_SOCKET: mobileSocket/);
   assert.match(stackSupervisor, /mobileLauncher = path\.join[\s\S]*dev-mobile\.mjs/);
+  assert.match(stackSupervisor, /mobileBridgeLauncher = path\.join[\s\S]*dev-mobile-private-bridge\.mjs/);
+  assert.match(stackSupervisor, /KOLIBRI_V3_UI_PORT[\s\S]*3103/);
   assert.match(stackSupervisor, /gatewayLauncher = path\.join[\s\S]*dev-ui-gateway\.mjs/);
   assert.match(stackSupervisor, /path: "\/v1\/health"/);
   assert.match(stackSupervisor, /payload\.service === "kolibri-v3"/);
@@ -183,11 +180,25 @@ test("dev stack restarts only the canonical backend launcher", () => {
     stackSupervisor,
     /healthy &&[\s\S]*backend\.exitCode === null[\s\S]*startWeb\(\)/,
   );
+  assert.match(stackSupervisor, /healthFailureThreshold = 5/);
+  assert.match(
+    stackSupervisor,
+    /backend health failed repeatedly; fencing and restarting/,
+  );
+  assert.match(
+    stackSupervisor,
+    /backendHealthFailures >= healthFailureThreshold[\s\S]*fenceUnhealthyBackend\(\)/,
+  );
+  assert.match(
+    stackSupervisor,
+    /unhealthyBackend\.kill\("SIGTERM"\)[\s\S]*unhealthyBackend\.kill\("SIGKILL"\)/,
+  );
   assert.match(stackSupervisor, /startMobile\(\);/);
+  assert.match(stackSupervisor, /startMobileBridge\(\);/);
   assert.match(stackSupervisor, /startGateway\(\);/);
   assert.match(
     stackSupervisor,
-    /backend\.once\("exit"[\s\S]*backendReady = false;[\s\S]*web\?\.kill\("SIGTERM"\)/,
+    /backend\.once\("exit"[\s\S]*backendReady = false;[\s\S]*stopUiChildren\(\)/,
   );
   assert.match(
     stackSupervisor,
@@ -233,6 +244,7 @@ test("persistent development delegates only to the canonical supervisor", () => 
   assert.match(persistentLauncher, /session_name="kolibri-v3-dev"/);
   assert.match(persistentLauncher, /\/bin\/bash "\$\{screen_entry\}"/);
   assert.match(screenEntry, /exec "\$\{npm_bin\}" run dev/);
+  assert.match(screenEntry, /: >"\$\{runtime_log\}"/);
   assert.match(screenEntry, />>"\$\{runtime_log\}" 2>&1/);
   assert.match(persistentLauncher, /'"service":"kolibri-v3"'/);
   assert.match(persistentLauncher, /'"instanceId":"'/);

@@ -11,9 +11,10 @@ test("the pet overlay lets mobile chat gestures reach the message list", () => {
 
 	assert.match(
 		pet,
-		/<View pointerEvents="box-none" style=\{StyleSheet\.absoluteFill\}>/,
+		/style=\{\[StyleSheet\.absoluteFill, \{ pointerEvents: "box-none" \}\]\}/,
 	);
-	assert.match(pet, /pointerEvents=\{open \? "auto" : "none"\}/);
+	assert.match(pet, /pointerEvents: open \? "auto" : "none"/);
+	assert.doesNotMatch(pet, /\spointerEvents=/);
 	assert.match(pet, /accessibilityElementsHidden=\{!open\}/);
 	assert.match(
 		pet,

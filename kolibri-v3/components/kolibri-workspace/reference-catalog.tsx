@@ -45,6 +45,7 @@ type PriceEntryKind = "work" | "material" | "equipment" | "service";
 
 type PersonalPriceEntry = {
 	itemKey: string;
+	projectId: string;
 	kind: PriceEntryKind;
 	description: string;
 	region: string;
@@ -57,13 +58,18 @@ type PersonalPriceEntry = {
 	latestSource: string;
 	latestLifecycle: string;
 	latestObservedAt: string;
+	priceDate: string;
+	confidence: number;
+	aiPreliminary: boolean;
 };
 
 type PersonalPriceCatalog = {
 	scope: "personal";
+	projectId: string;
 	aggregation: {
 		method: "median_iqr";
 		crossTenantEnabled: false;
+		crossProjectEnabled: false;
 	};
 	entries: PersonalPriceEntry[];
 };
@@ -81,6 +87,8 @@ function parsePersonalPriceCatalog(value: unknown): PersonalPriceCatalog {
 		!isRecord(aggregation) ||
 		aggregation.method !== "median_iqr" ||
 		aggregation.crossTenantEnabled !== false ||
+		aggregation.crossProjectEnabled !== false ||
+		typeof value.projectId !== "string" ||
 		!Array.isArray(value.entries)
 	) {
 		throw new Error("Price catalog aggregation has an incompatible shape.");
@@ -100,6 +108,7 @@ function parsePersonalPriceCatalog(value: unknown): PersonalPriceCatalog {
 		}
 		const stringFields = [
 			"itemKey",
+			"projectId",
 			"description",
 			"region",
 			"unit",
@@ -110,6 +119,7 @@ function parsePersonalPriceCatalog(value: unknown): PersonalPriceCatalog {
 			"latestSource",
 			"latestLifecycle",
 			"latestObservedAt",
+			"priceDate",
 		] as const;
 		for (const field of stringFields) {
 			if (typeof raw[field] !== "string") {
@@ -123,8 +133,17 @@ function parsePersonalPriceCatalog(value: unknown): PersonalPriceCatalog {
 		) {
 			throw new Error("Price catalog sample size is invalid.");
 		}
+		if (
+			typeof raw.confidence !== "number" ||
+			raw.confidence < 0 ||
+			raw.confidence > 1 ||
+			typeof raw.aiPreliminary !== "boolean"
+		) {
+			throw new Error("Price catalog confidence is invalid.");
+		}
 		return {
 			itemKey: raw.itemKey as string,
+			projectId: raw.projectId as string,
 			kind,
 			description: raw.description as string,
 			region: raw.region as string,
@@ -137,13 +156,18 @@ function parsePersonalPriceCatalog(value: unknown): PersonalPriceCatalog {
 			latestSource: raw.latestSource as string,
 			latestLifecycle: raw.latestLifecycle as string,
 			latestObservedAt: raw.latestObservedAt as string,
+			priceDate: raw.priceDate as string,
+			confidence: raw.confidence,
+			aiPreliminary: raw.aiPreliminary,
 		};
 	});
 	return {
 		scope: "personal",
+		projectId: value.projectId,
 		aggregation: {
 			method: "median_iqr",
 			crossTenantEnabled: false,
+			crossProjectEnabled: false,
 		},
 		entries,
 	};
@@ -182,7 +206,13 @@ function categoryEntries(
 	return [];
 }
 
-export function ReferenceCatalog({ onBack }: { onBack?: () => void }) {
+export function ReferenceCatalog({
+	onBack,
+	projectId,
+}: {
+	onBack?: () => void;
+	projectId?: string | null;
+}) {
 	const titleId = useId();
 	const [activeCategory, setActiveCategory] =
 		useState<ReferenceCategoryId>("works");
@@ -195,14 +225,22 @@ export function ReferenceCatalog({ onBack }: { onBack?: () => void }) {
 		REFERENCE_CATEGORIES[0];
 
 	const loadCatalog = useCallback(async () => {
+		if (!projectId) {
+			setCatalog(null);
+			setCatalogState("ready");
+			return;
+		}
 		setCatalogState("loading");
 		try {
-			const response = await fetch("/api/v3/pricing/catalog?limit=100", {
-				method: "GET",
-				headers: { Accept: "application/json" },
-				credentials: "same-origin",
-				cache: "no-store",
-			});
+			const response = await fetch(
+				`/api/v3/pricing/catalog?limit=100&projectId=${encodeURIComponent(projectId)}`,
+				{
+					method: "GET",
+					headers: { Accept: "application/json" },
+					credentials: "same-origin",
+					cache: "no-store",
+				},
+			);
 			if (!response.ok) {
 				throw new Error(`Price catalog returned HTTP ${response.status}.`);
 			}
@@ -211,7 +249,7 @@ export function ReferenceCatalog({ onBack }: { onBack?: () => void }) {
 		} catch {
 			setCatalogState("error");
 		}
-	}, []);
+	}, [projectId]);
 
 	useEffect(() => {
 		void loadCatalog();
@@ -428,7 +466,7 @@ export function ReferenceCatalog({ onBack }: { onBack?: () => void }) {
 												{formatMoney(entry.medianPrice)}
 											</span>
 											<span className="text-muted-foreground mt-0.5 block text-[10px]">
-												{sourceLabel(entry.latestSource)}
+												{sourceLabel(entry.latestSource)} · на {entry.priceDate.slice(0, 10)} · уверенность {Math.round(entry.confidence * 100)}%{entry.aiPreliminary ? " · AI preliminary" : ""}
 											</span>
 										</p>
 									</div>

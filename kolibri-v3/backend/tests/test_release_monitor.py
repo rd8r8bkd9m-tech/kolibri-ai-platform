@@ -8,12 +8,13 @@ import time
 
 import pytest
 
-from app.database import initialize_database
+from app.database import initialize_database, migration_paths
 from app import release_monitor
 
 
 RELEASE_ID = "kolibri-v3-0123456789ab-abcdef012345"
 RELEASE_COMMIT = "0123456789abcdef0123456789abcdef01234567"
+LATEST_SCHEMA = int(migration_paths()[-1].name.split("_", 1)[0])
 
 
 def _arguments(tmp_path: Path):
@@ -50,7 +51,7 @@ def _arguments(tmp_path: Path):
             "--release-commit",
             RELEASE_COMMIT,
             "--expected-schema",
-            "47",
+            str(LATEST_SCHEMA),
             "--backend-unit",
             "kolibri-v3-backend.service",
             "--frontend-unit",
@@ -141,7 +142,7 @@ def test_monitor_reports_only_bounded_aggregate_release_metrics(
     assert result["alerts"] == []
     assert result["releaseId"] == RELEASE_ID
     assert result["releaseCommit"] == RELEASE_COMMIT
-    assert result["metrics"]["schemaVersion"] == 47
+    assert result["metrics"]["schemaVersion"] == LATEST_SCHEMA
     assert result["metrics"]["stuckRuns"] == 0
     assert result["metrics"]["errorRateBps"] == 100
     serialized = str(result)

@@ -12,33 +12,30 @@ const APP_ROOT = path.resolve(
 const readSource = (relativePath) =>
   readFile(path.join(APP_ROOT, relativePath), "utf8");
 
-test("account authentication overlays the preserved primary workspace without a dialog primitive", async () => {
-  const [desktop, view, layout, accountSurface, runtime] = await Promise.all([
+test("account authentication renders in the shared settings canvas without a dialog primitive", async () => {
+  const [desktop, view, layout, auxiliary, accountSurface, runtime] = await Promise.all([
     readSource("components/kolibri-shell/desktop-workspace/desktop-workspace.tsx"),
     readSource("components/kolibri-shell/desktop-workspace/desktop-workspace-view.tsx"),
     readSource("components/kolibri-shell/desktop-workspace/desktop-workspace-layout.tsx"),
+    readSource("components/kolibri-shell/desktop-workspace/desktop-auxiliary-canvas.tsx"),
     readSource("components/kolibri-shell/profile-settings-surface.tsx"),
     readSource("app/MyRuntimeProvider.tsx"),
   ]);
 
-  assert.match(desktop, /const\s+\[accountOpen,\s*setAccountOpen\]/);
-  assert.match(desktop, /openAccount\s*=\s*useCallback/);
-  assert.match(view, /<ProfileSettingsSurface\b/);
-  assert.match(view, /accountOpen=\{accountOpen\}/);
-  assert.match(layout, /aria-label=["']Личный кабинет Kolibri["']/);
-  assert.match(layout, /accountOpen \? \(/);
-  assert.match(
-    desktop,
-    /openAccount[\s\S]{0,420}setAccountOpen\(true\)/,
-  );
+  assert.match(desktop, /const openSettings = useCallback/);
+  assert.match(desktop, /auxiliary\.openSettings\(section\)/);
+  assert.match(auxiliary, /<ProfileSettingsSurface\b/);
+  assert.match(auxiliary, /activeSection=\{settingsSection\}/);
+  assert.match(layout, /data-slot=["']primary-product-surface["']/);
+  assert.match(layout, /primaryOpen \? \(/);
   assert.doesNotMatch(
     `${desktop}\n${view}\n${layout}`,
-    /openAccount[\s\S]{0,420}setCanvasVisible\(/,
+    /openSettings[\s\S]{0,420}setCanvasVisible\(/,
   );
   assert.doesNotMatch(`${desktop}\n${view}\n${layout}`, /\bProfileSettingsDialog\b/);
 
-  assert.match(accountSurface, /data-slot=["']account-settings-surface["']/);
-  assert.match(accountSurface, /<AuthPanel\s+onAuthenticated=\{onClose\}\s*\/>/);
+  assert.match(accountSurface, /data-slot=["']settings-canvas-surface["']/);
+  assert.match(accountSurface, /<AuthPanel\s+onAuthenticated=\{\(\) => undefined\}\s*\/>/);
   assert.match(
     accountSurface,
     /await\s+identity\.(?:login|register)[\s\S]{0,220}onAuthenticated\(\)/,

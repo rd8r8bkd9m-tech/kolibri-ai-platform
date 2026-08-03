@@ -1,12 +1,9 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { Thread } from "@/components/assistant-ui/thread";
+import { Thread, ThreadComposer } from "@/components/assistant-ui/thread";
 import { KolibriPetHost } from "@/components/kolibri-shell/kolibri-pet";
-import {
-	type ProfileSettingsSection,
-	ProfileSettingsSurface,
-} from "@/components/kolibri-shell/profile-settings-surface";
+import type { ProfileSettingsSection } from "@/components/kolibri-shell/profile-settings-surface";
 import {
 	WorkspaceCommandPalette,
 	type WorkspaceCommandThread,
@@ -23,25 +20,22 @@ import type { AuxiliaryCanvasController } from "./use-auxiliary-canvas";
 import { DesktopWorkspaceLayout } from "./desktop-workspace-layout";
 
 export function DesktopWorkspaceView({
-	accountOpen,
-	accountSection,
 	activeDestination,
 	activeProject,
 	auxiliary,
 	auxiliaryCanvas,
 	commandPaletteOpen,
+	composerContextOverride,
 	currentTitle,
 	navigationOpen,
-	onAccountSectionChange,
-	onCloseAccount,
 	onNewTask,
-	onOpenAccount,
 	onOpenChat,
 	onOpenDocuments,
 	onOpenFile,
 	onOpenProject,
 	onOpenProjects,
 	onOpenReferences,
+	onOpenSettings,
 	onPaletteOpenChange,
 	onSelectThread,
 	onToggleNavigation,
@@ -51,25 +45,22 @@ export function DesktopWorkspaceView({
 	threads,
 	workspaceFiles,
 }: {
-	accountOpen: boolean;
-	accountSection: ProfileSettingsSection;
 	activeDestination: WorkspaceSidebarProps["activeDestination"];
 	activeProject: WorkspaceProject | null;
 	auxiliary: AuxiliaryCanvasController;
 	auxiliaryCanvas: ReactNode;
 	commandPaletteOpen: boolean;
+	composerContextOverride?: string;
 	currentTitle: string;
 	navigationOpen: boolean;
-	onAccountSectionChange: (section: ProfileSettingsSection) => void;
-	onCloseAccount: () => void;
 	onNewTask: () => void;
-	onOpenAccount: (section: ProfileSettingsSection) => void;
 	onOpenChat: () => void;
 	onOpenDocuments: () => void;
 	onOpenFile: (file: WorkspaceFile) => void;
 	onOpenProject: (project: WorkspaceProject) => void;
 	onOpenProjects: () => void;
 	onOpenReferences: () => void;
+	onOpenSettings: (section: ProfileSettingsSection) => void;
 	onPaletteOpenChange: (open: boolean) => void;
 	onSelectThread: (threadId: string) => void;
 	onToggleNavigation: () => void;
@@ -82,10 +73,10 @@ export function DesktopWorkspaceView({
 	const navigation = (
 		<WorkspaceSidebar
 			activeDestination={activeDestination}
-			onOpenAiModels={() => onOpenAccount("ai-models")}
+			onOpenAiModels={() => onOpenSettings("ai-models")}
 			onOpenChat={onOpenChat}
 			onOpenDocuments={onOpenDocuments}
-			onOpenProfileSettings={() => onOpenAccount("general")}
+			onOpenProfileSettings={() => onOpenSettings("general")}
 			onOpenProjects={onOpenProjects}
 			onOpenReferenceCatalog={onOpenReferences}
 			onRequestClose={onToggleNavigation}
@@ -95,14 +86,14 @@ export function DesktopWorkspaceView({
 	const chrome = (
 		<>
 			<WorkspaceCommandPalette
-				contextPanelOpen={auxiliary.open}
+				contextPanelOpen={auxiliary.rightOpen || auxiliary.fullscreen}
 				files={workspaceFiles}
 				navigationOpen={navigationOpen}
 				onNewTask={onNewTask}
 				onOpenBrowser={() => auxiliary.openTool("browser")}
 				onOpenChange={onPaletteOpenChange}
 				onOpenDocuments={onOpenDocuments}
-				onOpenProfile={() => onOpenAccount("general")}
+				onOpenProfile={() => onOpenSettings("general")}
 				onOpenProjects={onOpenProjects}
 				onOpenReferences={onOpenReferences}
 				onOpenReview={() => auxiliary.openTool("review")}
@@ -121,40 +112,71 @@ export function DesktopWorkspaceView({
 				tabs={auxiliary.session.tabs}
 				onRestoreTab={auxiliary.restoreTab}
 			/>
-			<KolibriPetHost />
+			<KolibriPetHost
+				suppressed={auxiliary.open || commandPaletteOpen || primaryOpen}
+			/>
 		</>
 	);
+	const activeCanvasLabel = auxiliary.activeFile?.name
+		? auxiliary.activeFile.name
+		: auxiliary.activeTab?.title;
+	const rightWorkspaceOpen = auxiliary.rightOpen || auxiliary.fullscreen;
+	const composerContextLabel =
+		composerContextOverride ??
+		(primaryOpen
+			? activeCanvasLabel || "Рабочая область"
+			: rightWorkspaceOpen
+				? `Диалог · ${activeCanvasLabel || "Инструменты"}`
+				: "Диалог");
 
 	return (
 		<DesktopWorkspaceLayout
-			account={
-				<ProfileSettingsSurface
-					activeSection={accountSection}
-					onClose={onCloseAccount}
-					onSectionChange={onAccountSectionChange}
-				/>
-			}
-			accountOpen={accountOpen}
 			auxiliary={auxiliaryCanvas}
 			auxiliaryFullscreen={auxiliary.fullscreen}
-			auxiliaryOpen={auxiliary.open}
+			auxiliaryOpen={auxiliary.rightOpen}
 			chat={
 				<Thread
-					onOpenAccount={() => onOpenAccount("general")}
-					onOpenContextPanel={auxiliary.toggle}
-					workspaceOpen={auxiliary.open}
+					composerPlacement="workspace"
+					onOpenAccount={() => onOpenSettings("general")}
+					onOpenContextPanel={primaryOpen ? undefined : auxiliary.toggle}
+					workspaceOpen={rightWorkspaceOpen}
 				/>
 			}
 			chrome={chrome}
+			composer={
+				<div
+					data-slot="workspace-context-composer"
+					data-composer-surface={primaryOpen ? "canvas" : "chat"}
+					className="border-border/80 bg-background shrink-0 border-t px-3 pt-2 pb-[calc(0.75rem+env(safe-area-inset-bottom))]"
+				>
+					<div className="mx-auto w-full max-w-3xl">
+						<div className="text-muted-foreground mb-1.5 flex min-w-0 items-center gap-1.5 px-1 text-[10px] leading-4">
+							<span className="shrink-0">Контекст:</span>
+							<span className="text-foreground truncate font-medium">
+								{composerContextLabel}
+							</span>
+						</div>
+						<ThreadComposer
+							onOpenAccount={() => onOpenSettings("general")}
+							onOpenContextPanel={
+								primaryOpen ? undefined : auxiliary.toggle
+							}
+							workspaceOpen={rightWorkspaceOpen}
+						/>
+					</div>
+				</div>
+			}
 			header={
 				<WorkspaceHeader
 					activeProjectId={activeProject?.id}
-					contextPanelOpen={auxiliary.open}
+					contextPanelOpen={rightWorkspaceOpen}
 					navigationOpen={navigationOpen}
-					onBack={primaryOpen ? onOpenChat : undefined}
+					onOpenChat={onOpenChat}
 					onOpenCommandPalette={() => onPaletteOpenChange(true)}
 					onProjectSelect={onOpenProject}
-					onToggleContextPanel={auxiliary.toggle}
+					onToggleContextPanel={
+						primaryOpen ? undefined : auxiliary.toggle
+					}
 					onToggleNavigation={onToggleNavigation}
 					projectName={activeProject?.name}
 					projects={projects}

@@ -109,6 +109,27 @@ Kolibri хранит не одну «правильную цену», а ист�
 - отображение происхождения цены в Chat + Canvas и экспортных документах;
 - отключённое cross-tenant агрегирование.
 
+### Privacy-gated catalog/market slice (migration 049)
+
+В V3 добавлены reviewable `CatalogCandidate`, approved `CatalogEntry`,
+versioned technology cards и расширение существующей `price_observations`.
+AI-generated строки сначала попадают в private candidate queue и не видны в
+approved global/tenant autocomplete до owner review. Estimate snapshots
+сохраняют версии каталога/карты.
+
+Наблюдение может войти в market projection только при source-backed evidence,
+активном consent, valid-until и не-тестовой маркировке. Policy
+`market-aggregate/1.0.0` требует минимум пять independent contributors,
+дедуплицирует tenant/document/row и contributor pseudonym, применяет Tukey
+IQR 1.5 и публикует только P25/median/P75. Недостаточный cohort не публикуется;
+AI preliminary и user edit остаются private. Отзыв consent исключает строки из
+будущего пересчёта, сохраняя audit trail.
+
+Это техническая политика, а не юридическое одобрение; открытые вопросы по
+персональным данным, коммерческой тайне, лицензиям документов, retention и
+антимонопольным ограничениям перечислены в
+[`ESTIMATE_CATALOG.md`](ESTIMATE_CATALOG.md).
+
 ### Политика текущего адаптера ФГИС ЦС
 
 Запрос выполняется только по явной команде пользователя через публичную

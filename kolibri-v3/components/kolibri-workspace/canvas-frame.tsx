@@ -5,7 +5,7 @@ import {
 	Minimize2,
 	Minus,
 	PanelRight,
-	X,
+	type LucideIcon,
 } from "lucide-react";
 import { type ReactNode, useId } from "react";
 import { Button } from "@/components/ui/button";
@@ -24,14 +24,24 @@ export type CanvasFrameTab = {
 	title: string;
 };
 
+export type CanvasFrameHeaderTab = {
+	icon?: LucideIcon;
+	id: string;
+	title: string;
+};
+
 export type CanvasFrameProps = {
 	activeTabId?: string;
 	children: ReactNode;
 	className?: string;
 	compactChrome?: boolean;
+	activeHeaderTabId?: string;
+	headerActions?: ReactNode;
+	headerTabs?: readonly CanvasFrameHeaderTab[];
 	label: string;
 	maximized?: boolean;
 	onClose?: () => void;
+	onHeaderTabSelect?: (tabId: string) => void;
 	onMinimize?: () => void;
 	onPlacementChange?: (placement: CanvasFramePlacement) => void;
 	onTabSelect?: (tabId: string) => void;
@@ -45,9 +55,13 @@ export function CanvasFrame({
 	children,
 	className,
 	compactChrome = false,
+	activeHeaderTabId,
+	headerActions,
+	headerTabs = [],
 	label,
 	maximized = false,
 	onClose,
+	onHeaderTabSelect,
 	onMinimize,
 	onPlacementChange,
 	onTabSelect,
@@ -75,62 +89,83 @@ export function CanvasFrame({
 				aria-label={label}
 			>
 				{compactChrome ? null : (
-					<header className="border-border/80 bg-background flex h-12 shrink-0 items-center gap-2 border-b px-3">
-						{tabs.length > 1 ? (
-							<CanvasTabList
-								activeTabId={activeTabId}
-								domPrefix={domPrefix}
-								onTabSelect={onTabSelect}
-								tabs={tabs}
-							/>
-						) : (
-							<span className="min-w-0 flex-1" aria-hidden="true" />
-						)}
-						<div className="ml-auto flex shrink-0 items-center gap-1">
-							{onToggleMaximize ? (
-								<CanvasIconAction
-									data-slot="canvas-fullscreen-toggle"
-									label={maximized ? "Вернуть в панель" : "На весь экран"}
-									aria-pressed={maximized}
-									onClick={onToggleMaximize}
-								>
-									{maximized ? (
-										<Minimize2 className="size-4" aria-hidden="true" />
-									) : (
-										<Maximize2 className="size-4" aria-hidden="true" />
-									)}
-								</CanvasIconAction>
-							) : null}
-							{onMinimize ? (
-								<CanvasIconAction
-									data-slot="canvas-minimize"
-									label="Свернуть рабочую область"
-									onClick={onMinimize}
-								>
-									<Minus className="size-4" aria-hidden="true" />
-								</CanvasIconAction>
-							) : null}
-							{!maximized && onPlacementChange && placement !== "right" ? (
-								<CanvasIconAction
-									label="Закрепить справа"
-									onClick={() => onPlacementChange("right")}
-								>
-									<PanelRight className="size-4" aria-hidden="true" />
-								</CanvasIconAction>
-							) : null}
-							{onClose ? (
-								<CanvasIconAction label="Закрыть рабочую область" onClick={onClose}>
-									<X className="size-4" aria-hidden="true" />
-								</CanvasIconAction>
-							) : null}
-						</div>
-					</header>
+					<>
+						<header className="border-border/80 bg-background flex h-12 shrink-0 items-center gap-2 border-b px-3">
+							{tabs.length > 0 ? (
+								<CanvasTabList
+									activeTabId={activeTabId}
+									domPrefix={domPrefix}
+									onTabSelect={onTabSelect}
+									tabs={tabs}
+								/>
+							) : headerTabs.length > 0 ? (
+								<CanvasHeaderTabList
+									activeTabId={activeHeaderTabId}
+									onTabSelect={onHeaderTabSelect}
+									tabs={headerTabs}
+								/>
+							) : (
+								<span className="min-w-0 flex-1" aria-hidden="true" />
+							)}
+							<div className="ml-auto flex shrink-0 items-center gap-1">
+								{headerActions}
+								{onToggleMaximize ? (
+									<CanvasIconAction
+										data-slot="canvas-fullscreen-toggle"
+										label={maximized ? "Вернуть в панель" : "На весь экран"}
+										aria-pressed={maximized}
+										onClick={onToggleMaximize}
+									>
+										{maximized ? (
+											<Minimize2 className="size-4" aria-hidden="true" />
+										) : (
+											<Maximize2 className="size-4" aria-hidden="true" />
+										)}
+									</CanvasIconAction>
+								) : null}
+								{onMinimize ? (
+									<CanvasIconAction
+										data-slot="canvas-minimize"
+										label="Свернуть рабочую область"
+										onClick={onMinimize}
+									>
+										<Minus className="size-4" aria-hidden="true" />
+									</CanvasIconAction>
+								) : null}
+								{!maximized && onPlacementChange && placement !== "right" ? (
+									<CanvasIconAction
+										label="Закрепить справа"
+										onClick={() => onPlacementChange("right")}
+									>
+										<PanelRight className="size-4" aria-hidden="true" />
+									</CanvasIconAction>
+								) : null}
+								{onClose ? (
+									<CanvasIconAction
+										label="Закрыть рабочую область"
+										onClick={onClose}
+									>
+										<PanelRight className="size-4" aria-hidden="true" />
+									</CanvasIconAction>
+								) : null}
+							</div>
+						</header>
+						{tabs.length > 0 && headerTabs.length > 0 ? (
+							<div className="border-border/80 bg-background flex h-9 shrink-0 items-center border-b px-3">
+								<CanvasHeaderTabList
+									activeTabId={activeHeaderTabId}
+									onTabSelect={onHeaderTabSelect}
+									tabs={headerTabs}
+								/>
+							</div>
+						) : null}
+					</>
 				)}
 				<div
 					id={`${domPrefix}-tabpanel`}
 					role="tabpanel"
 					aria-labelledby={
-						tabs.length > 1 && activeTabId
+						tabs.length > 0 && activeTabId
 							? `${domPrefix}-tab-${selectedIndex}`
 							: undefined
 					}
@@ -140,6 +175,47 @@ export function CanvasFrame({
 				</div>
 			</section>
 		</TooltipProvider>
+	);
+}
+
+function CanvasHeaderTabList({
+	activeTabId,
+	onTabSelect,
+	tabs,
+}: {
+	activeTabId?: string;
+	onTabSelect?: (tabId: string) => void;
+	tabs: readonly CanvasFrameHeaderTab[];
+}) {
+	return (
+		<div
+			role="tablist"
+			aria-label="Инструменты рабочей области"
+			className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto overscroll-x-contain"
+		>
+			{tabs.map(({ icon: Icon, id, title }) => {
+				const selected = id === activeTabId;
+				return (
+					<button
+						key={id}
+						type="button"
+						role="tab"
+						aria-selected={selected}
+						tabIndex={selected ? 0 : -1}
+						onClick={() => onTabSelect?.(id)}
+						className={cn(
+							"text-muted-foreground focus-visible:ring-ring/50 flex h-8 shrink-0 items-center gap-1.5 rounded-lg px-2.5 text-[11px] font-medium whitespace-nowrap outline-none transition-colors focus-visible:ring-2",
+							selected
+								? "bg-muted text-foreground"
+								: "hover:bg-muted/60 hover:text-foreground",
+						)}
+					>
+						{Icon ? <Icon className="size-3.5" aria-hidden="true" /> : null}
+						{title}
+					</button>
+				);
+			})}
+		</div>
 	);
 }
 

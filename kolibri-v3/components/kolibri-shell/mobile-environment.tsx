@@ -36,6 +36,7 @@ export function MobileEnvironment() {
 		).virtualKeyboard;
 
 		const mobileViewport = window.matchMedia(MOBILE_BREAKPOINT_QUERY);
+		const mobilePlatform = detectMobilePlatform();
 		let handoffScheduled = false;
 		const handoffToMobileWeb = () => {
 			if (handoffScheduled || !DESKTOP_APP_PATH.test(window.location.pathname)) {
@@ -46,8 +47,20 @@ export function MobileEnvironment() {
 			window.location.replace(mobileAppUrl());
 		};
 
-		root.dataset.mobilePlatform = detectMobilePlatform();
-		if (mobileViewport.matches) handoffToMobileWeb();
+		root.dataset.mobilePlatform = mobilePlatform;
+		// Keep the UI aligned with the active viewport: narrow windows in DevTools
+		// also switch to the dedicated mobile build.
+		if (mobileViewport.matches) {
+			handoffToMobileWeb();
+		}
+
+		const onViewportChange = () => {
+			if (mobileViewport.matches) {
+				handoffToMobileWeb();
+			}
+		};
+
+		mobileViewport.addEventListener("change", onViewportChange);
 		try {
 			if (virtualKeyboard) virtualKeyboard.overlaysContent = false;
 		} catch {
@@ -79,14 +92,13 @@ export function MobileEnvironment() {
 		syncViewport();
 		window.addEventListener("resize", syncViewport);
 		window.addEventListener("orientationchange", syncViewport);
-		mobileViewport.addEventListener("change", handoffToMobileWeb);
 		viewport?.addEventListener("resize", syncViewport);
 		viewport?.addEventListener("scroll", syncViewport);
 
 		return () => {
 			window.removeEventListener("resize", syncViewport);
 			window.removeEventListener("orientationchange", syncViewport);
-			mobileViewport.removeEventListener("change", handoffToMobileWeb);
+			mobileViewport.removeEventListener("change", onViewportChange);
 			viewport?.removeEventListener("resize", syncViewport);
 			viewport?.removeEventListener("scroll", syncViewport);
 			delete root.dataset.mobilePlatform;

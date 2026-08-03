@@ -1,14 +1,11 @@
 "use client";
 
 import {
-	ArrowLeft,
 	Bird,
 	Bot,
 	Check,
-	ChevronRight,
 	Code2,
 	CreditCard,
-	Filter,
 	KeyRound,
 	LoaderCircle,
 	LogIn,
@@ -25,7 +22,6 @@ import {
 	Store,
 	Sun,
 	UserRound,
-	X,
 } from "lucide-react";
 import {
 	type FormEvent,
@@ -40,6 +36,7 @@ import {
 } from "react";
 import { AgentProfileSelector } from "@/components/assistant-ui/agent-profile-selector";
 import { BillingAccountSection } from "@/components/billing/billing-account-section";
+import { PlatformAdminSection } from "@/components/kolibri-shell/platform-admin-section";
 import {
 	KOLIBRI_PET_SELECTION_EVENT,
 	KOLIBRI_PET_VISIBILITY_EVENT,
@@ -52,7 +49,6 @@ import {
 	setKolibriPetId,
 	setKolibriPetVisibility,
 } from "@/components/kolibri-shell/kolibri-pet";
-import { PlatformAdminSection } from "@/components/kolibri-shell/platform-admin-section";
 import {
 	type KolibriThemePreference,
 	useKolibriTheme,
@@ -62,6 +58,7 @@ import { Input } from "@/components/ui/input";
 import { type AgentProfile, accountInitials } from "@/lib/identity/contracts";
 import { useIdentity } from "@/lib/identity/provider";
 import { useModelCatalog } from "@/lib/models/provider";
+import { effectiveModelSelectionId } from "@/lib/models/selection";
 import {
 	connectCodexLogin,
 	connectMimo,
@@ -89,7 +86,6 @@ export type ProfileSettingsSection =
 
 export type ProfileSettingsSurfaceProps = {
 	activeSection?: ProfileSettingsSection;
-	onClose: () => void;
 	onSectionChange?: (section: ProfileSettingsSection) => void;
 	initialSection?: ProfileSettingsSection;
 };
@@ -180,6 +176,14 @@ const SECTION_GROUPS: readonly {
 	},
 ];
 
+export function profileSettingsSectionLabel(section: ProfileSettingsSection) {
+	return (
+		SECTION_GROUPS.flatMap((group) => group.sections).find(
+			(candidate) => candidate.id === section,
+		)?.label ?? "Настройки"
+	);
+}
+
 const PROFILE_PRESENTATION: Record<
 	AgentProfile,
 	{ label: string; description: string }
@@ -189,8 +193,8 @@ const PROFILE_PRESENTATION: Record<
 		description: "Kolibri выберет доступную модель для задачи.",
 	},
 	"mimo-code": {
-		label: "MiMo Code",
-		description: "Быстрая модель для повседневных запросов.",
+		label: "MiMo 2.5 Pro",
+		description: "Модель MiMo Code для повседневных запросов.",
 	},
 	"codex-cli": {
 		label: "Codex",
@@ -200,7 +204,6 @@ const PROFILE_PRESENTATION: Record<
 
 export function ProfileSettingsSurface({
 	activeSection: controlledSection,
-	onClose,
 	onSectionChange,
 	initialSection = "general",
 }: ProfileSettingsSurfaceProps) {
@@ -209,20 +212,9 @@ export function ProfileSettingsSurface({
 		useState<ProfileSettingsSection>(initialSection);
 	const activeSection = controlledSection ?? internalSection;
 	const [search, setSearch] = useState("");
-	const [mobileMenuOpen, setMobileMenuOpen] = useState(
-		controlledSection === undefined || controlledSection === "general",
-	);
-	const mobileMenuRef = useRef<HTMLElement>(null);
 	const selectSection = (section: ProfileSettingsSection) => {
 		setInternalSection(section);
 		onSectionChange?.(section);
-		setMobileMenuOpen(false);
-	};
-	const showMobileMenu = () => {
-		setMobileMenuOpen(true);
-		window.requestAnimationFrame(() => {
-			mobileMenuRef.current?.scrollTo({ top: 0 });
-		});
 	};
 
 	useEffect(() => {
@@ -250,90 +242,42 @@ export function ProfileSettingsSurface({
 			})).filter((group) => group.sections.length > 0),
 		[identity.user?.isPlatformOwner, normalizedSearch],
 	);
-	const activeSectionLabel =
-		SECTION_GROUPS.flatMap((group) => group.sections).find(
-			(section) => section.id === activeSection,
-		)?.label ?? "Настройки";
+	const activeSectionLabel = profileSettingsSectionLabel(activeSection);
 
 	return (
 		<section
-			data-slot="account-settings-surface"
-			aria-label="Личный кабинет Kolibri"
+			data-slot="settings-canvas-surface"
+			aria-label="Настройки Kolibri"
 			className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-background"
 		>
 			{identity.status === "loading" ? (
 				<LoadingAccount />
 			) : identity.status !== "authenticated" || !identity.user ? (
-				<>
-					<div className="flex min-h-12 shrink-0 items-center border-b px-3 sm:px-5">
-						<Button
-							type="button"
-							variant="ghost"
-							size="sm"
-							onClick={onClose}
-							className="rounded-lg"
-						>
-							<ArrowLeft className="size-4" aria-hidden="true" />К чату
-						</Button>
-					</div>
-					<AuthPanel onAuthenticated={onClose} />
-				</>
+				<AuthPanel onAuthenticated={() => undefined} />
 			) : (
 				<div
-					data-slot="account-settings-layout"
-					className="grid min-h-0 flex-1 grid-cols-1 grid-rows-1 min-[960px]:grid-cols-[minmax(250px,320px)_minmax(0,1fr)]"
+					data-slot="settings-canvas-layout"
+					className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[auto_minmax(0,1fr)] @min-[760px]:grid-cols-[230px_minmax(0,1fr)] @min-[760px]:grid-rows-1"
 				>
 					<aside
-						ref={mobileMenuRef}
-						aria-label="Разделы личного кабинета"
-						data-slot="account-settings-menu"
-						className={cn(
-							"h-full min-h-0 overflow-y-auto bg-[#f2f2f7] px-4 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-[calc(1rem+env(safe-area-inset-top))] dark:bg-[#242426] min-[960px]:block min-[960px]:border-r min-[960px]:border-[#dce5f5] min-[960px]:bg-[#eef3ff] min-[960px]:px-4 min-[960px]:py-6 min-[960px]:dark:border-sky-950 min-[960px]:dark:bg-[#101721]",
-							mobileMenuOpen ? "block" : "hidden",
-						)}
+						aria-label="Разделы настроек"
+						data-slot="settings-canvas-navigation"
+						className="hidden h-full min-h-0 overflow-y-auto border-r border-[#dce5f5] bg-[#eef3ff] px-3 py-4 dark:border-sky-950 dark:bg-[#101721] @min-[760px]:block"
 					>
-						<div
-							data-slot="account-mobile-profile"
-							className="relative flex min-h-[16.5rem] flex-col items-center justify-end pb-5 min-[960px]:hidden"
-						>
-							<Button
-								type="button"
-								variant="ghost"
-								size="icon"
-								onClick={onClose}
-								aria-label="Закрыть личный кабинет"
-								className="absolute top-0 right-0 size-12 rounded-full border border-foreground/45 bg-transparent p-0 shadow-none"
-							>
-								<X aria-hidden="true" className="size-6 stroke-[1.9]" />
-							</Button>
-							<span
-								aria-hidden="true"
-								className="flex size-[92px] items-center justify-center rounded-full bg-[#fb927c] text-[28px] font-medium text-white"
-							>
+						<div className="flex items-center gap-2 px-2">
+							<span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-[#fb927c] text-[11px] font-medium text-white">
 								{accountInitials(identity.user)}
 							</span>
-							<p className="mt-3 max-w-full truncate text-[22px] leading-7 font-semibold tracking-[-0.025em]">
-								{identity.user.name}
-							</p>
-							<p className="text-muted-foreground mt-1 text-[15px]">
-								{roleLabel}
-							</p>
+							<span className="min-w-0">
+								<span className="block truncate text-[12px] font-semibold">
+									{identity.user.name}
+								</span>
+								<span className="text-muted-foreground block truncate text-[10px]">
+									{roleLabel}
+								</span>
+							</span>
 						</div>
-						<Button
-							type="button"
-							variant="ghost"
-							size="sm"
-							onClick={onClose}
-							className="text-muted-foreground -ml-2 hidden h-9 rounded-lg px-2 hover:bg-white/70 hover:text-foreground dark:hover:bg-white/[0.06] min-[960px]:inline-flex"
-						>
-							<ArrowLeft className="size-4" aria-hidden="true" />
-							Вернуться в приложение
-						</Button>
-						<div className="mt-4 hidden items-center gap-2 px-1 text-[15px] font-medium min-[960px]:flex">
-							<Filter className="size-4" />
-							Все настройки
-						</div>
-						<div className="relative mt-5 hidden min-[960px]:block">
+						<div className="relative mt-4">
 							<Search
 								aria-hidden="true"
 								className="text-muted-foreground pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2"
@@ -344,25 +288,21 @@ export function ProfileSettingsSurface({
 								onChange={(event) => setSearch(event.target.value)}
 								placeholder="Поиск настроек…"
 								aria-label="Поиск настроек"
-								className="h-10 rounded-xl border-white/80 bg-white/85 pl-9 shadow-sm dark:border-white/10 dark:bg-white/[0.06]"
+								className="h-9 rounded-lg border-white/80 bg-white/85 pl-9 text-[12px] shadow-none dark:border-white/10 dark:bg-white/[0.06]"
 							/>
 						</div>
-						<nav
-							data-slot="account-settings-navigation"
-							className="mt-5 min-[960px]:mt-5"
-							aria-label="Все настройки"
-						>
+						<nav className="mt-4" aria-label="Все настройки">
 							{filteredGroups.length ? (
 								filteredGroups.map((group) => (
 									<div
 										key={group.label}
 										data-slot="account-settings-group"
-										className="mb-7 min-[960px]:mb-5"
+										className="mb-4"
 									>
-										<h2 className="text-muted-foreground mb-2 px-2 text-[17px] font-semibold tracking-[-0.02em] min-[960px]:mb-1.5 min-[960px]:text-[11px] min-[960px]:font-medium min-[960px]:uppercase min-[960px]:tracking-wide">
+										<h2 className="text-muted-foreground mb-1 px-2 text-[10px] font-medium uppercase tracking-wide">
 											{group.label}
 										</h2>
-										<ul className="divide-y divide-foreground/10 overflow-hidden rounded-[26px] bg-white px-4 dark:bg-[#373739] min-[960px]:space-y-0.5 min-[960px]:divide-y-0 min-[960px]:overflow-visible min-[960px]:rounded-none min-[960px]:bg-transparent min-[960px]:px-0 min-[960px]:dark:bg-transparent">
+										<ul className="space-y-0.5">
 											{group.sections.map(({ id, icon: Icon, label }) => (
 												<li key={id}>
 													<button
@@ -372,21 +312,17 @@ export function ProfileSettingsSurface({
 														}
 														onClick={() => selectSection(id)}
 														className={cn(
-															"flex min-h-[56px] w-full items-center gap-3 text-left text-[17px] font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-sky-400/50 min-[960px]:min-h-9 min-[960px]:gap-2.5 min-[960px]:rounded-lg min-[960px]:px-2.5 min-[960px]:text-[13px] min-[960px]:font-normal",
+															"flex min-h-9 w-full items-center gap-2.5 rounded-lg px-2.5 text-left text-[12px] outline-none transition-colors focus-visible:ring-2 focus-visible:ring-sky-400/50",
 															activeSection === id
-																? "text-foreground min-[960px]:bg-[#d8e4fa] min-[960px]:dark:bg-sky-900/45"
-																: "min-[960px]:hover:bg-[#e2edff] min-[960px]:dark:hover:bg-sky-950/45",
+																? "bg-[#d8e4fa] text-foreground dark:bg-sky-900/45"
+																: "hover:bg-[#e2edff] dark:hover:bg-sky-950/45",
 														)}
 													>
 														<Icon
-															className="size-5 shrink-0 stroke-[1.9] min-[960px]:size-4"
+															className="size-4 shrink-0"
 															aria-hidden="true"
 														/>
 														<span className="truncate">{label}</span>
-														<ChevronRight
-															aria-hidden="true"
-															className="text-muted-foreground ml-auto size-4 shrink-0 stroke-[2] min-[960px]:hidden"
-														/>
 													</button>
 												</li>
 											))}
@@ -399,59 +335,60 @@ export function ProfileSettingsSurface({
 								</p>
 							)}
 						</nav>
-						<div className="mt-4 hidden items-center gap-2.5 border-t border-sky-200/60 px-2 pt-4 dark:border-sky-900/60 min-[960px]:flex">
-							<span className="flex size-7 items-center justify-center rounded-full bg-[#fb927c] text-[10px] font-medium text-white">
-								{accountInitials(identity.user)}
-							</span>
-							<span className="min-w-0">
-								<span className="block truncate text-xs font-medium">
-									{identity.user.name}
-								</span>
-								<span className="text-muted-foreground block truncate text-[10px]">
-									{roleLabel}
-								</span>
-							</span>
-						</div>
 					</aside>
 
+					<header
+						data-slot="settings-canvas-mobile-navigation"
+						className="min-w-0 border-b bg-background px-3 py-3 @min-[760px]:hidden"
+					>
+						<div className="flex items-center justify-between gap-3">
+							<div className="min-w-0">
+								<p className="text-[13px] font-semibold">Настройки</p>
+								<p className="text-muted-foreground truncate text-[10px]">
+									{activeSectionLabel}
+								</p>
+							</div>
+							<span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-[#fb927c] text-[11px] font-medium text-white">
+								{accountInitials(identity.user)}
+							</span>
+						</div>
+						<nav
+							aria-label="Разделы настроек"
+							className="mt-3 flex gap-1 overflow-x-auto overscroll-x-contain pb-0.5"
+						>
+							{filteredGroups
+								.flatMap((group) => group.sections)
+								.map(({ id, icon: Icon, label }) => (
+									<button
+										type="button"
+										key={id}
+										aria-current={activeSection === id ? "page" : undefined}
+										onClick={() => selectSection(id)}
+										className={cn(
+											"flex h-8 shrink-0 items-center gap-1.5 rounded-lg px-2.5 text-[11px] font-medium",
+											activeSection === id
+												? "bg-blue-500/10 text-blue-950 dark:text-blue-100"
+												: "text-muted-foreground hover:bg-muted/70 hover:text-foreground",
+										)}
+									>
+										<Icon className="size-3.5" aria-hidden="true" />
+										{label}
+									</button>
+								))}
+						</nav>
+					</header>
+
 					<main
-						data-slot="account-settings-detail"
-						className={cn(
-							"h-full min-h-0 flex-1 overflow-y-auto overscroll-contain bg-[#f2f2f7] px-4 pb-[max(2rem,env(safe-area-inset-bottom))] dark:bg-[#242426] min-[960px]:block min-[960px]:bg-background min-[960px]:px-12 min-[960px]:py-10 min-[960px]:dark:bg-background",
-							mobileMenuOpen ? "hidden" : "block",
-						)}
+						data-slot="settings-canvas-content"
+						className="min-h-0 overflow-y-auto overscroll-contain bg-background px-4 py-5 @min-[760px]:px-8 @min-[760px]:py-7"
 					>
 						<div
-							data-slot="account-mobile-detail-header"
-							className="sticky top-0 z-10 -mx-4 mb-5 grid min-h-[calc(5rem+env(safe-area-inset-top))] grid-cols-[48px_minmax(0,1fr)_48px] items-end gap-2 bg-[#f2f2f7] px-4 pb-3 dark:bg-[#242426] min-[960px]:hidden"
-						>
-							<Button
-								type="button"
-								variant="ghost"
-								size="icon"
-								onClick={showMobileMenu}
-								aria-label="К списку настроек"
-								className="size-12 rounded-full border border-foreground/45 bg-transparent p-0 shadow-none"
-							>
-								<ArrowLeft className="size-6" aria-hidden="true" />
-							</Button>
-							<h1 className="self-center truncate text-center text-[19px] font-semibold tracking-[-0.025em]">
-								{activeSectionLabel}
-							</h1>
-							<Button
-								type="button"
-								variant="ghost"
-								size="icon"
-								onClick={onClose}
-								aria-label="Закрыть личный кабинет"
-								className="size-12 rounded-full border border-foreground/45 bg-transparent p-0 shadow-none"
-							>
-								<X aria-hidden="true" className="size-6" />
-							</Button>
-						</div>
-						<div
-							data-slot="account-settings-content"
-							className="mx-auto w-full max-w-[860px]"
+							className={cn(
+								"mx-auto w-full",
+								activeSection === "platform-admin"
+									? "max-w-[1320px]"
+									: "max-w-[860px]",
+							)}
 						>
 							<SettingsSectionContent section={activeSection} />
 						</div>
@@ -804,8 +741,18 @@ function AuthPanel({ onAuthenticated }: { onAuthenticated: () => void }) {
 
 function GeneralSection() {
 	const identity = useIdentity();
+	const modelCatalog = useModelCatalog();
+	const effectiveModelId = identity.user
+		? effectiveModelSelectionId(
+				modelCatalog.catalog?.models ?? [],
+				identity.user,
+			)
+		: undefined;
 	const selectedModel = identity.user
-		? PROFILE_PRESENTATION[identity.user.preferredAgentProfile].label
+		? (modelCatalog.catalog?.models.find(
+				(model) => `${model.profile}:${model.id}` === effectiveModelId,
+			)?.displayName ??
+			PROFILE_PRESENTATION[identity.user.preferredAgentProfile].label)
 		: "Авто";
 
 	return (

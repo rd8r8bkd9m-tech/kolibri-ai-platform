@@ -6,9 +6,12 @@ import {
 	Bot,
 	Building2,
 	HardDrive,
+	LayoutDashboard,
+	ListTodo,
 	LoaderCircle,
 	RefreshCw,
 	ScrollText,
+	Server,
 	ShieldCheck,
 	Users,
 } from "lucide-react";
@@ -21,13 +24,14 @@ import {
 	useState,
 } from "react";
 import {
-	AdminDatum as AgentDatum,
 	AdminStatusBadge as AgentStateBadge,
 	AdminEmptyState as EmptyState,
 	AdminTextField as LabeledInput,
 	AdminMetricCard as MetricCard,
 	AdminStatusMessage as StatusMessage,
 } from "@/components/kolibri-shell/admin/admin-primitives";
+import { AgentTaskWorkspace } from "@/components/kolibri-shell/agent-task-workspace";
+import { ConstructionAgentAdmin } from "@/components/kolibri-shell/construction-agent-admin";
 import { StorageAdmin } from "@/components/kolibri-shell/storage-admin";
 import { TrustedAgentAdmin } from "@/components/kolibri-shell/trusted-agent-admin";
 import { Button } from "@/components/ui/button";
@@ -72,6 +76,21 @@ type Snapshot = {
 };
 
 type PageKind = "tenants" | "users" | "operations" | "audit";
+type PlatformAdminView =
+	"overview" | "hosts" | "agents" | "tasks" | "clients" | "audit";
+
+const PLATFORM_ADMIN_VIEWS: Array<{
+	id: PlatformAdminView;
+	label: string;
+	icon: typeof ShieldCheck;
+}> = [
+	{ id: "overview", label: "Обзор", icon: LayoutDashboard },
+	{ id: "hosts", label: "Хосты", icon: Server },
+	{ id: "agents", label: "Агенты", icon: Bot },
+	{ id: "tasks", label: "Задачи", icon: ListTodo },
+	{ id: "clients", label: "Клиенты", icon: Users },
+	{ id: "audit", label: "Аудит", icon: ScrollText },
+];
 
 const agentOperationKey = (operation: AgentOperation) =>
 	`${operation.task.tenantId}:${operation.task.runId}`;
@@ -124,12 +143,16 @@ const parseIds = (value: string) => {
 };
 
 export function PlatformAdminSection() {
+	const [activeView, setActiveView] = useState<PlatformAdminView>("overview");
 	const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState<string | null>(null);
 	const [tenantSearch, setTenantSearch] = useState("");
 	const [userSearch, setUserSearch] = useState("");
 	const [operationSearch, setOperationSearch] = useState("");
+	const [selectedOperationKey, setSelectedOperationKey] = useState<
+		string | null
+	>(null);
 	const [auditSearch, setAuditSearch] = useState("");
 	const [loadingPage, setLoadingPage] = useState<PageKind | null>(null);
 	const [operationAnnouncement, setOperationAnnouncement] = useState("");
@@ -414,26 +437,30 @@ export function PlatformAdminSection() {
 		});
 	}, [operationSearch, snapshot?.operations]);
 
+	useEffect(() => {
+		if (activeView !== "tasks") return;
+		setSelectedOperationKey((current) =>
+			filteredOperations.some(
+				(operation) => agentOperationKey(operation) === current,
+			)
+				? current
+				: filteredOperations[0]
+					? agentOperationKey(filteredOperations[0])
+					: null,
+		);
+	}, [activeView, filteredOperations]);
+
 	return (
 		<section data-slot="platform-admin-control-plane">
 			<div className="flex flex-wrap items-start justify-between gap-4">
-				<div>
-					<div className="flex items-center gap-2.5">
-						<ShieldCheck
-							className="text-muted-foreground size-5"
-							aria-hidden="true"
-						/>
-						<h2 className="text-2xl font-semibold tracking-[-0.025em]">
-							Управление платформой
-						</h2>
-					</div>
-					<p className="text-muted-foreground mt-2 max-w-2xl text-[13px] leading-5">
-						Единый кабинет владельца: клиенты, агенты, рабочие пространства,
-						тарифные лимиты и сессии. Доверенный профиль агента может штатно
-						работать с полным доступом без подтверждения каждой команды.
-						Выполнение остаётся наблюдаемым: задача, состояние, frozen-политика,
-						журнал, отзыв полномочий и откат отделены от интерфейса агента.
-					</p>
+				<div className="flex items-center gap-2.5">
+					<ShieldCheck
+						className="text-muted-foreground size-5"
+						aria-hidden="true"
+					/>
+					<h2 className="text-2xl font-semibold tracking-[-0.025em]">
+						Управление платформой
+					</h2>
 				</div>
 				<Button
 					type="button"
@@ -450,6 +477,37 @@ export function PlatformAdminSection() {
 					Обновить
 				</Button>
 			</div>
+
+			<nav
+				aria-label="Разделы управления платформой"
+				className="mt-4 overflow-x-auto border-b"
+			>
+				<div className="flex min-w-max gap-1" role="tablist">
+					{PLATFORM_ADMIN_VIEWS.map((view) => {
+						const Icon = view.icon;
+						const selected = activeView === view.id;
+						return (
+							<button
+								type="button"
+								key={view.id}
+								role="tab"
+								aria-selected={selected}
+								data-platform-admin-tab={view.id}
+								onClick={() => setActiveView(view.id)}
+								className={cn(
+									"relative flex h-11 items-center gap-2 px-3 text-[12px] font-medium transition-colors",
+									selected
+										? "text-foreground after:absolute after:inset-x-2 after:bottom-0 after:h-0.5 after:rounded-full after:bg-blue-600"
+										: "text-muted-foreground hover:text-foreground",
+								)}
+							>
+								<Icon className="size-4" aria-hidden="true" />
+								{view.label}
+							</button>
+						);
+					})}
+				</div>
+			</nav>
 
 			{error ? (
 				<p
@@ -469,247 +527,271 @@ export function PlatformAdminSection() {
 
 			{snapshot ? (
 				<>
-					<div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-						<MetricCard
-							icon={Building2}
-							label="Активные / загруженные пространства"
-							value={`${activeTenants} / ${snapshot.tenants.length}`}
-						/>
-						<MetricCard
-							icon={Users}
-							label="Загружено пользователей"
-							value={String(snapshot.users.length)}
-						/>
-						<MetricCard
-							icon={ShieldCheck}
-							label="Сессии загруженных клиентов"
-							value={String(activeSessions)}
-						/>
-						<MetricCard
-							icon={Activity}
-							label="Агентные задачи в работе"
-							value={String(runningOperations)}
-						/>
-					</div>
-
-					<AdminGroup
-						icon={Bot}
-						title="Полномочия доверенных агентов"
-						description="Постоянные привязки Agent Host и автономные профили, которые владелец назначает задачам без покомандных подтверждений."
-					>
-						<TrustedAgentAdmin />
-					</AdminGroup>
-
-					<AdminGroup
-						icon={HardDrive}
-						title="Хранилище"
-						description="Наблюдение и безопасная очистка Home/Primary: только allowlist-категории, обязательный dry run, двухфазный карантин проектов и отдельный purge после retention."
-					>
-						<StorageAdmin />
-					</AdminGroup>
-
-					<AdminGroup
-						icon={Bot}
-						title="Агенты и выполнение"
-						description="Фактические задачи, frozen-профили, очередь исполнения и доступные рантаймы. Данные читаются из рабочего контура, а не моделируются интерфейсом."
-					>
-						<div
-							className="text-muted-foreground mb-3 flex flex-wrap items-center justify-between gap-2 text-[11px]"
-							data-slot="agent-operations-live-state"
-						>
-							<span>Автообновление работает при активной вкладке</span>
-							{agentRefreshedAt ? (
-								<time dateTime={new Date(agentRefreshedAt).toISOString()}>
-									Обновлено{" "}
-									{new Date(agentRefreshedAt).toLocaleTimeString("ru-RU", {
-										hour: "2-digit",
-										minute: "2-digit",
-										second: "2-digit",
-									})}
-								</time>
-							) : null}
+					{activeView === "overview" ? (
+						<div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+							<MetricCard
+								icon={Building2}
+								label="Активные / загруженные пространства"
+								value={`${activeTenants} / ${snapshot.tenants.length}`}
+							/>
+							<MetricCard
+								icon={Users}
+								label="Загружено пользователей"
+								value={String(snapshot.users.length)}
+							/>
+							<MetricCard
+								icon={ShieldCheck}
+								label="Сессии загруженных клиентов"
+								value={String(activeSessions)}
+							/>
+							<MetricCard
+								icon={Activity}
+								label="Агентные задачи в работе"
+								value={String(runningOperations)}
+							/>
 						</div>
-						<div
-							aria-atomic="true"
-							aria-live="polite"
-							data-slot="agent-operation-announcement"
-							role="status"
+					) : null}
+
+					{activeView === "overview" ? (
+						<AdminGroup
+							icon={Bot}
+							title="Состояние агентного контура"
+							description="Профессиональные агенты, модельные подключения и runtime-профили разделены. Здесь показаны только фактически зарегистрированные подключения."
 						>
-							{operationAnnouncement ? (
-								<p className="mb-3 rounded-xl border border-blue-500/30 bg-blue-500/10 px-3 py-2 text-[11px] text-blue-700 dark:text-blue-300">
-									{operationAnnouncement}
+							<AgentAvailability
+								providers={snapshot.providers}
+								providersTruncated={snapshot.providersTruncated}
+								runtimes={snapshot.runtimes}
+								runtimesTruncated={snapshot.runtimesTruncated}
+							/>
+						</AdminGroup>
+					) : null}
+
+					{activeView === "hosts" ? (
+						<>
+							<AdminGroup
+								icon={Server}
+								title="Реестр хостов"
+								description="Home и Primary — первые инфраструктурные узлы общего реестра. Agent Host-привязки загружаются cursor-страницами, чтобы список не зависел от будущего количества серверов."
+							>
+								<TrustedAgentAdmin />
+							</AdminGroup>
+							<AdminGroup
+								icon={HardDrive}
+								title="Home и Primary"
+								description="Реальное состояние текущих storage-узлов и безопасные операции обслуживания без имитации доступности."
+							>
+								<StorageAdmin />
+							</AdminGroup>
+						</>
+					) : null}
+
+					{activeView === "agents" ? (
+						<>
+							<AdminGroup
+								icon={Bot}
+								title="Агенты строительного модуля"
+								description="Активные профессиональные роли с собственными Agent Cards, инструментами, критериями завершения и версионируемыми системными инструкциями."
+							>
+								<ConstructionAgentAdmin />
+							</AdminGroup>
+							<AdminGroup
+								icon={Activity}
+								title="Runtime и модели"
+								description="Инфраструктурные исполнители профессиональных агентов. MiMo/Codex остаются runtime-профилями и не подменяют роли сотрудников."
+							>
+								<AgentAvailability
+									providers={snapshot.providers}
+									providersTruncated={snapshot.providersTruncated}
+									runtimes={snapshot.runtimes}
+									runtimesTruncated={snapshot.runtimesTruncated}
+								/>
+							</AdminGroup>
+						</>
+					) : null}
+
+					{activeView === "tasks" ? (
+						<AdminGroup
+							icon={Bot}
+							title="Агентные задачи"
+							description="Выберите одну задачу, чтобы наблюдать её сохранённый ход работы, диалог и управление в одном операционном Canvas."
+						>
+							<div
+								className="text-muted-foreground mb-3 flex flex-wrap items-center justify-between gap-2 text-[11px]"
+								data-slot="agent-operations-live-state"
+							>
+								<span>Автообновление работает при активной вкладке</span>
+								{agentRefreshedAt ? (
+									<time dateTime={new Date(agentRefreshedAt).toISOString()}>
+										Обновлено{" "}
+										{new Date(agentRefreshedAt).toLocaleTimeString("ru-RU", {
+											hour: "2-digit",
+											minute: "2-digit",
+											second: "2-digit",
+										})}
+									</time>
+								) : null}
+							</div>
+							<div
+								aria-atomic="true"
+								aria-live="polite"
+								data-slot="agent-operation-announcement"
+								role="status"
+							>
+								{operationAnnouncement ? (
+									<p className="mb-3 rounded-xl border border-blue-500/30 bg-blue-500/10 px-3 py-2 text-[11px] text-blue-700 dark:text-blue-300">
+										{operationAnnouncement}
+									</p>
+								) : null}
+							</div>
+							{agentLiveError ? (
+								<p className="border-destructive/30 text-destructive mb-3 rounded-xl border px-3 py-2 text-[11px]">
+									{agentLiveError}
 								</p>
 							) : null}
-						</div>
-						{agentLiveError ? (
-							<p className="border-destructive/30 text-destructive mb-3 rounded-xl border px-3 py-2 text-[11px]">
-								{agentLiveError}
-							</p>
-						) : null}
-						<AgentAvailability
-							providers={snapshot.providers}
-							providersTruncated={snapshot.providersTruncated}
-							runtimes={snapshot.runtimes}
-							runtimesTruncated={snapshot.runtimesTruncated}
-						/>
-						<Input
-							type="search"
-							aria-label="Поиск агентных задач"
-							value={operationSearch}
-							onChange={(event) => setOperationSearch(event.target.value)}
-							placeholder="Найти по задаче, tenant, профилю или политике"
-							className="mb-3 h-10 rounded-xl shadow-none"
-						/>
-						<div className="space-y-3">
-							{filteredOperations.map((operation) => (
-								<AgentOperationCard
-									key={`${operation.task.tenantId}:${operation.task.runId}`}
-									operation={operation}
-								/>
-							))}
-							{!filteredOperations.length ? (
-								<EmptyState text="Агентные задачи по этому запросу не найдены." />
-							) : null}
-						</div>
-						<LoadMoreButton
-							cursor={snapshot.operationCursor}
-							disabled={loadingPage !== null}
-							loading={loadingPage === "operations"}
-							noun="агентных задач"
-							onClick={() => void loadMore("operations")}
-						/>
-					</AdminGroup>
+							<Input
+								type="search"
+								aria-label="Поиск агентных задач"
+								value={operationSearch}
+								onChange={(event) => setOperationSearch(event.target.value)}
+								placeholder="Найти по задаче, tenant, профилю или политике"
+								className="mb-3 h-10 rounded-xl shadow-none"
+							/>
+							<AgentTaskWorkspace
+								hasMore={snapshot.operationCursor !== null}
+								loadingMore={loadingPage === "operations"}
+								onLoadMore={() => void loadMore("operations")}
+								onOperationChanged={() => load()}
+								onSelect={setSelectedOperationKey}
+								operations={filteredOperations}
+								selectedKey={selectedOperationKey}
+							/>
+						</AdminGroup>
+					) : null}
 
-					<AdminGroup
-						icon={Building2}
-						title="Клиенты и политики"
-						description="Статус tenant, тариф, лимит запусков, разрешённые модели и провайдеры."
-					>
-						<Input
-							type="search"
-							aria-label="Поиск клиентов"
-							value={tenantSearch}
-							onChange={(event) => setTenantSearch(event.target.value)}
-							placeholder="Найти по клиенту, tenant ID или тарифу"
-							className="mb-3 h-10 rounded-xl shadow-none"
-						/>
-						<div className="space-y-3">
-							{filteredTenants.map((tenant) => (
-								<TenantPolicyCard
-									key={tenant.id}
-									tenant={tenant}
-									onUpdated={replaceTenant}
+					{activeView === "clients" ? (
+						<>
+							<AdminGroup
+								icon={Building2}
+								title="Клиенты и политики"
+								description="Статус tenant, тариф, лимит запусков, разрешённые модели и провайдеры."
+							>
+								<Input
+									type="search"
+									aria-label="Поиск клиентов"
+									value={tenantSearch}
+									onChange={(event) => setTenantSearch(event.target.value)}
+									placeholder="Найти по клиенту, tenant ID или тарифу"
+									className="mb-3 h-10 rounded-xl shadow-none"
 								/>
-							))}
-							{!filteredTenants.length ? (
-								<EmptyState text="Клиенты по этому запросу не найдены." />
-							) : null}
-						</div>
-						<LoadMoreButton
-							cursor={snapshot.tenantCursor}
-							disabled={loadingPage !== null}
-							loading={loadingPage === "tenants"}
-							noun="клиентов"
-							onClick={() => void loadMore("tenants")}
-						/>
-					</AdminGroup>
-
-					<AdminGroup
-						icon={Users}
-						title="Пользователи и сессии"
-						description="Блокировка пользователя отзывает web и mobile сессии. Platform owner защищён от self-lockout."
-					>
-						<Input
-							type="search"
-							aria-label="Поиск пользователей"
-							value={userSearch}
-							onChange={(event) => setUserSearch(event.target.value)}
-							placeholder="Найти по имени, email, user ID или tenant ID"
-							className="mb-3 h-10 rounded-xl shadow-none"
-						/>
-						<div className="space-y-3">
-							{filteredUsers.map((user) => (
-								<UserControlCard
-									key={user.id}
-									user={user}
-									onUpdated={replaceUser}
+								<div className="space-y-3">
+									{filteredTenants.map((tenant) => (
+										<TenantPolicyCard
+											key={tenant.id}
+											tenant={tenant}
+											onUpdated={replaceTenant}
+										/>
+									))}
+									{!filteredTenants.length ? (
+										<EmptyState text="Клиенты по этому запросу не найдены." />
+									) : null}
+								</div>
+								<LoadMoreButton
+									cursor={snapshot.tenantCursor}
+									disabled={loadingPage !== null}
+									loading={loadingPage === "tenants"}
+									noun="клиентов"
+									onClick={() => void loadMore("tenants")}
 								/>
-							))}
-							{!filteredUsers.length ? (
-								<EmptyState text="Пользователи по этому запросу не найдены." />
-							) : null}
-						</div>
-						<LoadMoreButton
-							cursor={snapshot.userCursor}
-							disabled={loadingPage !== null}
-							loading={loadingPage === "users"}
-							noun="пользователей"
-							onClick={() => void loadMore("users")}
-						/>
-					</AdminGroup>
+							</AdminGroup>
 
-					<AdminGroup
-						icon={ScrollText}
-						title="Журнал аудита"
-						description="Последние подтверждённые изменения без паролей, токенов и provider secrets."
-					>
-						<Input
-							type="search"
-							aria-label="Поиск в журнале аудита"
-							value={auditSearch}
-							onChange={(event) => setAuditSearch(event.target.value)}
-							placeholder="Найти по действию, типу или target ID"
-							className="mb-3 h-10 rounded-xl shadow-none"
-						/>
-						{filteredAudit.length ? (
-							<ol className="divide-y rounded-2xl border bg-card px-4">
-								{filteredAudit.map((event) => (
-									<li key={event.id} className="py-3 text-[12px]">
-										<div className="flex flex-wrap justify-between gap-2">
-											<span className="font-medium">{event.action}</span>
-											<time className="text-muted-foreground">
-												{new Date(event.createdAt * 1000).toLocaleString(
-													"ru-RU",
-												)}
-											</time>
-										</div>
-										<p className="text-muted-foreground mt-1 truncate">
-											{event.targetType}: {event.targetId}
-										</p>
-									</li>
-								))}
-							</ol>
-						) : (
-							<p className="text-muted-foreground rounded-2xl border p-4 text-[12px]">
-								События по этому запросу не найдены.
-							</p>
-						)}
-						<LoadMoreButton
-							cursor={snapshot.auditCursor}
-							disabled={loadingPage !== null}
-							loading={loadingPage === "audit"}
-							noun="событий аудита"
-							onClick={() => void loadMore("audit")}
-						/>
-					</AdminGroup>
+							<AdminGroup
+								icon={Users}
+								title="Пользователи и сессии"
+								description="Блокировка пользователя отзывает web и mobile сессии. Platform owner защищён от self-lockout."
+							>
+								<Input
+									type="search"
+									aria-label="Поиск пользователей"
+									value={userSearch}
+									onChange={(event) => setUserSearch(event.target.value)}
+									placeholder="Найти по имени, email, user ID или tenant ID"
+									className="mb-3 h-10 rounded-xl shadow-none"
+								/>
+								<div className="space-y-3">
+									{filteredUsers.map((user) => (
+										<UserControlCard
+											key={user.id}
+											user={user}
+											onUpdated={replaceUser}
+										/>
+									))}
+									{!filteredUsers.length ? (
+										<EmptyState text="Пользователи по этому запросу не найдены." />
+									) : null}
+								</div>
+								<LoadMoreButton
+									cursor={snapshot.userCursor}
+									disabled={loadingPage !== null}
+									loading={loadingPage === "users"}
+									noun="пользователей"
+									onClick={() => void loadMore("users")}
+								/>
+							</AdminGroup>
+						</>
+					) : null}
+
+					{activeView === "audit" ? (
+						<AdminGroup
+							icon={ScrollText}
+							title="Журнал аудита"
+							description="Последние подтверждённые изменения без паролей, токенов и provider secrets."
+						>
+							<Input
+								type="search"
+								aria-label="Поиск в журнале аудита"
+								value={auditSearch}
+								onChange={(event) => setAuditSearch(event.target.value)}
+								placeholder="Найти по действию, типу или target ID"
+								className="mb-3 h-10 rounded-xl shadow-none"
+							/>
+							{filteredAudit.length ? (
+								<ol className="divide-y rounded-2xl border bg-card px-4">
+									{filteredAudit.map((event) => (
+										<li key={event.id} className="py-3 text-[12px]">
+											<div className="flex flex-wrap justify-between gap-2">
+												<span className="font-medium">{event.action}</span>
+												<time className="text-muted-foreground">
+													{new Date(event.createdAt * 1000).toLocaleString(
+														"ru-RU",
+													)}
+												</time>
+											</div>
+											<p className="text-muted-foreground mt-1 truncate">
+												{event.targetType}: {event.targetId}
+											</p>
+										</li>
+									))}
+								</ol>
+							) : (
+								<p className="text-muted-foreground rounded-2xl border p-4 text-[12px]">
+									События по этому запросу не найдены.
+								</p>
+							)}
+							<LoadMoreButton
+								cursor={snapshot.auditCursor}
+								disabled={loadingPage !== null}
+								loading={loadingPage === "audit"}
+								noun="событий аудита"
+								onClick={() => void loadMore("audit")}
+							/>
+						</AdminGroup>
+					) : null}
 				</>
 			) : null}
 		</section>
 	);
 }
-
-const formatAgentTime = (value: string | null) => {
-	if (!value) return "—";
-	const date = new Date(value);
-	return Number.isNaN(date.getTime())
-		? "—"
-		: date.toLocaleString("ru-RU", {
-				day: "2-digit",
-				month: "2-digit",
-				hour: "2-digit",
-				minute: "2-digit",
-			});
-};
 
 function AgentAvailability({
 	providers,
@@ -811,112 +893,6 @@ function AgentAvailability({
 				</div>
 			</article>
 		</div>
-	);
-}
-
-function AgentOperationCard({ operation }: { operation: AgentOperation }) {
-	const policy = operation.frozenPolicy;
-	const dispatch = operation.dispatch;
-	const statusLabel =
-		operation.status === "running"
-			? "Выполняется"
-			: operation.status === "succeeded"
-				? "Завершена"
-				: "Ошибка";
-	return (
-		<article
-			className="rounded-2xl border bg-card p-4"
-			data-agent-operation={operation.task.runId}
-		>
-			<div className="flex flex-wrap items-start justify-between gap-3">
-				<div className="min-w-0">
-					<h4 className="truncate text-[13px] font-semibold">
-						Задача {operation.task.runId}
-					</h4>
-					<p className="text-muted-foreground mt-1 truncate text-[10px]">
-						tenant {operation.task.tenantId} · проект {operation.task.projectId}
-					</p>
-				</div>
-				<AgentStateBadge
-					state={
-						operation.status === "running"
-							? "running"
-							: operation.status === "succeeded"
-								? "ready"
-								: "failed"
-					}
-					label={statusLabel}
-				/>
-			</div>
-			<dl className="mt-4 grid gap-x-4 gap-y-3 text-[11px] sm:grid-cols-2 lg:grid-cols-4">
-				<AgentDatum
-					label="Runtime profile"
-					value={operation.agent.selectedProfile}
-				/>
-				<AgentDatum
-					label="Доверенный профиль"
-					value={
-						policy?.trustedAgentProfileId
-							? `${policy.trustedAgentProfileId} · epoch ${policy.trustedAgentProfileEpoch}`
-							: "Не назначен"
-					}
-				/>
-				<AgentDatum
-					label="Политика выполнения"
-					value={
-						policy
-							? `${policy.sandboxProfile} · approval=${policy.approvalPolicy}`
-							: "Контекст ещё не зафиксирован"
-					}
-				/>
-				<AgentDatum
-					label="Контур"
-					value={
-						policy ? `${policy.executionPlane} · ${policy.executionMode}` : "—"
-					}
-				/>
-				<AgentDatum
-					label="Привязка Agent Host"
-					value={
-						policy?.trustedAgentWorkspaceBindingId
-							? `${policy.trustedAgentWorkspaceBindingId} · epoch ${policy.trustedAgentWorkspaceBindingEpoch}`
-							: "—"
-					}
-				/>
-				<AgentDatum
-					label="Очередь"
-					value={
-						dispatch
-							? `${dispatch.state} · ${dispatch.attempts}/${dispatch.maxAttempts}`
-							: "Без команды в очереди"
-					}
-				/>
-				<AgentDatum
-					label="Модель"
-					value={
-						policy?.modelIdRedacted
-							? "Скрыта"
-							: (policy?.modelId ?? "По профилю")
-					}
-				/>
-				<AgentDatum
-					label="Последняя активность"
-					value={formatAgentTime(operation.timestamps.heartbeatAt)}
-				/>
-				<AgentDatum
-					label="События"
-					value={String(operation.lastEventSequence)}
-				/>
-				<AgentDatum
-					label="Результат"
-					value={
-						operation.outcome ??
-						operation.errorCode ??
-						(operation.errorRedacted ? "Ошибка скрыта" : "—")
-					}
-				/>
-			</dl>
-		</article>
 	);
 }
 

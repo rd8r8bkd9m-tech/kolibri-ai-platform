@@ -17,6 +17,8 @@ ObservationSource = Literal[
     "supplier_offer",
     "customer_approved",
     "contract_price",
+    "paid_invoice",
+    "completed_work",
 ]
 ObservationLifecycle = Literal["draft", "shared", "approved", "contracted"]
 TOKEN_PATTERN = re.compile(r"[0-9a-zа-яё]+", re.IGNORECASE)
@@ -127,19 +129,34 @@ def record_price_observations(
             "priceBasis": str(raw_row.get("price_basis") or ""),
             "sourceScope": "tenant_private",
         }
+        contributor_pseudonym = "contributor:" + hashlib.sha256(
+            f"{tenant_id}:{created_by_user_id}".encode("utf-8", "strict")
+        ).hexdigest()[:32]
+        confidence = {
+            "contract_price": "0.9",
+            "paid_invoice": "0.95",
+            "completed_work": "1.0",
+            "customer_approved": "0.75",
+            "supplier_offer": "0.7",
+            "official_reference": "0.5",
+            "user_edit": "0.2",
+            "ai_preliminary": "0.05",
+        }.get(source_type, "0")
         database.execute(
             """
             INSERT INTO price_observations (
                 tenant_id, id, project_id, document_id, estimate_version,
                 row_id, item_key, item_kind, description,
-                normalized_description, region, unit,
+                normalized_description, region, unit, specification_json,
                 previous_unit_price_rub, observed_unit_price_rub,
                 currency, source_type, lifecycle, context_json,
-                evidence_quote_id, aggregate_eligible,
-                created_by_user_id, observed_at
+                evidence_quote_id, aggregate_eligible, confidence,
+                contributor_pseudonym, country, quantity_band,
+                tax_treatment, delivery_treatment, created_by_user_id, observed_at
             ) VALUES (
-                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                'RUB', ?, ?, ?, ?, 0, ?, ?
+                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                'RUB', ?, ?, ?, ?, 0, ?, ?, 'RU', 'unspecified',
+                'unknown', 'unknown', ?, ?
             )
             """,
             (
@@ -159,6 +176,7 @@ def record_price_observations(
                 normalized_market_text(description),
                 region,
                 unit,
+                "{}",
                 previous_price,
                 observed_price,
                 source_type,
@@ -170,6 +188,8 @@ def record_price_observations(
                     separators=(",", ":"),
                 ),
                 quote_ids.get(row_id),
+                confidence,
+                contributor_pseudonym,
                 created_by_user_id,
                 observed_at,
             ),

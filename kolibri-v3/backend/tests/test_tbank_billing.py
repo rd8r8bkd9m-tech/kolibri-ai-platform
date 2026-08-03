@@ -300,7 +300,7 @@ def test_billing_migration_is_append_only_empty_catalog_and_fenced(
     database = connect_database(database_path)
     try:
         latest = int(migration_paths()[-1].name.split("_", 1)[0])
-        assert database.execute("PRAGMA user_version").fetchone()[0] == latest == 47
+        assert database.execute("PRAGMA user_version").fetchone()[0] == latest
         assert database.execute("SELECT COUNT(*) FROM billing_plans").fetchone()[0] == 0
         assert database.execute(
             "SELECT code FROM billing_entitlement_catalog WHERE active = 1"

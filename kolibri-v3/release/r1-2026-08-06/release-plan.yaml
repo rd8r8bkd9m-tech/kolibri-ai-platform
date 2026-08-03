@@ -11,7 +11,7 @@ release:
   control_board: "release/r1-2026-08-06/STATUS.md"
 
 control_snapshot:
-  updated_at: "2026-07-30T18:59:00+03:00"
+  updated_at: "2026-08-01T23:55:00+03:00"
   canonical_root: "kolibri-v3"
   active_p0:
     - "single_product_backend_release_lane"
@@ -23,11 +23,14 @@ control_snapshot:
     - "functional_mobile_pet"
     - "owner_storage_control_plane_guard_completion"
   blocked_gates:
+    - "live_commit_not_published_on_origin_ref"
+    - "acceptance_fixes_not_deployed"
     - "clean_release_candidate"
     - "physical_ios_android_acceptance"
     - "production_canary"
     - "storage_mutation_exhaustive_guard_evidence"
     - "primary_storage_executor_mtls"
+    - "csp_enforcement_rollout"
 
 scope:
   required:

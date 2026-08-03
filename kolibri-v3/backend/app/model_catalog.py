@@ -24,6 +24,9 @@ IdentityDependency = Annotated[UserSession, Depends(require_user)]
 _MODEL_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,119}$")
 _OPTION_ID = re.compile(r"^[a-z0-9][a-z0-9_-]{0,31}$")
 
+MIMO_DEFAULT_MODEL_ID = "mimo-v2.5-pro"
+MIMO_DEFAULT_MODEL_NAME = "MiMo 2.5 Pro"
+
 
 @dataclass(frozen=True, slots=True)
 class ModelCatalogEntry:
@@ -295,14 +298,19 @@ def _profile_models(
     profile = AgentProfile(descriptor.profile_id)
     runtime = registry.require(descriptor.profile_id)
     if not descriptor.capabilities.model_catalog:
+        is_mimo = descriptor.profile_id == AgentProfile.MIMO_CODE.value
         return (
             (
                 ModelCatalogEntry(
-                    id=descriptor.profile_id,
+                    id=(MIMO_DEFAULT_MODEL_ID if is_mimo else descriptor.profile_id),
                     profile=profile,
-                    display_name=descriptor.display_name,
+                    display_name=(
+                        MIMO_DEFAULT_MODEL_NAME if is_mimo else descriptor.display_name
+                    ),
                     description=(
                         "Модель выбирается зарегистрированным runtime-профилем."
+                        if not is_mimo
+                        else "Модель MiMo Code, используемая для новых сообщений."
                     ),
                     available=available,
                     is_default=True,

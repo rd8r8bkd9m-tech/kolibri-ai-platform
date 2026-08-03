@@ -8,7 +8,15 @@ export async function GET(request: Request) {
 	const target = new URLSearchParams();
 	const region = source.get("region")?.trim();
 	const query = source.get("query")?.trim();
+	const projectId = source.get("projectId")?.trim();
+	const category = source.get("category")?.trim();
+	const catalogSource = source.get("source")?.trim();
 	const limit = source.get("limit")?.trim();
+	if (projectId && projectId.length <= 120) target.set("projectId", projectId);
+	if (category && category.length <= 80) target.set("category", category);
+	if (catalogSource && catalogSource.length <= 80) {
+		target.set("source", catalogSource);
+	}
 	if (region && region.length <= 160) target.set("region", region);
 	if (query && query.length <= 160) target.set("query", query);
 	if (limit && /^(?:[1-9]|[1-9]\d|100)$/.test(limit)) {

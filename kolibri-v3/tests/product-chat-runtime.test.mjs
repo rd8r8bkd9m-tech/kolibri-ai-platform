@@ -144,7 +144,7 @@ test("the official AG-UI runtime is backed by durable server history", async () 
   assert.match(provider, /\bonUpdateCustom\s*:/);
 
   assert.match(adapters, /\bfromAgUiMessages\b/);
-  assert.match(adapters, /\bExportedMessageRepository\.fromArray\b/);
+  assert.match(adapters, /\bExportedMessageRepository\.fromBranchableArray\b/);
   assert.match(adapters, /backend atomically persists the AG-UI user message/i);
 
   assert.match(client, /PRODUCT_CHAT_BFF_BASE\s*=\s*["']\/api\/v3\/chat["']/);

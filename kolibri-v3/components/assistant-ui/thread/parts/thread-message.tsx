@@ -2,32 +2,26 @@
 
 import {
 	MessagePrimitive,
+	type ToolCallMessagePartComponent,
 	useAuiState,
 } from "@assistant-ui/react";
-import {
-	LoaderCircleIcon,
-	RefreshCwIcon,
-} from "lucide-react";
-import { type ComponentType, type ReactNode, useContext, useMemo } from "react";
-import {
-	ReasoningContent,
-	ReasoningRoot,
-	ReasoningText,
-	ReasoningTrigger,
-} from "@/components/assistant-ui/reasoning";
+import { createElement, type ComponentProps, type ComponentType, type ReactNode, useContext, useMemo } from "react";
 import { KolibriGenerativeUI } from "@/components/assistant-ui/generative-ui-renderer";
 import { MarkdownText } from "@/components/assistant-ui/markdown-text";
-import { parseNativeKolibriGenerativeUI } from "@/lib/generative-ui";
+import { kolibriGenerativeUILibrary } from "@/components/assistant-ui/generative-ui-library";
+import { GeneratedImageToolUI } from "@/components/assistant-ui/generated-image-tool";
 import {
-	ToolGroupContent,
-	ToolGroupRoot,
-	ToolGroupTrigger,
-} from "@/components/assistant-ui/tool-group";
+	DeveloperActivityGroup,
+	DeveloperCommandToolUI,
+	DeveloperFileChangeToolUI,
+} from "@/components/assistant-ui/developer-activity-tool";
+import { WeatherToolUI } from "@/components/assistant-ui/product-widgets/weather";
+import { EstimateDocumentPackWidget } from "@/components/assistant-ui/product-widgets/estimate-document-pack";
+import { ToolApprovalActions, ToolFallback } from "@/components/assistant-ui/tool-fallback";
 import { cn } from "@/lib/utils";
 import { uiClassTokens } from "@/components/ui/class-names";
 import {
 	ThreadComponentsContext,
-	groupAssistantPart,
 	isRecord,
 	weatherPartFingerprint,
 	readShareableEstimate,
@@ -40,11 +34,7 @@ import {
 	MessageTime,
 	UserMessage,
 } from "./thread-message-primitives";
-import { THREAD_UI_CLASS, THREAD_UI_TEXT } from "../thread-ui-constants";
-
-const INVALID_GENERATIVE_UI_NODE = Object.freeze({
-	"$type": "__invalid_kolibri_component__",
-});
+import { THREAD_UI_CLASS } from "../thread-ui-constants";
 
 export const AssistantActionBarWithTools: ComponentType = () => {
 	return <AssistantActionBar />;
@@ -64,8 +54,7 @@ export const ThreadMessage: ComponentType = () => {
 
 const AssistantMessage = () => {
 	const {
-		ToolFallback: ToolFallbackComponent = () => null,
-		ToolGroup,
+		ToolFallback: ToolFallbackComponent = ToolFallback,
 	} = useContext(ThreadComponentsContext);
 
 	const ACTION_BAR_PT = "pt-1.5";
@@ -171,144 +160,99 @@ const AssistantMessage = () => {
 		return true;
 	});
 
+	const generativeUIComponents = useMemo(
+		() =>
+			Object.fromEntries(
+				Object.entries(kolibriGenerativeUILibrary).map(([name, entry]) => [
+					name,
+					entry.render,
+				]),
+			) as Record<string, ComponentType<Record<string, unknown>>>,
+		[],
+	);
+	const weatherRenderer = useMemo<ToolCallMessagePartComponent>(
+		() => (props) =>
+			props.toolCallId && hiddenWeatherToolCallIds.has(props.toolCallId) ? null : (
+				<WeatherToolUI {...(props as ComponentProps<typeof WeatherToolUI>)} />
+			),
+		[hiddenWeatherToolCallIds],
+	);
+	const withApproval = useMemo(
+		() =>
+			(renderer: ToolCallMessagePartComponent): ToolCallMessagePartComponent =>
+				(props) => (
+					<div className="space-y-2">
+						{createElement(renderer, props)}
+						<ToolApprovalActions {...props} />
+					</div>
+				),
+		[],
+	);
+	const presentRenderer = useMemo<ToolCallMessagePartComponent>(
+		() => (props) => {
+			if (
+				isRecord(props.args) &&
+				props.args.$type === "EstimateEditor" &&
+				!isLatestEstimateMessage
+			) {
+				return null;
+			}
+			return (
+				<KolibriGenerativeUI
+					node={props.args}
+					status={props.status.type === "running" ? "streaming" : "done"}
+				/>
+			);
+		},
+		[isLatestEstimateMessage],
+	);
+	const documentPackRenderer = useMemo<ToolCallMessagePartComponent>(
+		() => (props) => {
+			if (!isRecord(props.args)) return null;
+			return (
+				<EstimateDocumentPackWidget
+					{...(props.args as ComponentProps<typeof EstimateDocumentPackWidget>)}
+				/>
+			);
+		},
+		[],
+	);
+	const partsComponents = useMemo(
+		() => ({
+			Text: MarkdownText,
+			Reasoning: () => null,
+			generativeUI: {
+				components: generativeUIComponents,
+				Fallback: () => null,
+			},
+			tools: {
+				by_name: {
+					generate_image: withApproval(GeneratedImageToolUI),
+					get_weather: withApproval(weatherRenderer),
+					developer_command: withApproval(DeveloperCommandToolUI),
+					developer_file_change: withApproval(DeveloperFileChangeToolUI),
+					create_estimate_document_pack: documentPackRenderer,
+					present: withApproval(presentRenderer),
+				},
+				Fallback: ToolFallbackComponent,
+			},
+			ToolGroup: DeveloperActivityGroup,
+			ReasoningGroup: ({ children }: { children?: ReactNode }) => (
+				<details
+					className={uiClassTokens.threadReasoningStatus}
+					data-slot="aui_safe-reasoning-status"
+				>
+					<summary className="cursor-pointer select-none" aria-label="Показать ход выполнения">
+						Ход выполнения
+					</summary>
+					<div role="status" aria-live="polite">{children}</div>
+				</details>
+			),
+		}),
+		[generativeUIComponents, presentRenderer, weatherRenderer, documentPackRenderer, ToolFallbackComponent, withApproval],
+	);
+
 	if (!hasVisibleContent || !hasRenderableContent) return null;
-
-
-	type RenderedPart = {
-		type: string;
-		status?: {
-			type?: string;
-		};
-		indices?: readonly number[];
-		toolName?: string;
-		toolCallId?: string;
-		args?: unknown;
-		spec?: unknown;
-		toolUI?: ComponentType;
-		[key: string]: unknown;
-	};
-
-	const renderGroupedPart = ({
-		part: partValue,
-		children,
-	}: {
-		part: unknown;
-		children: ReactNode;
-	}) => {
-		const part = partValue as RenderedPart;
-		const statusType = part.status?.type;
-		switch (part.type) {
-			case "group-chainOfThought":
-				return <div className={THREAD_UI_CLASS.GROUP_WRAP}>{children}</div>;
-			case "group-tool": {
-				if (ToolGroup) return <ToolGroup group={partValue as never}>{children}</ToolGroup>;
-				return (
-					<ToolGroupRoot variant="ghost">
-						<ToolGroupTrigger
-							count={part.indices?.length ?? 0}
-							active={statusType === "running"}
-						/>
-						<ToolGroupContent>{children}</ToolGroupContent>
-					</ToolGroupRoot>
-				);
-			}
-			case "group-reasoning": {
-				const running = statusType === "running";
-				return (
-					<ReasoningRoot
-						data-slot="aui_safe-reasoning-status"
-						streaming={running}
-						variant="ghost"
-						className={uiClassTokens.threadReasoningStatus}
-					>
-						<ReasoningTrigger
-							active={running}
-							label={
-								running
-									? THREAD_UI_TEXT.TOOLTIP_REASONING_ACTIVE
-									: THREAD_UI_TEXT.TOOLTIP_REASONING_IDLE
-							}
-						/>
-						<ReasoningContent
-							role="status"
-							aria-live="polite"
-							aria-busy={running}
-						>
-							<ReasoningText>
-								<div className={THREAD_UI_CLASS.REASONING_SPACE}>
-									<div className={THREAD_UI_CLASS.REASONING_ICON_CONTAINER}>
-										<RefreshCwIcon className={THREAD_UI_CLASS.REASONING_ICON_DONE} />
-										<span>{THREAD_UI_TEXT.REASONING_STATUS_REQUEST_ACCEPTED}</span>
-									</div>
-									<div className={THREAD_UI_CLASS.REASONING_ICON_CONTAINER}>
-										{running ? (
-											<LoaderCircleIcon
-												className={THREAD_UI_CLASS.REASONING_ICON_ACTIVE}
-											/>
-										) : (
-											<RefreshCwIcon className={THREAD_UI_CLASS.REASONING_ICON_DONE} />
-										)}
-										<span>
-											{running
-												? THREAD_UI_TEXT.REASONING_STATUS_PREPARING
-												: THREAD_UI_TEXT.REASONING_STATUS_COMPLETE}
-										</span>
-								</div>
-							</div>
-							</ReasoningText>
-						</ReasoningContent>
-					</ReasoningRoot>
-				);
-			}
-			case "text":
-				return <MarkdownText />;
-			case "reasoning":
-				return null;
-			case "generative-ui": {
-				const parsed = parseNativeKolibriGenerativeUI(
-					part.spec as Record<string, unknown>,
-				);
-				return (
-					<KolibriGenerativeUI
-						node={parsed.ok ? parsed.value : INVALID_GENERATIVE_UI_NODE}
-						status={statusType === "running" ? "streaming" : "done"}
-					/>
-				);
-			}
-			case "tool-call": {
-				if (
-					part.toolName === "get_weather" &&
-					part.toolCallId !== undefined &&
-					hiddenWeatherToolCallIds.has(part.toolCallId)
-				) {
-					return null;
-				}
-					if (part.toolName === "present") {
-						return (
-							<KolibriGenerativeUI
-								node={part.args as Record<string, unknown>}
-								status={statusType === "running" ? "streaming" : "done"}
-							/>
-						);
-					}
-					if (part.toolUI) return <>{part.toolUI}</>;
-					const fallbackProps = {
-						type: "tool-call" as const,
-						toolCallId: part.toolCallId ?? "",
-						toolName: part.toolName ?? "",
-						argsText: part.argsText ?? "",
-						args: isRecord(part.args) ? part.args : {},
-						status:
-							statusType === "running"
-								? { type: "running" }
-								: { type: "complete" },
-					};
-					return <ToolFallbackComponent {...(fallbackProps as any)} />;
-			}
-			default:
-				return null;
-			}
-		};
 
 	return (
 		<MessagePrimitive.Root
@@ -320,9 +264,7 @@ const AssistantMessage = () => {
 				data-slot="aui_assistant-message-content"
 				className={uiClassTokens.threadAssistantMessageContent}
 			>
-					<MessagePrimitive.GroupedParts groupBy={groupAssistantPart}>
-						{renderGroupedPart as never}
-					</MessagePrimitive.GroupedParts>
+					<MessagePrimitive.Parts components={partsComponents} />
 				<MessageError />
 			</div>
 

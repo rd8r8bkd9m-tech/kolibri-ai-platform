@@ -46,7 +46,7 @@ test("the welcome surface uses four desktop and three mobile assistant-ui prompt
   assert.match(thread, /\bKolibri\b/i);
 
   assert.match(thread, /MOBILE_STARTERS\.map/);
-  assert.match(thread, /DESKTOP_STARTERS\.map/);
+  assert.match(thread, /(?:desktopStarters|DESKTOP_STARTERS)\.map/);
   assert.equal((thread.match(/<ThreadPrimitive\.Suggestion\b/g) ?? []).length, 2);
   assert.equal((thread.match(/\bprompt=\{prompt\}/g) ?? []).length, 2);
 
@@ -366,9 +366,9 @@ test("desktop product sections use reusable canvases while chat stays mounted", 
   assert.doesNotMatch(`${desktop}\n${view}\n${layout}`, /<WorkspaceContextSidebar\b|desktopContextOpen/);
   assert.match(layout, /aria-label=["']Диалог с Kolibri["']/);
   assert.match(layout, /id=["']auxiliary-canvas["']/);
-  assert.match(view, /<Thread\b[\s\S]{0,260}workspaceOpen=\{auxiliary\.open\}/);
-  assert.match(desktop, /primaryContent=\{null\}/);
-  assert.match(desktop, /primaryOpen=\{false\}/);
+  assert.match(view, /<Thread\b[\s\S]{0,260}workspaceOpen=\{rightWorkspaceOpen\}/);
+  assert.match(desktop, /primaryContent=\{auxiliary\.primaryOpen \? auxiliaryCanvas : null\}/);
+  assert.match(desktop, /primaryOpen=\{auxiliary\.primaryOpen\}/);
   assert.match(auxiliary, /data-slot=["']auxiliary-canvas["']/);
   assert.match(canvas, /<CanvasFrame\b/);
   assert.match(frame, /data-slot=["']canvas-frame["']/);
@@ -468,9 +468,9 @@ test("profile and settings have one stable entry in the sidebar footer", async (
   );
   assert.doesNotMatch(canvas, /\bonOpenProfileSettings\b/);
   assert.doesNotMatch(canvas, /label=["']Открыть личный кабинет["']/);
-  assert.match(desktop, /onOpenAccount=\{openAccount\}/);
-  assert.match(view, /onOpenProfileSettings=\{\(\) => onOpenAccount\("general"\)\}/);
-  assert.doesNotMatch(`${desktop}\n${view}\n${canvas}`, /onOpenProfileSettings=\{\s*openAccount/);
+  assert.match(desktop, /onOpenSettings=\{openSettings\}/);
+  assert.match(view, /onOpenProfileSettings=\{\(\) => onOpenSettings\("general"\)\}/);
+  assert.doesNotMatch(`${desktop}\n${view}\n${canvas}`, /onOpenProfileSettings=\{\s*openSettings/);
 });
 
 test("polished navigation exposes actionable controls and stable account state", async () => {
@@ -486,10 +486,10 @@ test("polished navigation exposes actionable controls and stable account state",
   assert.match(header, /data-command-palette-launcher=["']header["']/);
   assert.match(header, /data-context-launcher=["']header["']/);
   assert.doesNotMatch(sidebar, /Запланировано|Плагины/);
-  assert.match(desktop, /const \[accountSection, setAccountSection\]/);
-  assert.match(view, /activeSection=\{accountSection\}/);
-  assert.match(view, /onOpenProfileSettings=\{\(\) => onOpenAccount\("general"\)\}/);
-  assert.match(profile, /<main[\s\S]{0,260}\bflex-1\b/);
+  assert.match(desktop, /const openSettings = useCallback/);
+  assert.match(desktop, /auxiliary\.openSettings\(section\)/);
+  assert.match(view, /onOpenProfileSettings=\{\(\) => onOpenSettings\("general"\)\}/);
+  assert.match(profile, /data-slot=["']settings-canvas-content["']/);
   assert.match(thread, /\bhiddenWeatherToolCallIds\b/);
   assert.match(thread, /if\s*\(message\.role\s*===\s*["']user["']\)\s*break/);
 });
@@ -647,7 +647,7 @@ test("superadmin model connections keep provider secrets transient and bounded",
     ]);
 
   for (const label of [
-    "Личный кабинет",
+    "Настройки",
     "Суперадминистратор",
     "ИИ и модели",
     "MiMo Code",
@@ -680,10 +680,8 @@ test("superadmin model connections keep provider secrets transient and bounded",
     `${profile}\n${client}`,
     /\blocalStorage\b|\bsessionStorage\b/,
   );
-  assert.match(profile, /\bmobileMenuOpen\b/);
-  assert.match(profile, /setMobileMenuOpen\(false\)/);
-  assert.match(profile, /setMobileMenuOpen\(true\)/);
-  assert.match(profile, />\s*Все настройки\s*</);
+  assert.match(profile, /data-slot=["']settings-canvas-mobile-navigation["']/);
+  assert.match(profile, /aria-label=["']Все настройки["']/);
   assert.match(
     client,
     /["']\/api\/superadmin\/provider-connections\/mimo-code\/credential["']/,
@@ -820,7 +818,7 @@ test("immersive Canvas keeps minimized work recoverable and manages focus", asyn
     readSource("components/assistant-ui/thread/parts/thread-layout.tsx"),
   ]);
 
-  assert.match(hook, /const fullscreen = open && Boolean\(activeTab\?\.maximized\)/);
+  assert.match(hook, /open && activeTab\?\.placement === ["']right["'] && Boolean\(activeTab\.maximized\)/);
   assert.match(hook, /toggleFullscreen/);
   assert.match(hook, /minimizeCanvasTab/);
   assert.match(view, /<WorkspaceTaskShelf\b/);

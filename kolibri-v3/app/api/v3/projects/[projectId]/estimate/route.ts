@@ -19,7 +19,25 @@ export async function GET(
 			{ status: 404, headers: { "Cache-Control": "no-store" } },
 		);
 	}
-	return proxyV3JsonRequest(request, projectPath(projectId));
+	const source = new URL(request.url);
+	const query = new URLSearchParams();
+	for (const key of ["offset", "limit"] as const) {
+		const value = source.searchParams.get(key);
+		if (value !== null) {
+			if (
+				!/^\d{1,7}$/.test(value) ||
+				(key === "limit" && (Number(value) < 1 || Number(value) > 100))
+			) {
+				return Response.json(
+					{ code: "estimate_page_invalid", message: "Неверное окно строк сметы." },
+					{ status: 400, headers: { "Cache-Control": "no-store" } },
+				);
+			}
+			query.set(key, value);
+		}
+	}
+	const suffix = query.size > 0 ? `?${query.toString()}` : "";
+	return proxyV3JsonRequest(request, `${projectPath(projectId)}${suffix}`);
 }
 
 export async function PATCH(
@@ -33,8 +51,14 @@ export async function PATCH(
 			{ status: 404, headers: { "Cache-Control": "no-store" } },
 		);
 	}
-	return proxyV3JsonRequest(request, projectPath(projectId), {
+	const response = await proxyV3JsonRequest(request, projectPath(projectId), {
 		maxRequestBytes: 256 * 1_024,
 		method: "PATCH",
 	});
+	response.headers.set("Deprecation", "true");
+	response.headers.set(
+		"Link",
+		`</api/v3/projects/${encodeURIComponent(projectId)}/estimate/rows>; rel="successor-version"`,
+	);
+	return response;
 }

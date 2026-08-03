@@ -1,7 +1,15 @@
 "use client";
 
-import { AuiProvider, Suggestions, useAui } from "@assistant-ui/react";
+import {
+	AuiProvider,
+	Suggestions,
+	Tools,
+	unstable_Interactables,
+	useAui,
+} from "@assistant-ui/react";
 
+import { kolibriToolkit } from "@/components/assistant-ui/toolkit";
+import { EstimateDraftInteractableSpike } from "@/components/assistant-ui/interactables/estimate-draft-spike";
 import { WorkspaceShell } from "@/components/kolibri-shell/workspace-shell";
 
 const kolibriSuggestions = Suggestions([
@@ -9,7 +17,7 @@ const kolibriSuggestions = Suggestions([
 		title: "Собрать смету",
 		label: "по описанию и файлам",
 		prompt:
-			"Собери предварительную смету проекта. Сначала отдели факты от допущений и перечисли недостающие исходные данные.",
+			"Собери предварительную смету проекта. Сначала отдели факты от условий расчёта и перечисли недостающие исходные данные.",
 	},
 	{
 		title: "Разобрать проект",
@@ -25,17 +33,24 @@ const kolibriSuggestions = Suggestions([
 	},
 	{
 		title: "Проверить расчёт",
-		label: "источники и допущения",
+		label: "источники и условия расчёта",
 		prompt:
-			"Проверь расчёт: покажи источники, версии входных данных, допущения и позиции, требующие подтверждения.",
+			"Проверь расчёт: покажи источники, версии входных данных, условия расчёта и позиции, требующие подтверждения.",
 	},
 ]);
 
 export function KolibriApp() {
-	const aui = useAui({ suggestions: kolibriSuggestions });
+	const aui = useAui({
+		 suggestions: kolibriSuggestions,
+		 tools: Tools({ toolkit: kolibriToolkit }),
+		 unstable_interactables: unstable_Interactables(),
+	});
 
 	return (
 		<AuiProvider value={aui}>
+			{process.env.NEXT_PUBLIC_ENABLE_INTERACTABLES_SPIKE === "true" ? (
+				<EstimateDraftInteractableSpike />
+			) : null}
 			<WorkspaceShell />
 		</AuiProvider>
 	);

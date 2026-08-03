@@ -77,7 +77,9 @@ async function createFixture({ standalone = false } = {}) {
   await mkdir(path.join(project, "app"), { recursive: true });
   await mkdir(path.join(project, "app", "api", "live"), { recursive: true });
   await mkdir(path.join(project, "backend", "app"), { recursive: true });
+  await mkdir(path.join(project, "backend", "assets", "fonts"), { recursive: true });
   await mkdir(path.join(project, "backend", "migrations"), { recursive: true });
+  await mkdir(path.join(project, "public", "pets", "masters"), { recursive: true });
   await mkdir(path.join(project, "contracts", "generated", "v1"), {
     recursive: true,
   });
@@ -110,6 +112,12 @@ async function createFixture({ standalone = false } = {}) {
       path.join(project, "backend", "app", "runtime_readiness.py"),
       "def product_worker_is_ready(*args, **kwargs): return True\n",
     ),
+    writeFile(path.join(project, "backend", "app", "estimate_document_pack.py"), "# estimate document pack\n"),
+    writeFile(path.join(project, "backend", "app", "official_document_renderer.py"), "# official renderer\n"),
+    writeFile(path.join(project, "backend", "assets", "fonts", "NotoSans-Regular.ttf"), "font regular\n"),
+    writeFile(path.join(project, "backend", "assets", "fonts", "NotoSans-Bold.ttf"), "font bold\n"),
+    writeFile(path.join(project, "backend", "assets", "fonts", "OFL.txt"), "OFL\n"),
+    writeFile(path.join(project, "public", "pets", "masters", "kolibri-v1.png"), "PNG\n"),
     writeFile(path.join(project, "backend", "requirements.txt"), "fastapi\n"),
     writeFile(
       path.join(project, "backend", "migrations", "001_core.sql"),
@@ -253,6 +261,18 @@ async function createFixture({ standalone = false } = {}) {
         "047_billing_entitlement_catalog_compatibility.sql",
       ),
       "PRAGMA user_version = 47;\n",
+    ),
+    writeFile(
+      path.join(project, "backend", "migrations", "048_estimate_lifecycle_states.sql"),
+      "PRAGMA user_version = 48;\n",
+    ),
+    writeFile(
+      path.join(project, "backend", "migrations", "049_estimate_catalog_market_privacy.sql"),
+      "PRAGMA user_version = 49;\n",
+    ),
+    writeFile(
+      path.join(project, "backend", "migrations", "050_estimate_document_pack.sql"),
+      "PRAGMA user_version = 50;\n",
     ),
     writeFile(
       path.join(project, "contracts", "generated", "v1", "manifest.json"),
@@ -501,8 +521,8 @@ test("portable archive binds canonical backend, web, Git, migrations, and stable
   assert.equal(manifest.source_tree_sha256, manifest.content_digest);
   assert.match(manifest.gate_input_digest, /^[0-9a-f]{64}$/);
   assert.equal(manifest.migration_minimum_version, "001");
-  assert.equal(manifest.migration_maximum_version, "047");
-  assert.equal(manifest.migration_count, 17);
+  assert.equal(manifest.migration_maximum_version, "050");
+  assert.equal(manifest.migration_count, 20);
   assert.equal(manifest.release_lane, "canonical-portable-only");
   assert.equal(manifest.dirty, false);
 
@@ -604,6 +624,10 @@ test("portable archive binds canonical backend, web, Git, migrations, and stable
   assert.match(
     listing.stdout,
     /kolibri-v3\/backend\/migrations\/047_billing_entitlement_catalog_compatibility[.]sql/,
+  );
+  assert.match(
+    listing.stdout,
+    /kolibri-v3\/backend\/migrations\/050_estimate_document_pack[.]sql/,
   );
   assert.match(
     listing.stdout,

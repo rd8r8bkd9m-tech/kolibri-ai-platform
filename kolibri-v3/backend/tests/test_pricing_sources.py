@@ -118,6 +118,41 @@ def test_fgis_adapter_resolves_region_period_unit_and_unambiguous_material() -> 
     assert result.unmatched_row_ids == ()
 
 
+def test_fgis_adapter_searches_every_row_without_researching_duplicate_resources() -> None:
+    search_calls = 0
+    base_handler = _fgis_handler()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal search_calls
+        if request.url.path.endswith("/Search/Materials"):
+            search_calls += 1
+        return base_handler(request)
+
+    adapter = FgisPriceAdapter(transport=httpx.MockTransport(handler))
+    rows = [
+        {
+            "id": f"row_material_repeat_{index:04d}",
+            "kind": "material",
+            "description": "Плитка керамическая",
+            "specification": "для внутренней облицовки",
+            "unit": "м²",
+        }
+        for index in range(25)
+    ]
+
+    result = asyncio.run(
+        adapter.refresh_material_rows(region="Москва", rows=rows)
+    )
+
+    # One normalized resource is researched (up to the adapter's three query
+    # variants), not once per each of the 25 estimate rows.
+    assert search_calls == 3
+    assert [match.row_id for match in result.matches] == [
+        row["id"] for row in rows
+    ]
+    assert result.unmatched_row_ids == ()
+
+
 def test_fgis_adapter_does_not_apply_ambiguous_material_price() -> None:
     adapter = FgisPriceAdapter(
         transport=httpx.MockTransport(_fgis_handler(ambiguous=True)),
@@ -519,16 +554,56 @@ def test_pricing_sources_are_versioned_idempotent_and_feed_personal_catalog(
 
         catalog = client.get(
             "/v1/pricing/catalog",
-            params={"region": "Москва", "query": "плитка"},
+            params={
+                "projectId": project.project_id,
+                "region": "Москва",
+                "query": "плитка",
+            },
         )
         assert catalog.status_code == 200
         catalog_value = catalog.json()
         assert catalog_value["scope"] == "personal"
         assert catalog_value["aggregation"]["method"] == "median_iqr"
         assert catalog_value["aggregation"]["crossTenantEnabled"] is False
-        assert catalog_value["entries"][0]["sampleSize"] == 4
-        assert catalog_value["entries"][0]["latestPrice"] == "1300.00"
-        assert catalog_value["entries"][0]["medianPrice"] == "1225.00"
+        assert catalog_value["aggregation"]["crossProjectEnabled"] is False
+        assert catalog_value["projectId"] == project.project_id
+        assert len(catalog_value["entries"]) == 4
+        edited_entry = next(
+            item
+            for item in catalog_value["entries"]
+            if item["source"] == "user_edit"
+        )
+        assert edited_entry["projectId"] == project.project_id
+        assert edited_entry["category"] == "material"
+        assert edited_entry["latestPrice"] == "1300.00"
+        assert edited_entry["medianPrice"] == "1300.00"
+        assert edited_entry["confidence"] == 0.7
+        assert edited_entry["aiPreliminary"] is False
+
+        foreign_project = client.get(
+            "/v1/pricing/catalog",
+            params={"projectId": "project_foreign_scope_01"},
+        )
+        assert foreign_project.status_code == 200
+        assert foreign_project.json()["entries"] == []
+
+    with TestClient(application) as foreign_client:
+        foreign_registered = foreign_client.post(
+            "/v1/auth/register",
+            headers=ORIGIN,
+            json={
+                "email": "foreign-pricing@example.com",
+                "name": "Foreign estimator",
+                "password": "correct-horse-battery-staple",
+            },
+        )
+        assert foreign_registered.status_code == 201
+        isolated = foreign_client.get(
+            "/v1/pricing/catalog",
+            params={"projectId": project.project_id},
+        )
+        assert isolated.status_code == 403
+        assert "entries" not in isolated.json()
 
     database = sqlite3.connect(database_path)
     try:

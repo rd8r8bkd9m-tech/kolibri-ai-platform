@@ -9,13 +9,12 @@ import {
 import { cn } from "@/lib/utils";
 
 export type DesktopWorkspaceLayoutProps = {
-	account: ReactNode;
-	accountOpen: boolean;
 	auxiliary: ReactNode;
 	auxiliaryFullscreen: boolean;
 	auxiliaryOpen: boolean;
 	chat: ReactNode;
 	chrome: ReactNode;
+	composer: ReactNode;
 	header: ReactNode;
 	navigation: ReactNode;
 	navigationOpen: boolean;
@@ -24,20 +23,19 @@ export type DesktopWorkspaceLayoutProps = {
 };
 
 export function DesktopWorkspaceLayout({
-	account,
-	accountOpen,
 	auxiliary,
 	auxiliaryFullscreen,
 	auxiliaryOpen,
 	chat,
 	chrome,
+	composer,
 	header,
 	navigation,
 	navigationOpen,
 	primary,
 	primaryOpen,
 }: DesktopWorkspaceLayoutProps) {
-	const chatHidden = primaryOpen || accountOpen;
+	const chatHidden = primaryOpen;
 
 	return (
 		<div
@@ -94,15 +92,8 @@ export function DesktopWorkspaceLayout({
 									{primary}
 								</section>
 							) : null}
-							{accountOpen ? (
-								<section
-									aria-label="Личный кабинет Kolibri"
-									className="absolute inset-0 z-20 min-h-0 min-w-0 overflow-hidden bg-background"
-								>
-									{account}
-								</section>
-							) : null}
 						</div>
+						{composer}
 					</main>
 				</ResizablePanel>
 

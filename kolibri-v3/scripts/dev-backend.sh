@@ -35,10 +35,11 @@ export KOLIBRI_V3_ENV=development
 export KOLIBRI_V3_DATABASE_URL='sqlite:///./var/kolibri-v3.db'
 export KOLIBRI_V3_DIRECT_MODEL_RUNTIME=true
 export KOLIBRI_V3_DEVELOPER_AGENT_ENABLED=true
+export KOLIBRI_V3_DEVELOPER_AGENT_TIMEOUT_SECONDS=3600
 export KOLIBRI_V3_DEVELOPER_WORKSPACE_ROOT="${v3_root}"
 export KOLIBRI_V3_PROVIDER_EXECUTION_ENABLED=false
 export KOLIBRI_V3_COOKIE_SECURE=false
-export KOLIBRI_V3_ALLOWED_ORIGINS='http://127.0.0.1:3103,http://localhost:3103,http://127.0.0.1:4103,http://localhost:4103'
+export KOLIBRI_V3_ALLOWED_ORIGINS='http://127.0.0.1:3103,http://localhost:3103'
 export KOLIBRI_V3_SESSION_COOKIE_NAME='kolibri_v3_session'
 export KOLIBRI_V3_CSRF_COOKIE_NAME='kolibri_v3_csrf'
 unset KOLIBRI_V3_CSRF_SECRET
@@ -55,9 +56,9 @@ PYTHONPATH="${v3_root}/backend" "${python_bin}" -m app.dev_preflight \
 printf 'Kolibri V3 dev backend: %s/var/kolibri-v3.db (%s:%s)\n' \
   "${v3_root}" "${backend_host}" "${backend_port}"
 
+# Developer runs edit backend sources from this process. Uvicorn autoreload
+# would terminate the run that made the edit and fence its durable lease.
 exec "${python_bin}" -m uvicorn app.main:app \
   --app-dir "${v3_root}/backend" \
-  --reload \
-  --reload-dir "${v3_root}/backend" \
   --host "${backend_host}" \
   --port "${backend_port}"

@@ -382,19 +382,27 @@ def attachment_content(
             "Attachment content is no longer available.",
         ) from exc
 
+    # User HTML is useful as estimate source data but must never become an
+    # active same-origin page.  Force it to download; the CSP is defense in
+    # depth for clients that ignore Content-Disposition.
+    disposition_kind = "attachment" if record.mime_type == "text/html" else "inline"
     disposition = (
-        f'inline; filename="attachment"; '
+        f'{disposition_kind}; filename="attachment"; '
         f"filename*=UTF-8''{quote(record.filename)}"
     )
+    content_headers = {
+        "Content-Disposition": disposition,
+        "Content-Length": str(record.size_bytes),
+        "ETag": f'"{record.content_hash.removeprefix("sha256:")}"',
+        "X-Kolibri-Content-SHA256": record.content_hash,
+        "X-Content-Type-Options": "nosniff",
+    }
+    if record.mime_type == "text/html":
+        content_headers["Content-Security-Policy"] = "sandbox; default-src 'none'"
     return StreamingResponse(
         _content_stream(descriptor),
         media_type=record.mime_type,
-        headers={
-            "Content-Disposition": disposition,
-            "Content-Length": str(record.size_bytes),
-            "ETag": f'"{record.content_hash.removeprefix("sha256:")}"',
-            "X-Kolibri-Content-SHA256": record.content_hash,
-        },
+        headers=content_headers,
     )
 
 

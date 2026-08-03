@@ -1,8 +1,15 @@
 "use client";
 
-import { AuiIf, ThreadPrimitive, useAuiState } from "@assistant-ui/react";
+import {
+	AuiIf,
+	SelectionToolbarPrimitive,
+	ThreadPrimitive,
+	useAuiState,
+} from "@assistant-ui/react";
 import { type FC, useContext } from "react";
 
+import { AgUiInterruptSurface } from "@/components/assistant-ui/ag-ui-controls";
+import { EstimateGenerationStatus } from "@/components/assistant-ui/product-widgets/estimate-generation-status";
 import { ThreadFollowupSuggestions } from "@/components/assistant-ui/follow-up-suggestions";
 import {
 	Composer,
@@ -22,7 +29,9 @@ import { ThreadViewportContent } from "@/components/ui/shared-wrappers";
 import { THREAD_ROOT_CSS_VARS } from "../thread-layout-config";
 import { ThreadShell } from "../thread-shell";
 
-export const ThreadViewportScreen: FC = () => {
+export const ThreadViewportScreen: FC<{ showComposer?: boolean }> = ({
+	showComposer = true,
+}) => {
 	const { Welcome = ThreadWelcome } = useContext(ThreadComponentsContext);
 	const compact = useContext(ThreadCompactContext);
 	const isRunning = useAuiState((s) => s.thread.isRunning);
@@ -44,6 +53,12 @@ export const ThreadViewportScreen: FC = () => {
 				className={uiClassTokens.threadViewport}
 			>
 				<ThreadViewportContent>
+					<AgUiInterruptSurface />
+					<SelectionToolbarPrimitive.Root className="border-border bg-popover text-popover-foreground fixed z-50 flex items-center gap-1 rounded-lg border p-1 shadow-lg">
+						<SelectionToolbarPrimitive.Quote className="rounded-md px-2 py-1 text-xs font-medium hover:bg-muted focus-visible:outline-none focus-visible:ring-2">
+							Цитировать
+						</SelectionToolbarPrimitive.Quote>
+					</SelectionToolbarPrimitive.Root>
 					<AuiIf condition={isNewChatView}>
 						<div
 							data-slot="aui_empty-state"
@@ -62,7 +77,9 @@ export const ThreadViewportScreen: FC = () => {
 						aria-busy={isRunning}
 						className={uiClassTokens.threadMessageGroup}
 					>
-						<ThreadPrimitive.Messages>{() => <ThreadMessage />}</ThreadPrimitive.Messages>
+						<ThreadPrimitive.Messages>
+							{() => <ThreadMessage />}
+						</ThreadPrimitive.Messages>
 					</div>
 
 					<ThreadPrimitive.ViewportFooter
@@ -71,13 +88,14 @@ export const ThreadViewportScreen: FC = () => {
 					>
 						<ThreadScrollToBottom />
 						<ThreadFollowupSuggestions />
+						<EstimateGenerationStatus />
 						<AuiIf condition={(s) => s.thread.isRunning}>
 							<RunProgressPill />
 						</AuiIf>
 						<AuiIf condition={(s) => isNewChatView(s) && s.composer.isEmpty}>
 							<ThreadSuggestions />
 						</AuiIf>
-						<Composer />
+						{showComposer ? <Composer /> : null}
 					</ThreadPrimitive.ViewportFooter>
 				</ThreadViewportContent>
 			</ThreadPrimitive.Viewport>

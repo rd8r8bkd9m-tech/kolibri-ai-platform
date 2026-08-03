@@ -2,6 +2,7 @@ import MaterialIcons from "@expo/vector-icons/MaterialIcons";
 import { useFonts } from "expo-font";
 import { Drawer } from "expo-router/drawer";
 import { StatusBar } from "expo-status-bar";
+import { useEffect } from "react";
 import {
 	DarkTheme,
 	DefaultTheme,
@@ -21,6 +22,38 @@ import {
 	useMobileSession,
 } from "@/src/auth/mobile-session";
 import { ProductRuntimeProvider } from "@/src/product-chat/runtime-provider";
+import { releaseWebFocus } from "@/src/accessibility/release-web-focus";
+
+const DESKTOP_BREAKPOINT_PX = 959;
+
+function hasMobileClientMarker() {
+	if (typeof window === "undefined") return false;
+
+	const query = new URLSearchParams(window.location.search);
+	if (query.get("client") === "mobile") {
+		return true;
+	}
+
+	return /(?:^|;\s*)kolibri_ui_client=mobile(?:;|$)/.test(document.cookie);
+}
+
+function switchToDesktopClientIfWide() {
+	if (typeof window === "undefined") {
+		return;
+	}
+	const url = new URL(window.location.href);
+	const query = url.searchParams;
+
+	query.set("client", "desktop");
+	window.location.replace(
+		query.toString() ? `${url.pathname}?${query.toString()}` : url.pathname,
+	);
+}
+
+function hasExplicitDesktopClientMarker() {
+	if (typeof window === "undefined") return false;
+	return new URLSearchParams(window.location.search).get("client") === "desktop";
+}
 
 function Navigation() {
 	const { width } = useWindowDimensions();
@@ -38,11 +71,21 @@ function Navigation() {
 			primary: colors.foreground,
 		},
 	};
+	useEffect(() => {
+		if (Platform.OS !== "web") return;
+		if (hasExplicitDesktopClientMarker()) return;
+		if (width <= DESKTOP_BREAKPOINT_PX) return;
+		if (!hasMobileClientMarker()) return;
+		switchToDesktopClientIfWide();
+	}, [width]);
 
 	return (
 		<NavigationThemeProvider value={theme}>
 			<Drawer
 				drawerContent={(props) => <DrawerContent {...props} />}
+				screenListeners={{
+					blur: releaseWebFocus,
+				}}
 				screenOptions={{
 					drawerStyle: {
 						backgroundColor: colors.background,

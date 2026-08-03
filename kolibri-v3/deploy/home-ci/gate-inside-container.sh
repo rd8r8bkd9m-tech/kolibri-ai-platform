@@ -117,7 +117,7 @@ ln -s "${python_env}/bin/python" \
   --public-origin https://kolibriai.example \
   --release-id kolibri-v3-0123456789ab-abcdef012345 \
   --release-commit 0123456789abcdef0123456789abcdef01234567 \
-  --expected-schema 47 \
+  --expected-schema 49 \
   --systemctl "$(command -v systemctl)" \
   --journalctl "$(command -v journalctl)" \
   --database-helper \

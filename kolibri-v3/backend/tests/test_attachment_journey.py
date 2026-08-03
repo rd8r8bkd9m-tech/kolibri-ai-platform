@@ -24,6 +24,7 @@ from app.chat.models import AgUiRunInput
 from app.chat.service import accept_run
 from app.config import Settings
 from app.database import connect_database, transaction
+from app.estimate_attachment_context import load_estimate_attachment_context
 from app.identity import require_user
 from app.main import create_app
 from app.provider_execution import _generated_contracts
@@ -443,6 +444,22 @@ def test_browser_upload_is_streamed_idempotent_and_durable_in_chat(
                 """,
                 (tenant_id, str(message["id"])),
             ).fetchone()[0] == 1
+
+            estimate_context = load_estimate_attachment_context(
+                database,
+                settings=settings,
+                tenant_id=accepted.tenant_id,
+                project_id=accepted.project_id,
+                thread_id=accepted.thread_id,
+                run_id=accepted.run_id,
+            )
+            assert estimate_context.input_message_id == str(message["id"])
+            assert len(estimate_context.attachments) == 1
+            assert estimate_context.attachments[0].extraction.status == "complete"
+            assert "Кабель" in "\n".join(
+                str(chunk["text"])
+                for chunk in estimate_context.iter_planning_chunks()
+            )
         finally:
             database.close()
 
@@ -566,6 +583,46 @@ def test_upload_rejects_unsupported_spoofed_and_oversize_content(
         )
     temp_root = settings.attachment_storage_root / ".tmp"
     assert not temp_root.exists() or not any(temp_root.iterdir())
+
+
+def test_html_attachment_is_accepted_only_as_sandboxed_download(
+    tmp_path: Path,
+) -> None:
+    database_path = tmp_path / "attachment-html.db"
+    settings = _settings(database_path)
+    app = create_app(settings)
+    with TestClient(app) as client:
+        csrf, user = _register(
+            client,
+            email="html-attachment@example.com",
+        )
+        _seed_scope(
+            database_path,
+            tenant_id=str(user["tenantId"]),
+            user_id=str(user["id"]),
+        )
+        attachment_id = "attachment_htmlsource0001"
+        html = b"<html><body><p>Estimate source</p></body></html>"
+        upload = client.post(
+            "/v1/attachments",
+            headers=_upload_headers(
+                csrf,
+                attachment_id=attachment_id,
+                filename="source.html",
+                mime_type="text/html",
+            ),
+            content=html,
+        )
+        assert upload.status_code == 201, upload.text
+
+        content = client.get(f"/v1/attachments/{attachment_id}/content")
+        assert content.status_code == 200
+        assert content.content == html
+        assert content.headers["content-disposition"].startswith("attachment;")
+        assert content.headers["content-security-policy"] == (
+            "sandbox; default-src 'none'"
+        )
+        assert content.headers["x-content-type-options"] == "nosniff"
 
 
 def test_native_bearer_and_retrieval_scope_are_enforced(

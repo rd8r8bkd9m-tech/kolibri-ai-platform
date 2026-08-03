@@ -1,10 +1,15 @@
 "use client";
 
-import { useAuiState } from "@assistant-ui/react";
+import {
+	useAuiState,
+	unstable_useComposerInput as useComposerInput,
+} from "@assistant-ui/react";
 import {
 	ChevronDownIcon,
+	ScanSearchIcon,
 	ShieldAlertIcon,
 	ShieldCheckIcon,
+	WandSparklesIcon,
 } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -15,12 +20,17 @@ import {
 	DropdownMenuLabel,
 	DropdownMenuRadioGroup,
 	DropdownMenuRadioItem,
+	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
 	type DeveloperAccessMode,
 	useDeveloperAgentMode,
 } from "@/lib/product-chat/developer-agent-mode";
+import {
+	PROJECT_AUDIT_PROMPT,
+	PROJECT_IMPROVEMENT_PROMPT,
+} from "@/lib/product-chat/project-improvement";
 
 const ACCESS_OPTIONS: readonly {
 	mode: DeveloperAccessMode;
@@ -55,6 +65,7 @@ export function DeveloperModeControl({
 }) {
 	const developerMode = useDeveloperAgentMode();
 	const isRunning = useAuiState((state) => state.thread.isRunning);
+	const composer = useComposerInput();
 	const [open, setOpen] = useState(false);
 
 	if (!developerMode.available) return null;
@@ -64,6 +75,14 @@ export function DeveloperModeControl({
 		ACCESS_OPTIONS[0];
 	const selectMode = (mode: DeveloperAccessMode) => {
 		developerMode.setMode(mode);
+		setOpen(false);
+	};
+	const prepareProjectAutopilot = (
+		mode: Extract<DeveloperAccessMode, "auto" | "full">,
+		prompt: string,
+	) => {
+		developerMode.setMode(mode);
+		composer.setText(prompt);
 		setOpen(false);
 	};
 
@@ -130,6 +149,48 @@ export function DeveloperModeControl({
 						</DropdownMenuRadioItem>
 					))}
 				</DropdownMenuRadioGroup>
+				{surface === "composer" ? (
+					<>
+						<DropdownMenuSeparator />
+						<DropdownMenuLabel className="text-muted-foreground px-3 py-1 text-sm font-normal">
+							Автопилот проекта
+						</DropdownMenuLabel>
+						<DropdownMenuItem
+							disabled={isRunning || composer.isDisabled}
+							onSelect={() =>
+								prepareProjectAutopilot("auto", PROJECT_AUDIT_PROMPT)
+							}
+							className="min-h-14 items-start gap-3 px-3 py-2"
+						>
+							<ScanSearchIcon className="mt-0.5 size-4 shrink-0" />
+							<span className="min-w-0">
+								<span className="block text-sm font-medium">
+									Полное сканирование
+								</span>
+								<span className="text-muted-foreground mt-0.5 block text-xs leading-4">
+									Аудит без изменения файлов, с приоритетами P0–P3
+								</span>
+							</span>
+						</DropdownMenuItem>
+						<DropdownMenuItem
+							disabled={isRunning || composer.isDisabled}
+							onSelect={() =>
+								prepareProjectAutopilot("full", PROJECT_IMPROVEMENT_PROMPT)
+							}
+							className="min-h-14 items-start gap-3 px-3 py-2 text-orange-600 focus:text-orange-600"
+						>
+							<WandSparklesIcon className="mt-0.5 size-4 shrink-0" />
+							<span className="min-w-0">
+								<span className="block text-sm font-medium">
+									Улучшить безопасно
+								</span>
+								<span className="text-muted-foreground mt-0.5 block text-xs leading-4">
+									Найти и реализовать одно низкорисковое улучшение
+								</span>
+							</span>
+						</DropdownMenuItem>
+					</>
+				) : null}
 			</DropdownMenuContent>
 		</DropdownMenu>
 	);

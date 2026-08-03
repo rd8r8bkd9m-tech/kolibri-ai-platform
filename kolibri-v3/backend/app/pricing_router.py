@@ -465,6 +465,7 @@ def _persist_priced_version(
         version=next_version,
         status="draft",
         document=document,
+        row_limit=100,
     )
 
 
@@ -569,6 +570,7 @@ async def refresh_estimate_prices(
                 version=int(slot["version"]),
                 status=str(slot["status"]),
                 document=document,
+                row_limit=100,
             ),
         }
         with transaction(database, immediate=True):
@@ -593,6 +595,7 @@ async def refresh_estimate_prices(
                 version=int(slot["version"]),
                 status=str(slot["status"]),
                 document=document,
+                row_limit=100,
             ),
         }
         with transaction(database, immediate=True):
@@ -730,6 +733,7 @@ async def refresh_estimate_prices(
                 version=int(current_slot["version"]),
                 status=str(current_slot["status"]),
                 document=document,
+                row_limit=100,
             )
             result_status = "stale_source"
             message = (
@@ -743,6 +747,7 @@ async def refresh_estimate_prices(
                 version=int(current_slot["version"]),
                 status=str(current_slot["status"]),
                 document=document,
+                row_limit=100,
             )
             result_status = "no_matches"
             message = (

@@ -70,7 +70,15 @@ export function KolibriGenerativeUIRenderer({
 			? validation.value.$type
 			: null;
 	const isProductWidget =
-		rootType === "WeatherWidget" || rootType === "EstimateEditor";
+		rootType === "WeatherWidget" ||
+		rootType === "EstimateGenerationActivity" ||
+		rootType === "EstimateEditor" ||
+		rootType === "EstimateDocumentPack";
+	const renderedNode = renderGenerativeUI(
+		validation.value,
+		kolibriGenerativeUILibrary,
+		{ status },
+	);
 
 	if (isProductWidget) {
 		return (
@@ -79,9 +87,7 @@ export function KolibriGenerativeUIRenderer({
 				data-slot="kolibri-product-widget"
 				data-generative-ui-status={status}
 			>
-				{renderGenerativeUI(validation.value, kolibriGenerativeUILibrary, {
-					status,
-				})}
+				{renderedNode}
 			</div>
 		);
 	}
@@ -98,9 +104,7 @@ export function KolibriGenerativeUIRenderer({
 				>
 					Представление ИИ · не является подтверждением
 				</p>
-			{renderGenerativeUI(validation.value, kolibriGenerativeUILibrary, {
-				status,
-			})}
+			{renderedNode}
 
 			{inspectSource ? (
 				<details className={uiClassTokens.generativeDetailsTrigger}>

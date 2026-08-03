@@ -16,7 +16,10 @@ from fastapi import HTTPException, Request, status
 
 from ..agent_runtime import AgentRuntimeRegistry
 from ..config import Settings
-from ..direct_model_runtime import execute_direct_run
+from ..direct_model_runtime import (
+    execute_direct_run,
+    execute_estimate_generation_continuation,
+)
 from ..direct_run_outbox import (
     DIRECT_RUN_INTERNAL_ERROR_CODE,
     DIRECT_RUN_INTERNAL_ERROR_MESSAGE,
@@ -24,6 +27,7 @@ from ..direct_run_outbox import (
     DirectRunLeaseError,
     DirectRunLeaseHeartbeat,
     DirectRunStore,
+    EstimateGenerationLeaseHeartbeat,
 )
 from ..image_generation import resolve_image_prompt
 from ..model_catalog import (
@@ -192,6 +196,129 @@ class DirectRunDispatcher:
                         break
             except Exception:
                 LOGGER.exception("direct run recovery cycle failed")
+            self._wake.wait(self.settings.product_run_idle_seconds)
+            self._wake.clear()
+
+
+class EstimateGenerationDispatcher:
+    """Independent capacity for resumable post-ack estimate generation."""
+
+    def __init__(
+        self,
+        *,
+        settings: Settings,
+        executor: ThreadPoolExecutor,
+        runtime_registry: AgentRuntimeRegistry,
+        cancellations: ActiveRunCancellationRegistry,
+        max_inflight: int = 1,
+        worker_id: str | None = None,
+    ) -> None:
+        self.settings = settings
+        self.executor = executor
+        self.runtime_registry = runtime_registry
+        self.cancellations = cancellations
+        self.max_inflight = max_inflight
+        self.worker_id = worker_id or (
+            f"estimate-{socket.gethostname()}-{os.getpid()}-"
+            f"{uuid.uuid4().hex[:8]}"
+        )
+        self.store = DirectRunStore(settings.database_url)
+        self._stop = threading.Event()
+        self._wake = threading.Event()
+        self._lock = threading.Lock()
+        self._futures: set[Future[None]] = set()
+        self._thread = threading.Thread(
+            target=self._run,
+            name="kolibri-estimate-dispatch",
+            daemon=True,
+        )
+
+    def start(self) -> None:
+        if not self._thread.is_alive():
+            self._thread.start()
+
+    def notify(self) -> None:
+        self._wake.set()
+
+    def close(self) -> None:
+        self._stop.set()
+        self._wake.set()
+        if self._thread.is_alive():
+            self._thread.join(timeout=2.0)
+
+    def _inflight(self) -> int:
+        with self._lock:
+            return len(self._futures)
+
+    def _finished(self, future: Future[None]) -> None:
+        with self._lock:
+            self._futures.discard(future)
+        self._wake.set()
+
+    def _execute(self, claim: DirectRunClaim) -> None:
+        cancellation_signal = self.cancellations.register(
+            claim.tenant_id,
+            claim.run_id,
+        )
+        try:
+            with EstimateGenerationLeaseHeartbeat(
+                self.store,
+                claim,
+                lease_seconds=self.settings.product_run_lease_seconds,
+                cancellation_signal=cancellation_signal,
+            ):
+                execute_estimate_generation_continuation(
+                    self.settings,
+                    claim,
+                    self.runtime_registry,
+                    cancellation_signal=cancellation_signal,
+                )
+        except DirectRunLeaseError:
+            LOGGER.info(
+                "estimate generation lease superseded generation_run_id=%s",
+                claim.generation_run_id,
+            )
+        except BaseException:
+            # The lease is deliberately left ambiguous. Recovery fences it and
+            # requeues the same durable generation journal after expiry.
+            LOGGER.exception(
+                "estimate generation executor crashed generation_run_id=%s",
+                claim.generation_run_id,
+            )
+        finally:
+            self.cancellations.unregister(
+                claim.tenant_id,
+                claim.run_id,
+                cancellation_signal,
+            )
+
+    def _submit(self, claim: DirectRunClaim) -> bool:
+        try:
+            future = self.executor.submit(self._execute, claim)
+        except RuntimeError:
+            self.store.release_unstarted(claim)
+            return False
+        with self._lock:
+            self._futures.add(future)
+        future.add_done_callback(self._finished)
+        return True
+
+    def _run(self) -> None:
+        while not self._stop.is_set():
+            try:
+                self.store.recover()
+                while (
+                    not self._stop.is_set()
+                    and self._inflight() < self.max_inflight
+                ):
+                    claim = self.store.claim_next_generation(
+                        worker_id=self.worker_id,
+                        lease_seconds=self.settings.product_run_lease_seconds,
+                    )
+                    if claim is None or not self._submit(claim):
+                        break
+            except Exception:
+                LOGGER.exception("estimate generation recovery cycle failed")
             self._wake.wait(self.settings.product_run_idle_seconds)
             self._wake.clear()
 
@@ -421,3 +548,10 @@ def dispatch_chat_execution(
             "Model runtime is not available.",
         )
     dispatcher.notify()
+    estimate_dispatcher: EstimateGenerationDispatcher | None = getattr(
+        request.app.state,
+        "estimate_generation_dispatcher",
+        None,
+    )
+    if estimate_dispatcher is not None:
+        estimate_dispatcher.notify()

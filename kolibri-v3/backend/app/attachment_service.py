@@ -30,6 +30,7 @@ ALLOWED_USER_MIME_TYPES: dict[str, frozenset[str]] = {
     "image/png": frozenset({".png"}),
     "image/webp": frozenset({".webp"}),
     "text/csv": frozenset({".csv"}),
+    "text/html": frozenset({".html", ".htm"}),
     "text/markdown": frozenset({".md", ".markdown"}),
     "text/plain": frozenset({".txt", ".log"}),
 }

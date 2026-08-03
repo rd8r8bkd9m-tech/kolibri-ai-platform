@@ -209,10 +209,33 @@ const parseToolArgumentsText = (
 	}
 };
 
+const assertCompactEstimateReference = (
+	value: Readonly<Record<string, unknown>>,
+) => {
+	if (value.$type !== "EstimateEditor" || value.schemaVersion !== "1.4") return;
+	const page = isRecord(value.rowPage) ? value.rowPage : null;
+	if (
+		!Array.isArray(value.rows) ||
+		value.rows.length !== 0 ||
+		page === null ||
+		page.offset !== 0 ||
+		page.limit !== 0 ||
+		typeof page.totalRows !== "number" ||
+		!Number.isSafeInteger(page.totalRows) ||
+		page.totalRows < 0 ||
+		page.hasMore !== (page.totalRows > 0)
+	) {
+		throw new ProductChatContractError(
+			"Estimate tool arguments must be a compact document reference.",
+		);
+	}
+};
+
 const serializeToolArguments = (
 	value: Readonly<Record<string, unknown>>,
 ): string => {
 	try {
+		assertCompactEstimateReference(value);
 		const serialized = JSON.stringify(value);
 		const parsed =
 			typeof serialized === "string"

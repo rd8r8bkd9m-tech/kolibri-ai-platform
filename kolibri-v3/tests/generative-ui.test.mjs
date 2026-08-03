@@ -32,7 +32,7 @@ test("Generative UI uses the official assistant-ui renderer, schema, instance, a
   assert.match(library, /escape:\s*true/);
   assert.match(library, /pretty:\s*true/);
   assert.match(renderer, /sanitizeKolibriGenerativeUI\s*\(\s*spec\s*\)/);
-  assert.match(renderer, /renderGenerativeUI\s*\(\s*validation\.value/);
+  assert.match(renderer, /renderGenerativeUI\s*\(\s*\n?\s*validation\.value/);
   assert.match(renderer, /export function KolibriGenerativeUI\s*\(/);
   assert.match(renderer, /\bnode:\s*unknown/);
   assert.match(renderer, /\binspectable\?:\s*boolean/);
@@ -40,7 +40,7 @@ test("Generative UI uses the official assistant-ui renderer, schema, instance, a
   assert.match(renderer, /kolibri-generative-ui-provenance/);
   assert.ok(
     renderer.indexOf("sanitizeKolibriGenerativeUI(spec)") <
-      renderer.indexOf("renderGenerativeUI(validation.value"),
+      renderer.indexOf("renderGenerativeUI(\n"),
     "the tree must be sanitized before the official renderer sees it",
   );
 });
@@ -231,4 +231,153 @@ test("estimate widgets accept provider-neutral server revision profiles", async 
     true,
     result.success ? undefined : JSON.stringify(result.error.issues),
   );
+});
+
+test("large estimates use a compact reference, bounded row windows, and delta saves", async () => {
+	const [{ kolibriGenerativeUIComponentSchemas }, editor, client, route] =
+		await Promise.all([
+			import("../lib/generative-ui/schema.ts"),
+			readSource("components/assistant-ui/product-widgets/estimate-editor.tsx"),
+			readSource("lib/estimate/document.ts"),
+			readSource("app/api/v3/projects/[projectId]/estimate/rows/route.ts"),
+		]);
+	const reference = {
+		schemaId: "kolibri.estimate_draft",
+		schemaVersion: "1.4",
+		projectId: "project_contract_12345678",
+		documentId: "document_contract_12345678",
+		version: 7,
+		status: "ready",
+		estimateTitle: "Девятиэтажный жилой дом",
+		currency: "RUB",
+		estimateRegion: "Москва",
+		assumptions: [],
+		rows: [],
+		rowPage: { offset: 0, limit: 0, totalRows: 10_000, hasMore: true },
+		pricing: {
+			status: "partially_sourced",
+			sourcedRows: 8_500,
+			staleRows: 0,
+			totalRows: 10_000,
+			lastCheckedAt: "2026-08-02T10:00:00Z",
+		},
+		totals: { subtotal: "1200000000.00", total: "1440000000.00" },
+		updatedAt: "2026-08-02T10:00:00Z",
+	};
+	assert.equal(
+		kolibriGenerativeUIComponentSchemas.EstimateEditor.safeParse(reference).success,
+		true,
+	);
+	const paged = kolibriGenerativeUIComponentSchemas.EstimateEditor.parse({
+		...reference,
+		generation: {
+			providerProfile: "codex-cli",
+			runId: "run_contract_12345678",
+			estimateGenerationRunId: "estimate_generation_run_contract_12345678",
+			technologyCardRevisionId: "technology_card_revision_contract_12345678",
+			technologyCardHash:
+				"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			qualityStatus: "passed",
+		},
+		rows: [
+			{
+				id: "row_contract_12345678",
+				section: "Фундамент",
+				kind: "work",
+				description: "Устройство монолитной плиты",
+				unit: "м3",
+				quantity: "12.5",
+				unitPrice: "25000.00",
+				lineTotal: "312500.00",
+				quantityBasis: "По рабочей документации",
+				priceBasis: "Предложение поставщика",
+				operationId: "operation_foundation_01",
+				resourceId: "resource_concrete_01",
+				evidenceId: "evidence_quote_01",
+				technologyCardVersion: "technology_card_01_v3",
+				wbsPath: "01/01.02/01.02.03",
+				specification: "Бетон B25 W8 F150",
+				quantityFormula: "foundation_area_m2 * slab_thickness_m",
+				lineConfidence: "verified",
+			},
+		],
+		rowPage: { offset: 0, limit: 100, totalRows: 10_000, hasMore: true },
+	});
+	assert.equal(paged.rows[0].quantityFormula, "foundation_area_m2 * slab_thickness_m");
+	assert.equal(
+		paged.generation?.estimateGenerationRunId,
+		"estimate_generation_run_contract_12345678",
+	);
+	assert.equal(
+		kolibriGenerativeUIComponentSchemas.EstimateEditor.safeParse({
+			...reference,
+			rows: [
+				{
+					id: "row_contract_12345678",
+					section: "Каркас",
+					kind: "overhead",
+					description: "Накладные расходы",
+					unit: "%",
+					quantity: "1",
+					unitPrice: "1.00",
+					lineTotal: "1.00",
+					quantityBasis: "Расчёт сервера",
+					priceBasis: "Политика проекта",
+					lineConfidence: "verified",
+				},
+			],
+		}).success,
+		false,
+	);
+	assert.match(client, /upsertRows/);
+	assert.match(client, /deleteRowIds/);
+	assert.match(client, /returnPage/);
+	assert.match(client, /delta\.upsertRows\.length === 0/);
+	assert.match(client, /return loadEstimateWindow/);
+	assert.match(editor, /loadEstimateWindow/);
+	assert.match(editor, /saveEstimateRowDelta/);
+	assert.doesNotMatch(editor, /method:\s*"PATCH"[\s\S]{0,500}currency:[\s\S]{0,100}rows:/);
+	assert.match(route, /maxRequestBytes:\s*256 \* 1_024/);
+});
+
+test("document-pack preview reports 10000+ lines without embedding them all", async () => {
+	const { kolibriGenerativeUIComponentSchemas } = await import(
+		"../lib/generative-ui/schema.ts"
+	);
+	const result = kolibriGenerativeUIComponentSchemas.EstimateDocumentPack.safeParse({
+		schemaId: "kolibri.estimate-document-pack",
+		schemaVersion: "1.0",
+		projectId: "project_contract_12345678",
+		estimateVersion: 7,
+		status: "preliminary",
+		rendererVersion: "estimate-docs-v1",
+		requiredFields: [],
+		files: [],
+		preview: {
+			title: "Смета",
+			objectName: "Жилой дом",
+			region: "Москва",
+			date: "2026-08-02",
+			validUntil: "2026-09-01",
+			number: "КС-7",
+			status: "preliminary",
+			mode: "preliminary",
+			customerName: null,
+			contractorName: null,
+			sections: [],
+			lines: [],
+			totalLines: 12_480,
+			truncated: true,
+			directTotal: "1200000000.00",
+			reserve: "0.00",
+			tax: "240000000.00",
+			total: "1440000000.00",
+			totalWords: "Один миллиард четыреста сорок миллионов рублей",
+			taxMode: "НДС включён",
+			conditions: [],
+			exclusions: [],
+			paymentSchedule: [],
+		},
+	});
+	assert.equal(result.success, true);
 });

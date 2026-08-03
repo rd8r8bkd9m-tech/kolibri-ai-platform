@@ -2,6 +2,7 @@ import type { ToolCallMessagePartStatus } from "@assistant-ui/react";
 import {
 	AlertCircleIcon,
 	FileSearchIcon,
+	FileTextIcon,
 	GlobeIcon,
 	ImagesIcon,
 	LoaderIcon,
@@ -54,6 +55,11 @@ const EXACT_TOOL_PRESENTATIONS: Readonly<
 		running: "Проверяется результат…",
 		complete: "Проверка завершена",
 		icon: FileSearchIcon,
+	},
+	create_estimate_document_pack: {
+		running: "Формируется комплект документов…",
+		complete: "Комплект документов подготовлен",
+		icon: FileTextIcon,
 	},
 };
 

@@ -99,22 +99,25 @@ export function WorkspaceSidebarNavigation({
 					aria-label="Диалоги пользователя"
 					className="pl-0.5"
 					onClickCapture={(event) => {
-						if (!isOverlay || !closeOnThreadSelect) return;
 						const trigger =
 							event.target instanceof Element
 								? event.target.closest(
-									'[data-slot="aui_thread-list-item-trigger"]',
-								)
-							: null;
-						if (
-							shouldCloseThreadDrawerForClick({
-								isThreadTrigger: trigger !== null,
-								longPressConsumed:
-									trigger?.getAttribute(
-										"data-thread-long-press-consumed",
-									) === "true",
-							})
-						) {
+										'[data-slot="aui_thread-list-item-trigger"]',
+									)
+								: null;
+						const shouldNavigate = shouldCloseThreadDrawerForClick({
+							isThreadTrigger: trigger !== null,
+							longPressConsumed:
+								trigger?.getAttribute("data-thread-long-press-consumed") ===
+								"true",
+						});
+
+						// assistant-ui owns the actual thread switch. The workspace still
+						// has to synchronously project the central Canvas back to chat;
+						// otherwise a selected conversation changes behind an open surface.
+						if (shouldNavigate) onOpenChat?.();
+
+						if (shouldNavigate && isOverlay && closeOnThreadSelect) {
 							onRequestClose?.();
 						}
 					}}

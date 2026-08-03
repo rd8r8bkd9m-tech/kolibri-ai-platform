@@ -328,6 +328,7 @@ class _MimoPresentationAdapter:
             else None
         )
         exit_code = metadata.get("exit")
+        output = self._text(state.get("output"), limit=20_000)
         return {
             "id": activity_id,
             "type": "commandExecution",
@@ -336,6 +337,7 @@ class _MimoPresentationAdapter:
             "status": status,
             "exitCode": exit_code,
             "durationMs": duration_ms,
+            "output": output,
         }
 
     def feed_line(self, raw_line: bytes) -> None:
@@ -556,6 +558,10 @@ def _safe_environment(
         "MIMOCODE_DISABLE_MODELS_FETCH": "1",
         "MIMOCODE_MIMO_ONLY": "1",
         "MIMOCODE_ENABLE_ANALYSIS": "0",
+        # The canonical V3 workspace is a subtree of a much larger legacy
+        # repository. Preserve MiMo's Git awareness, but disable its internal
+        # filesystem snapshot/undo store so it cannot pack the parent history.
+        "MIMOCODE_CONFIG_CONTENT": '{"snapshot":false}',
     }
     for name in ("TMPDIR",):
         value = os.getenv(name)

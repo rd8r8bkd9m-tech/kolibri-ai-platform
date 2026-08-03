@@ -10,6 +10,7 @@ import {
 } from "./contracts";
 import { withCsrfHeader } from "@/lib/csrf";
 import { announceAuthenticationRequired } from "@/lib/identity/events";
+import type { WorkspaceContextV1 } from "@/lib/workspace-context";
 
 export const PRODUCT_CHAT_BFF_BASE = "/api/v3/chat";
 export const PRODUCT_AG_UI_BFF_URL = "/api/agui";
@@ -233,11 +234,7 @@ export type ProductChatClientOptions = {
 };
 
 export type ProductChatThreadAction =
-	| "archive"
-	| "unarchive"
-	| "pin"
-	| "unpin"
-	| "remove";
+	"archive" | "unarchive" | "pin" | "unpin" | "remove";
 export type ProductChatFeedback = "positive" | "negative";
 
 export class ProductChatClient {
@@ -422,6 +419,7 @@ export type ProductAgUiFetchOptions = {
 	readonly getExecutionMode: () => KolibriExecutionMode;
 	readonly getAccessMode: () => KolibriAccessMode;
 	readonly getActiveThreadId: () => string | null;
+	readonly getWorkspaceContext?: () => WorkspaceContextV1 | null;
 	readonly onAccepted?: (runId: string) => void | Promise<void>;
 };
 
@@ -436,8 +434,10 @@ export const createProductAgUiFetch = ({
 	getExecutionMode,
 	getAccessMode,
 	getActiveThreadId,
+	getWorkspaceContext,
 	onAccepted,
 }: ProductAgUiFetchOptions): typeof fetch => {
+	const workspaceContextByRunId = new Map<string, WorkspaceContextV1 | null>();
 	return async (input, init) => {
 		if (typeof input !== "string" || input !== PRODUCT_AG_UI_BFF_URL) {
 			throw new ProductChatContractError(
@@ -457,6 +457,18 @@ export const createProductAgUiFetch = ({
 			);
 		}
 		const messages = body.messages as NormalizedAgUiMessage[];
+		const runId = String(body.runId);
+		let workspaceContext = workspaceContextByRunId.get(runId);
+		if (!workspaceContextByRunId.has(runId)) {
+			workspaceContext = getWorkspaceContext?.() ?? null;
+			workspaceContextByRunId.set(runId, workspaceContext);
+			if (workspaceContextByRunId.size > 100) {
+				const oldestRunId = workspaceContextByRunId.keys().next().value;
+				if (typeof oldestRunId === "string") {
+					workspaceContextByRunId.delete(oldestRunId);
+				}
+			}
+		}
 		const executionMode = getExecutionMode();
 		if (executionMode !== "standard" && executionMode !== "developer") {
 			throw new ProductChatContractError("Invalid Kolibri execution mode.");
@@ -508,6 +520,7 @@ export const createProductAgUiFetch = ({
 					// policy: MiMo Code and Codex remain valid in every access mode.
 					agentProfile: profile,
 					executionMode,
+					...(workspaceContext ? { workspaceContext } : {}),
 					// Keep ordinary chat on the pre-accessMode V1 wire shape. Developer
 					// policies are always explicit: an omitted developer access mode is
 					// a locked legacy run and must never be confused with today's

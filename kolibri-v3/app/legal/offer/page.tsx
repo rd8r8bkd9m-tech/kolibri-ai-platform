@@ -4,6 +4,7 @@ import { PublicShell } from "@/components/public-site/public-shell";
 import { getPublicCommerceConfig } from "@/lib/server/public-commerce";
 
 export const metadata: Metadata = { title: "Публичная оферта" };
+export const dynamic = "force-dynamic";
 
 export default function OfferPage() {
 	const commerce = getPublicCommerceConfig();

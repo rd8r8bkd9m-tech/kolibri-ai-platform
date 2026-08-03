@@ -10,24 +10,35 @@ const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const v3Root = path.resolve(scriptDirectory, "..");
 const nextBinary = path.join(v3Root, "node_modules", ".bin", "next");
 const mobileLauncher = path.join(v3Root, "scripts", "dev-mobile.mjs");
+const mobileBridgeLauncher = path.join(
+	v3Root,
+	"scripts",
+	"dev-mobile-private-bridge.mjs",
+);
 const gatewayLauncher = path.join(v3Root, "scripts", "dev-ui-gateway.mjs");
 const desktopInternalPort = Number(
 	process.env.KOLIBRI_V3_DESKTOP_INTERNAL_PORT || "3104",
 );
-const mobileInternalPort = Number(
-	process.env.KOLIBRI_V3_MOBILE_INTERNAL_PORT || "4103",
+const mobileUpstreamPort = Number(
+	process.env.KOLIBRI_V3_MOBILE_UPSTREAM_PORT || "4104",
 );
+const mobileSocket = path.join(v3Root, "var", "mobile-web.sock");
 const uiGatewayPort = Number(process.env.KOLIBRI_V3_UI_PORT || "3103");
 const restartDelayMs = 1_000;
 const readinessPollMs = 150;
+const healthPollMs = 1_000;
+const healthFailureThreshold = 5;
+const backendTerminationGraceMs = 3_000;
 const devInstanceId = randomUUID();
 const agentRuntimeContract = "kolibri.agent-runtime@1.1";
 
 let backend = null;
 let web = null;
 let mobile = null;
+let mobileBridge = null;
 let gateway = null;
 let backendReady = false;
+let backendHealthFailures = 0;
 let stopping = false;
 let readinessTimer = null;
 const restartTimers = new Set();
@@ -44,17 +55,49 @@ function scheduleRestart(start) {
 }
 
 function scheduleReadinessProbe() {
-  if (stopping || web || readinessTimer) {
+  if (stopping || !backend || readinessTimer) {
     return;
   }
   readinessTimer = setTimeout(() => {
     readinessTimer = null;
     probeBackendReadiness();
-  }, readinessPollMs);
+  }, backendReady ? healthPollMs : readinessPollMs);
+}
+
+function stopUiChildren() {
+	web?.kill("SIGTERM");
+	mobile?.kill("SIGTERM");
+	mobileBridge?.kill("SIGTERM");
+	gateway?.kill("SIGTERM");
+}
+
+function fenceUnhealthyBackend() {
+	if (stopping || !backend) {
+		return;
+	}
+	const unhealthyBackend = backend;
+	backendReady = false;
+	backendHealthFailures = 0;
+	stopUiChildren();
+	console.error(
+		"[dev:stack] backend health failed repeatedly; fencing and restarting",
+	);
+	unhealthyBackend.kill("SIGTERM");
+	const timer = setTimeout(() => {
+		restartTimers.delete(timer);
+		if (
+			backend === unhealthyBackend &&
+			unhealthyBackend.exitCode === null &&
+			unhealthyBackend.signalCode === null
+		) {
+			unhealthyBackend.kill("SIGKILL");
+		}
+	}, backendTerminationGraceMs);
+	restartTimers.add(timer);
 }
 
 function probeBackendReadiness() {
-  if (stopping || web) {
+  if (stopping || !backend) {
     return;
   }
   let settled = false;
@@ -70,10 +113,20 @@ function probeBackendReadiness() {
       backend.signalCode === null
     ) {
       backendReady = true;
-      startWeb();
+      backendHealthFailures = 0;
+      if (!web) {
+		startWeb();
+	  }
+	  scheduleReadinessProbe();
       return;
     }
-    backendReady = false;
+	if (backendReady) {
+		backendHealthFailures += 1;
+		if (backendHealthFailures >= healthFailureThreshold) {
+			fenceUnhealthyBackend();
+			return;
+		}
+	}
     scheduleReadinessProbe();
   };
   const request = http.get(
@@ -117,6 +170,7 @@ function startBackend() {
     return;
   }
   backendReady = false;
+  backendHealthFailures = 0;
   backend = spawn("/bin/bash", ["scripts/dev-backend.sh"], {
     cwd: v3Root,
     env: {
@@ -128,10 +182,9 @@ function startBackend() {
   backend.once("exit", (code, signal) => {
     backend = null;
     backendReady = false;
+	backendHealthFailures = 0;
     if (!stopping) {
-		web?.kill("SIGTERM");
-		mobile?.kill("SIGTERM");
-		gateway?.kill("SIGTERM");
+		stopUiChildren();
       console.error(
         `[dev:stack] backend stopped (${signal ?? code}); restarting`,
       );
@@ -167,6 +220,7 @@ function startWeb() {
 		}
 	});
 	startMobile();
+	startMobileBridge();
 	startGateway();
 }
 
@@ -176,26 +230,42 @@ function startMobile() {
 	}
 	mobile = spawn(process.execPath, [mobileLauncher], {
 		cwd: v3Root,
-			env: {
+		env: {
 			...process.env,
 			KOLIBRI_V3_MOBILE_HOST: "localhost",
-			KOLIBRI_V3_MOBILE_INTERNAL_HOST: "::1",
-			KOLIBRI_V3_MOBILE_INTERNAL_PORT: String(mobileInternalPort),
+			KOLIBRI_V3_MOBILE_UPSTREAM_PORT: String(mobileUpstreamPort),
 			KOLIBRI_V3_MOBILE_API_BASE_URL: "http://127.0.0.1:8002",
 		},
 		stdio: "inherit",
 	});
 	mobile.once("exit", (code, signal) => {
 		mobile = null;
-		if (!stopping) {
-			if (backendReady) {
-				console.error(
-					`[dev:stack] mobile UI stopped (${signal ?? code}); restarting`,
-				);
-				scheduleRestart(startMobile);
-			} else {
-				scheduleReadinessProbe();
-			}
+		if (!stopping && backendReady) {
+			console.error(`[dev:stack] mobile UI stopped (${signal ?? code}); restarting`);
+			scheduleRestart(startMobile);
+		}
+	});
+}
+
+function startMobileBridge() {
+	if (stopping || mobileBridge || !backendReady) {
+		return;
+	}
+	mobileBridge = spawn(process.execPath, [mobileBridgeLauncher], {
+		cwd: v3Root,
+		env: {
+			...process.env,
+			KOLIBRI_V3_MOBILE_INTERNAL_SOCKET: mobileSocket,
+			KOLIBRI_V3_MOBILE_UPSTREAM_HOST: "127.0.0.1",
+			KOLIBRI_V3_MOBILE_UPSTREAM_PORT: String(mobileUpstreamPort),
+		},
+		stdio: "inherit",
+	});
+	mobileBridge.once("exit", (code, signal) => {
+		mobileBridge = null;
+		if (!stopping && backendReady) {
+			console.error(`[dev:stack] mobile bridge stopped (${signal ?? code}); restarting`);
+			scheduleRestart(startMobileBridge);
 		}
 	});
 }
@@ -210,8 +280,8 @@ function startGateway() {
 			...process.env,
 			KOLIBRI_V3_UI_PORT: String(uiGatewayPort),
 			KOLIBRI_V3_DESKTOP_INTERNAL_PORT: String(desktopInternalPort),
-			KOLIBRI_V3_MOBILE_INTERNAL_HOST: "::1",
-			KOLIBRI_V3_MOBILE_INTERNAL_PORT: String(mobileInternalPort),
+			KOLIBRI_V3_MOBILE_INTERNAL_SOCKET: mobileSocket,
+			KOLIBRI_V3_MOBILE_INTERNAL_PORT: String(mobileUpstreamPort),
 		},
 		stdio: "inherit",
 	});
@@ -244,10 +314,8 @@ function shutdown(signal) {
     readinessTimer = null;
 	}
 	backend?.kill("SIGTERM");
-	web?.kill("SIGTERM");
-	mobile?.kill("SIGTERM");
-	gateway?.kill("SIGTERM");
-	const activeChildren = [backend, web, mobile, gateway].filter(Boolean);
+	stopUiChildren();
+	const activeChildren = [backend, web, mobile, mobileBridge, gateway].filter(Boolean);
   if (activeChildren.length === 0) {
     process.exit(signal === "SIGINT" ? 130 : 0);
   }

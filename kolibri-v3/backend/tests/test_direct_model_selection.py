@@ -354,8 +354,8 @@ def _seed_existing_estimate_slot(
                     "unit": "м²",
                     "quantity": "30",
                     "unitPrice": "500.00",
-                    "quantityBasis": "допущение",
-                    "priceBasis": "допущение",
+                    "quantityBasis": "условие расчёта",
+                    "priceBasis": "условие расчёта",
                 }
             ],
         }
@@ -1242,11 +1242,16 @@ def test_estimate_uses_the_frozen_accepted_model_selection(
         _runtime_registry(settings, codex_runtime=runtime),
     )
 
-    assert runtime.catalog_calls == 1
-    assert len(runtime.complete_calls) == 1
-    assert runtime.complete_calls[0]["model"] == "gpt-test-selected"
-    assert runtime.complete_calls[0]["effort"] == "high"
-    assert runtime.complete_calls[0]["service_tier"] == "priority"
+    assert runtime.catalog_calls == 3
+    assert len(runtime.complete_calls) == 3
+    assert {
+        (
+            call["model"],
+            call["effort"],
+            call["service_tier"],
+        )
+        for call in runtime.complete_calls
+    } == {("gpt-test-selected", "high", "priority")}
 
 
 def test_developer_uses_frozen_codex_selection_over_server_default(

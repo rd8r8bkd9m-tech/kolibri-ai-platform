@@ -251,7 +251,12 @@ test("desktop and mobile render the same living entity without another runtime",
 		readSource("apps/kolibri-mobile/src/pets/selection.ts"),
 	]);
 
-	assert.match(desktopHost, /<KolibriPetHost \/>/);
+	assert.match(desktopHost, /<KolibriPetHost/);
+	assert.match(desktopHost, /auxiliary\.open \|\|/);
+	assert.match(desktopHost, /\|\| primaryOpen/);
+	assert.match(desktopHost, /commandPaletteOpen \|\|/);
+	assert.match(desktop, /visible && !suppressed/);
+	assert.match(desktop, /safeDesktopLeft/);
 	assert.match(desktop, /WebPetSprite/);
 	assert.match(desktop, /pet\.motionAssetVersion/);
 	assert.match(desktop, /ComposerPrimitive\.Root/);

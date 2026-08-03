@@ -271,6 +271,15 @@ export const kolibriGenerativeUILibrary = {
     properties: kolibriGenerativeUIComponentSchemas.WeatherWidget,
     render: (props) => <WeatherProductWidget {...props} />,
   },
+  EstimateGenerationActivity: {
+    description:
+      "Живой AG-UI поток фактических назначений и результатов команды сметчиков.",
+    properties: kolibriGenerativeUIComponentSchemas.EstimateGenerationActivity,
+    // The stream renderer is mounted by the estimate activity surface. Until
+    // its first persisted A2A event arrives the correct UI is intentionally
+    // empty: no synthetic status, spinner or fabricated orchestrator text.
+    render: () => null,
+  },
   EstimateEditor: {
     description:
       "Сохранённая смета проекта: компактная карточка раскрывает встроенный редактор с автосохранением.",

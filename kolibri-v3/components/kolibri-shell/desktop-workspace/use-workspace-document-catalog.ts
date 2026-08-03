@@ -22,7 +22,10 @@ export function useWorkspaceDocumentCatalog(): WorkspaceDocumentCatalog {
 		useState<WorkspaceCatalogLoadState>("loading");
 
 	const refresh = useCallback(async () => {
-		if (identity.status !== "authenticated") {
+		if (
+			identity.status !== "authenticated" ||
+			!identity.user?.capabilities.includes("construction.estimates.workspace")
+		) {
 			setFiles([]);
 			setState("ready");
 			return;
@@ -44,7 +47,7 @@ export function useWorkspaceDocumentCatalog(): WorkspaceDocumentCatalog {
 		} catch {
 			setState("error");
 		}
-	}, [identity.status]);
+	}, [identity.status, identity.user?.capabilities]);
 
 	useEffect(() => {
 		void refresh();

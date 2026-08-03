@@ -5,7 +5,7 @@ import hashlib
 import json
 import re
 import unicodedata
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from typing import Any, Literal, Mapping
@@ -28,7 +28,6 @@ PERIOD_PATTERN = re.compile(
     re.IGNORECASE,
 )
 TOKEN_PATTERN = re.compile(r"[0-9a-zа-яё]+", re.IGNORECASE)
-MAX_MATERIAL_ROWS = 12
 MAX_SEARCH_ATTEMPTS_PER_ROW = 3
 MAX_CONCURRENT_FGIS_REQUESTS = 3
 MAX_FGIS_HTTP_ATTEMPTS = 2
@@ -46,7 +45,7 @@ FGIS_SOURCE_POLICY: Mapping[str, Any] = {
     "formalMachineApiTermsReview": "not_located_2026-07-29",
     "productionReleaseGate": "source_owner_or_legal_review_required",
     "limits": {
-        "materialRowsPerCommand": MAX_MATERIAL_ROWS,
+        "materialRowsPerCommand": "all_deduplicated_resources",
         "searchAttemptsPerRow": MAX_SEARCH_ATTEMPTS_PER_ROW,
         "concurrentRequests": MAX_CONCURRENT_FGIS_REQUESTS,
         "httpAttempts": MAX_FGIS_HTTP_ATTEMPTS,
@@ -537,7 +536,16 @@ class FgisPriceAdapter:
             and isinstance(row.get("id"), str)
             and isinstance(row.get("description"), str)
             and isinstance(row.get("unit"), str)
-        ][:MAX_MATERIAL_ROWS]
+        ]
+        resource_groups: dict[tuple[str, str, str], list[Mapping[str, Any]]] = {}
+        for row in material_rows:
+            resource_key = (
+                _normalize_text(str(row["description"])),
+                normalize_unit(str(row["unit"])),
+                _normalize_text(str(row.get("specification") or "")),
+            )
+            resource_groups.setdefault(resource_key, []).append(row)
+        representative_rows = [group[0] for group in resource_groups.values()]
         async with httpx.AsyncClient(
             base_url=FGIS_API_BASE,
             timeout=self._timeout,
@@ -556,10 +564,27 @@ class FgisPriceAdapter:
                     return await self._search_row(client, context, row)
 
             searched = await asyncio.gather(
-                *(search(row) for row in material_rows),
+                *(search(row) for row in representative_rows),
             )
-        matches = tuple(match for match in searched if match is not None)
-        matched_ids = {match.row_id for match in matches}
+        matches_list: list[FgisMatch] = []
+        matched_ids: set[str] = set()
+        for representative, match in zip(
+            representative_rows,
+            searched,
+            strict=True,
+        ):
+            resource_key = (
+                _normalize_text(str(representative["description"])),
+                normalize_unit(str(representative["unit"])),
+                _normalize_text(str(representative.get("specification") or "")),
+            )
+            if match is None:
+                continue
+            for row in resource_groups[resource_key]:
+                row_id = str(row["id"])
+                matches_list.append(replace(match, row_id=row_id))
+                matched_ids.add(row_id)
+        matches = tuple(matches_list)
         return FgisRefreshResult(
             context=context,
             matches=matches,

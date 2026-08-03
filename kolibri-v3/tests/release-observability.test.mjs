@@ -41,16 +41,14 @@ test("frontend liveness is process-local, bounded, and bodyless for HEAD", async
   assert.equal(await head.text(), "");
 });
 
-test("frontend responses bind the public release header", async () => {
+test("frontend responses do not disclose release identity on every route", async () => {
   const nextConfig = await readFile(
     path.join(APP_ROOT, "next.config.ts"),
     "utf8",
   );
 
-  assert.match(nextConfig, /X-Kolibri-Release/);
-  assert.match(nextConfig, /KOLIBRI_RELEASE_ID/);
-  assert.match(nextConfig, /unversioned/);
-  assert.doesNotMatch(nextConfig, /KOLIBRI_RELEASE_COMMIT.*headers/);
+  assert.doesNotMatch(nextConfig, /X-Kolibri-Release/);
+  assert.doesNotMatch(nextConfig, /KOLIBRI_RELEASE_(?:ID|COMMIT).*headers/);
 });
 
 test("portable Nginx probes the application instead of returning static health", async () => {
@@ -81,7 +79,32 @@ test("portable Nginx serves a mobile-compatible HTTP2 TLS edge", async () => {
   assert.match(installer, /ssl_protocols TLSv1[.]2 TLSv1[.]3;/);
   assert.match(installer, /ssl_session_cache shared:KolibriSSL:10m;/);
   assert.match(installer, /ssl_session_tickets off;/);
+  assert.match(installer, /server_tokens off;/);
+  assert.match(
+    installer,
+    /Strict-Transport-Security "max-age=15552000" always/,
+  );
+  assert.doesNotMatch(installer, /includeSubDomains/);
+  assert.match(installer, /proxy_hide_header Server;/);
+  assert.doesNotMatch(installer, /add_header X-Content-Type-Options/);
+  assert.doesNotMatch(installer, /add_header X-Frame-Options/);
   assert.match(installer, /proxy_set_header Connection "";/);
+});
+
+test("Next owns one phased CSP and one copy of browser security headers", async () => {
+  const nextConfig = await readFile(
+    path.join(APP_ROOT, "next.config.ts"),
+    "utf8",
+  );
+
+  assert.match(nextConfig, /Content-Security-Policy-Report-Only/);
+  assert.match(nextConfig, /Content-Security-Policy/);
+  assert.match(nextConfig, /KOLIBRI_CSP_MODE/);
+  assert.match(nextConfig, /enforcedCspDirectives/);
+  assert.match(nextConfig, /script-src 'self' 'unsafe-inline'/);
+  assert.match(nextConfig, /frame-ancestors 'none'/);
+  assert.match(nextConfig, /X-Frame-Options/);
+  assert.match(nextConfig, /X-Content-Type-Options/);
 });
 
 test("portable release installs fail-closed monitoring and verified backup timers", async () => {

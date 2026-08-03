@@ -414,7 +414,7 @@ def test_model_service_tier_is_validated_persisted_and_returned(
             headers={**ORIGIN, "X-CSRF-Token": csrf},
             json={
                 "profile": "mimo-code",
-                "model": "mimo-code",
+                "model": "mimo-v2.5-pro",
                 "reasoningEffort": None,
                 "serviceTier": None,
             },

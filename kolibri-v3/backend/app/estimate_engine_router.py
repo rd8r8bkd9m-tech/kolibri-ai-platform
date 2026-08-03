@@ -16,6 +16,7 @@ from .estimate_artifact import (
     EstimateRowInput,
     canonical_estimate_json,
     estimate_view,
+    estimate_lifecycle_status,
     load_estimate_slot,
     normalize_estimate_document,
     parse_estimate_document,
@@ -154,7 +155,7 @@ class PlasteringCalculationInput(ContractModel):
     title: str = Field(min_length=1, max_length=240)
     assumptions: list[str] = Field(default_factory=list, max_length=20)
     scope: PlasteringScopeInput
-    prices: list[PriceQuoteInput] = Field(max_length=200)
+    prices: list[PriceQuoteInput]
     terms: CommercialTermsInput = Field(default_factory=CommercialTermsInput)
     source_message_id: str | None = Field(
         default=None,
@@ -591,6 +592,7 @@ def _response_for_calculation(
             version=int(row["estimate_version"]),
             status=str(row["estimate_status"]),
             document=document,
+            row_limit=100,
         ),
     }
 
@@ -757,14 +759,20 @@ def calculate_plastering(
             calculation_id=calculation_id,
             now=now,
         )
+        lifecycle_status = estimate_lifecycle_status(
+            document,
+            "ready" if result["validation"]["status"] == "passed" else "needs_input",
+        )
         updated = database.execute(
             """
             UPDATE document_slots
-            SET version = ?, status = 'draft', content_json = ?, updated_at = ?
+            SET version = ?, status = 'draft', estimate_lifecycle_status = ?,
+                content_json = ?, updated_at = ?
             WHERE tenant_id = ? AND id = ? AND version = ?
             """,
             (
                 estimate_version,
+                lifecycle_status,
                 canonical_estimate_json(document),
                 now,
                 identity.tenant_id,
@@ -784,7 +792,7 @@ def calculate_plastering(
             project_id=project_id,
             document_id=str(slot["id"]),
             version=estimate_version,
-            status="draft",
+            status=lifecycle_status,
             document=document,
             origin_type="engine_calculation",
             origin_run_id=(

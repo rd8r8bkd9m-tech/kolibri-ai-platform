@@ -37,7 +37,7 @@ test("platform admin remains a separate server-derived owner-only section", () =
     profile,
     /if \(section === "profile"\) return <ProfileSection \/>/,
   );
-  assert.match(profile, /data-slot="account-settings-surface"/);
+  assert.match(profile, /data-slot="settings-canvas-surface"/);
   assert.doesNotMatch(
     client,
     /isPlatformOwner\s*!==\s*\(value\.role\s*===\s*["']owner["']\)/,
@@ -51,7 +51,7 @@ test("platform admin remains a separate server-derived owner-only section", () =
   assert.match(client, /SAFE_AUDIT_CURSOR/);
   assert.match(section, /mergeById/);
   assert.match(section, /getAgentOperationsPage/);
-  assert.match(section, /Агенты и выполнение/);
+  assert.match(section, /Агентные задачи/);
   assert.match(section, /danger-full-access|sandboxProfile/);
   assert.match(section, /approvalPolicy/);
   assert.match(section, /Загрузить ещё/);
@@ -69,6 +69,6 @@ test("platform admin remains a separate server-derived owner-only section", () =
   assert.match(operationsBackend, /require_platform_audit_authority/);
   assert.match(
     operationsBackend,
-    /excludes chat messages, prompts, command payloads,/,
+    /list projection excludes prompts and event payloads/,
   );
 });

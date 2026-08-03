@@ -109,7 +109,11 @@ export function setKolibriPetVisibility(visible: boolean) {
 	);
 }
 
-export function KolibriPetHost() {
+export function KolibriPetHost({
+	suppressed = false,
+}: {
+	suppressed?: boolean;
+}) {
 	const [visible, setVisible] = useState(false);
 
 	useEffect(() => {
@@ -127,7 +131,7 @@ export function KolibriPetHost() {
 			);
 	}, []);
 
-	return visible ? <KolibriPet /> : null;
+	return visible && !suppressed ? <KolibriPet /> : null;
 }
 
 export function PetAvatar({
@@ -341,6 +345,7 @@ export function KolibriPet({ className }: { className?: string }) {
 		syncReducedMotion();
 		setMounted(true);
 		setPetId(readKolibriPetId());
+		setPosition((current) => clampPetPosition(current));
 		try {
 			const rawPosition = globalThis.localStorage.getItem(
 				"kolibri.ui.pet-position",
@@ -667,8 +672,9 @@ function clampPetPosition(position: { x: number; y: number }) {
 		typeof globalThis.innerWidth === "number" ? globalThis.innerWidth : 1280;
 	const viewportHeight =
 		typeof globalThis.innerHeight === "number" ? globalThis.innerHeight : 800;
+	const safeDesktopLeft = viewportWidth >= 960 ? 420 : 8;
 	return {
-		x: Math.max(8, Math.min(viewportWidth - 140, position.x)),
+		x: Math.max(safeDesktopLeft, Math.min(viewportWidth - 140, position.x)),
 		y: Math.max(56, Math.min(viewportHeight - 138, position.y)),
 	};
 }

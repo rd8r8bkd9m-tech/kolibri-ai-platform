@@ -33,6 +33,7 @@ import {
 } from "./estimate-document-common";
 import { EstimateEditorWidget } from "./estimate-editor";
 import { formatMoney } from "./helpers";
+import { estimateTotalRows } from "@/lib/estimate/document";
 import {
 	announceDocumentsChanged,
 	KOLIBRI_DOCUMENTS_CHANGED_EVENT,
@@ -137,7 +138,7 @@ export function EstimateDocumentCard(initial: EstimateWidgetProps) {
 					</span>
 				) : null}
 				<span className="mt-0.5 block text-xs text-muted-foreground">
-					Документы → Сметы · {estimate.rows.length} поз. · версия{" "}
+					Документы → Сметы · {estimateTotalRows(estimate)} поз. · версия{" "}
 					{estimate.version}
 				</span>
 			</span>

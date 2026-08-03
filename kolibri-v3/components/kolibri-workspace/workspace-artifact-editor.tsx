@@ -1,6 +1,6 @@
 "use client";
 
-import { useAssistantContext, useAui } from "@assistant-ui/react";
+import { useAssistantContext } from "@assistant-ui/react";
 import {
 	ArrowLeft,
 	ChevronRight,
@@ -11,7 +11,6 @@ import {
 	FileText,
 	Folder,
 	type LucideIcon,
-	Sparkles,
 } from "lucide-react";
 import { EstimateDocumentSurface } from "@/components/assistant-ui/product-widgets";
 
@@ -124,8 +123,6 @@ function ArtifactToolbar({
 	onBack: () => void;
 	projectLabel: string;
 }) {
-	const aui = useAui();
-
 	return (
 		<header className="border-border/80 flex h-11 shrink-0 items-center gap-1 border-b px-2">
 			<Tooltip>
@@ -164,32 +161,6 @@ function ArtifactToolbar({
 				{file.status}
 			</span>
 
-			<Tooltip>
-				<TooltipTrigger asChild>
-					<Button
-						type="button"
-						variant="ghost"
-						size="xs"
-						className="ml-1"
-						onClick={() =>
-							aui
-								.composer()
-								.setText(
-									`Помоги с файлом «${file.name}» в проекте «${projectLabel}». Сначала проверь, доступна ли актуальная версия и связанные источники.`,
-								)
-						}
-					>
-						<Sparkles className="size-4" aria-hidden="true" />
-						<span className="hidden @min-[620px]:inline">Спросить Kolibri</span>
-						<span className="sr-only @min-[620px]:hidden">
-							Спросить Kolibri об этом файле
-						</span>
-					</Button>
-				</TooltipTrigger>
-				<TooltipContent side="bottom" sideOffset={6}>
-					Подготовить вопрос об этом файле
-				</TooltipContent>
-			</Tooltip>
 		</header>
 	);
 }

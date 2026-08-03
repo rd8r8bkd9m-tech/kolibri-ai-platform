@@ -228,7 +228,7 @@ def test_catalog_is_supplied_by_registered_runtime_descriptors() -> None:
     assert legacy_codex_available is True
     assert [entry.id for entry in entries] == [
         "auto",
-        "mimo-code",
+        "mimo-v2.5-pro",
         "gpt-5.6-sol",
         "gpt-5.6-terra",
         "gpt-5.6-luna",
@@ -239,6 +239,7 @@ def test_catalog_is_supplied_by_registered_runtime_descriptors() -> None:
         "GPT-5.6 Luna",
     ]
     assert entries[1].profile is AgentProfile.MIMO_CODE
+    assert entries[1].display_name == "MiMo 2.5 Pro"
     assert entries[1].is_default is True
     assert all(entry.available for entry in entries)
 

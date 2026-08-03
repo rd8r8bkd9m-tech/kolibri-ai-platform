@@ -6,7 +6,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { withCsrfHeader } from "@/lib/csrf";
-import { kolibriGenerativeUIComponentSchemas } from "@/lib/generative-ui/schema";
+import { loadEstimateWindow } from "@/lib/estimate/document";
 import { announceDocumentsChanged, openEstimateInWorkspace } from "@/lib/workspace-events";
 import {
 	EstimateCopyResult,
@@ -52,36 +52,7 @@ export async function loadEstimateDocument({
 	minimumVersion,
 	projectId,
 }: EstimateDocumentIdentity): Promise<EstimateWidgetProps> {
-	const response = await fetch(
-		`/api/v3/projects/${encodeURIComponent(projectId)}/estimate`,
-		{
-			method: "GET",
-			headers: { Accept: "application/json" },
-			credentials: "same-origin",
-			cache: "no-store",
-		},
-	);
-	if (!response.ok) throw new Error(await readResponseError(response));
-	const parsed = kolibriGenerativeUIComponentSchemas.EstimateEditor.safeParse(
-		await response.json(),
-	);
-	if (!parsed.success) {
-		throw new Error("Сервер вернул смету неизвестного формата.");
-	}
-	if (
-		parsed.data.projectId !== projectId ||
-		parsed.data.documentId !== documentId
-	) {
-		throw new Error(
-			"Сервер вернул другую смету. Обновите список файлов и откройте документ снова.",
-		);
-	}
-	if (parsed.data.version < minimumVersion) {
-		throw new Error(
-			`Сервер вернул версию ${parsed.data.version}, а выбрана версия ${minimumVersion}.`,
-		);
-	}
-	return parsed.data;
+	return loadEstimateWindow({ documentId, minimumVersion, projectId });
 }
 
 export async function loadProjectContextSummary(

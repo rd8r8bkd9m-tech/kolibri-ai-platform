@@ -161,7 +161,7 @@ def render_estimate_pdf(
     output = io.BytesIO()
     title = str(document.get("title") or "Смета")
     region = document.get("region")
-    assumptions = document.get("assumptions")
+    assumptions = document.get("calculation_conditions", document.get("assumptions"))
     totals = document.get("totals")
     total = totals.get("total") if isinstance(totals, dict) else "0.00"
     styles = getSampleStyleSheet()
@@ -351,7 +351,7 @@ def render_estimate_pdf(
         story.extend(
             [
                 PageBreak(),
-                Paragraph("Допущения и ограничения", title_style),
+                Paragraph("Условия и границы расчёта", title_style),
                 Paragraph(
                     "Смета является предварительным расчётом. Количества и цены требуют проверки.",
                     meta_style,
@@ -483,13 +483,16 @@ def render_estimate_xlsx(
         sheet.column_dimensions[get_column_letter(column)].width = width
     sheet.row_dimensions[1].height = 26
 
-    assumptions = workbook.create_sheet("Допущения")
-    assumptions["A1"] = "Допущения и ограничения"
+    assumptions = workbook.create_sheet("Условия")
+    assumptions["A1"] = "Условия и границы расчёта"
     assumptions["A1"].font = Font(size=14, bold=True)
     assumptions["A2"] = "Смета является предварительным расчётом. Количества и цены требуют проверки."
     assumptions.column_dimensions["A"].width = 110
     assumptions["A2"].alignment = Alignment(wrap_text=True, vertical="top")
-    for index, assumption in enumerate(document.get("assumptions") or [], start=1):
+    for index, assumption in enumerate(
+        document.get("calculation_conditions", document.get("assumptions")) or [],
+        start=1,
+    ):
         assumptions.cell(index + 3, 1, f"{index}. {assumption}")
         assumptions.cell(index + 3, 1).alignment = Alignment(wrap_text=True, vertical="top")
 
@@ -690,11 +693,11 @@ def render_estimate_docx(
 
     assumptions = [
         str(item)
-        for item in document.get("assumptions") or []
+        for item in document.get("calculation_conditions", document.get("assumptions")) or []
         if isinstance(item, str)
     ]
     if assumptions:
-        heading = word_document.add_heading("Допущения и ограничения", level=1)
+        heading = word_document.add_heading("Условия и границы расчёта", level=1)
         heading.runs[0].font.name = "Arial"
         heading.runs[0].font.size = Pt(13)
         for assumption in assumptions:

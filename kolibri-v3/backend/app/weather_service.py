@@ -2,10 +2,12 @@ from __future__ import annotations
 
 from copy import deepcopy
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 import re
 from threading import RLock
 from time import monotonic
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import httpx
 
@@ -219,6 +221,10 @@ _WEATHER_CACHE: dict[
     tuple[str, int],
     tuple[float, dict[str, Any]],
 ] = {}
+_AMBIGUOUS_LOCATION_INPUTS = frozenset(
+    {"питер", "спб", "самар", "ростов", "новгород"}
+)
+_MAX_OBSERVATION_AGE = timedelta(hours=2)
 
 
 def _number(value: object) -> float:
@@ -270,6 +276,91 @@ def _location_candidates(location: str) -> list[str]:
     return candidates
 
 
+def _select_geocoding_result(
+    *,
+    requested_location: str,
+    candidate: str,
+    locations: object,
+) -> tuple[dict[str, Any], float]:
+    if not isinstance(locations, list) or not locations:
+        raise WeatherServiceError(
+            f"Не удалось найти населённый пункт «{requested_location}»."
+        )
+    folded_candidate = " ".join(candidate.casefold().split())
+    exact = [
+        item
+        for item in locations
+        if isinstance(item, dict)
+        and " ".join(str(item.get("name") or "").casefold().split())
+        == folded_candidate
+    ]
+    if not exact:
+        raise WeatherServiceError(
+            f"Уточните населённый пункт «{requested_location}»: укажите регион или страну."
+        )
+    scopes = {
+        (
+            str(item.get("country") or "").casefold(),
+            str(item.get("admin1") or "").casefold(),
+        )
+        for item in exact
+    }
+    if len(scopes) > 1:
+        variants = ", ".join(
+            sorted(
+                {
+                    " · ".join(
+                        value
+                        for value in (
+                            str(item.get("name") or ""),
+                            str(item.get("admin1") or ""),
+                            str(item.get("country") or ""),
+                        )
+                        if value
+                    )
+                    for item in exact
+                }
+            )[:3]
+        )
+        raise WeatherServiceError(
+            f"Уточните населённый пункт «{requested_location}». Возможные варианты: {variants}."
+        )
+    exact_requested = (
+        " ".join(requested_location.casefold().split()) == folded_candidate
+    )
+    return exact[0], 1.0 if exact_requested else 0.9
+
+
+def _normalize_observed_at(
+    value: object,
+    *,
+    timezone_name: str,
+    now: datetime | None = None,
+) -> str:
+    if not isinstance(value, str) or not value.strip() or not timezone_name:
+        raise WeatherServiceError("Погодный сервис не указал время наблюдения.")
+    try:
+        observed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        zone = ZoneInfo(timezone_name)
+    except (ValueError, ZoneInfoNotFoundError) as exc:
+        raise WeatherServiceError(
+            "Погодный сервис вернул некорректный часовой пояс."
+        ) from exc
+    if observed.tzinfo is None:
+        observed = observed.replace(tzinfo=zone)
+    else:
+        observed = observed.astimezone(zone)
+    checked_at = now or datetime.now(timezone.utc)
+    if checked_at.tzinfo is None:
+        raise ValueError("weather freshness check requires timezone-aware now")
+    age = checked_at.astimezone(timezone.utc) - observed.astimezone(timezone.utc)
+    if age < -timedelta(minutes=5) or age > _MAX_OBSERVATION_AGE:
+        raise WeatherServiceError(
+            "Погодные данные устарели или имеют некорректное время. Повторите запрос."
+        )
+    return observed.isoformat(timespec="minutes")
+
+
 def get_weather(
     settings: Settings,
     *,
@@ -279,6 +370,10 @@ def get_weather(
     normalized_location = location.strip()
     if not normalized_location or len(normalized_location) > 160:
         raise WeatherServiceError("Укажите населённый пункт.")
+    if " ".join(normalized_location.casefold().split()) in _AMBIGUOUS_LOCATION_INPUTS:
+        raise WeatherServiceError(
+            f"Уточните населённый пункт «{normalized_location}»: укажите официальное название и регион."
+        )
     days = min(max(forecast_days, 1), 7)
     cache_key = (" ".join(normalized_location.casefold().split()), days)
     now = monotonic()
@@ -298,13 +393,14 @@ def get_weather(
             follow_redirects=False,
             trust_env=False,
         ) as client:
-            locations: object = None
+            place: dict[str, Any] | None = None
+            location_confidence = 0.0
             for candidate in _location_candidates(normalized_location):
                 geocoding = client.get(
                     "https://geocoding-api.open-meteo.com/v1/search",
                     params={
                         "name": candidate,
-                        "count": 1,
+                        "count": 5,
                         "language": "ru",
                         "format": "json",
                     },
@@ -318,14 +414,26 @@ def get_weather(
                     else None
                 )
                 if isinstance(locations, list) and locations:
+                    folded_candidate = " ".join(candidate.casefold().split())
+                    if not any(
+                        isinstance(item, dict)
+                        and " ".join(
+                            str(item.get("name") or "").casefold().split()
+                        )
+                        == folded_candidate
+                        for item in locations
+                    ):
+                        continue
+                    place, location_confidence = _select_geocoding_result(
+                        requested_location=normalized_location,
+                        candidate=candidate,
+                        locations=locations,
+                    )
                     break
-            if not isinstance(locations, list) or not locations:
+            if place is None:
                 raise WeatherServiceError(
                     f"Не удалось найти населённый пункт «{normalized_location}»."
                 )
-            place = locations[0]
-            if not isinstance(place, dict):
-                raise WeatherServiceError("Погодный сервис вернул неизвестный город.")
 
             latitude = _number(place.get("latitude"))
             longitude = _number(place.get("longitude"))
@@ -405,13 +513,32 @@ def get_weather(
     temperature = _number(current.get("temperature_2m"))
     place_name = str(place.get("name") or normalized_location)
     condition = WEATHER_CONDITIONS.get(weather_code, "Погодные условия")
+    resolved_timezone = str(forecast.get("timezone") or place.get("timezone") or "")
+    if not resolved_timezone or (
+        place.get("timezone")
+        and str(place.get("timezone")) != resolved_timezone
+    ):
+        raise WeatherServiceError(
+            "Погодный сервис вернул несовместимый часовой пояс."
+        )
+    observed_at = _normalize_observed_at(
+        current.get("time"),
+        timezone_name=resolved_timezone,
+    )
+    resolved_parts = [
+        place_name,
+        str(place.get("admin1") or ""),
+        str(place.get("country") or ""),
+    ]
     result: dict[str, Any] = {
         "$type": "WeatherWidget",
         "location": place_name,
+        "resolvedLocation": " · ".join(part for part in resolved_parts if part),
         "region": str(place.get("admin1") or ""),
         "country": str(place.get("country") or ""),
-        "timezone": str(forecast.get("timezone") or ""),
-        "observedAt": str(current.get("time") or ""),
+        "timezone": resolved_timezone,
+        "confidence": location_confidence,
+        "observedAt": observed_at,
         "condition": condition,
         "summary": f"Сейчас в {place_name}: {temperature:+g} °C, {condition.lower()}.",
         "weatherCode": weather_code,

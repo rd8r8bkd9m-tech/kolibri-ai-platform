@@ -1,6 +1,6 @@
 "use client";
 
-import { makeAssistantToolUI } from "@assistant-ui/react";
+import type { ToolCallMessagePartComponent } from "@assistant-ui/react";
 import {
 	CloudFogIcon,
 	CloudIcon,
@@ -419,9 +419,15 @@ export function WeatherWidget(props: WeatherWidgetProps) {
 	);
 }
 
-export const WeatherToolUI = makeAssistantToolUI({
-	toolName: "get_weather",
-	render: ({ args, result, status }) => {
+type WeatherToolArgs = {
+	readonly location?: unknown;
+	readonly forecastDays?: unknown;
+};
+
+export const WeatherToolUI: ToolCallMessagePartComponent<
+	WeatherToolArgs,
+	unknown
+> = ({ args, result, status }) => {
 		if (status.type === "running") {
 			return (
 				<div
@@ -468,5 +474,4 @@ export const WeatherToolUI = makeAssistantToolUI({
 			);
 		}
 		return <WeatherWidget {...parsed.data} />;
-	},
-});
+};

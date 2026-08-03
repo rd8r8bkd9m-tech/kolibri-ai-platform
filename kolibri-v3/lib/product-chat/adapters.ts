@@ -4,6 +4,7 @@ import {
 	type ExportedMessageRepository as ExportedMessageRepositoryValue,
 	type ThreadHistoryAdapter,
 	type ThreadMessage,
+	type ThreadMessageLike,
 } from "@assistant-ui/react";
 import { fromAgUiMessages } from "@assistant-ui/react-ag-ui";
 import type { ProductChatClient } from "./client";
@@ -30,23 +31,41 @@ export const hydrateProductChatMessages = (
 		throw new Error("Product Chat history could not be reconstructed.");
 	}
 
-	const repository = ExportedMessageRepository.fromArray(
-		converted.map((message, index) => ({
+	const branchableMessages: Array<{
+		message: ThreadMessageLike;
+		parentId: string | null;
+	}> = [];
+	const importedIds = new Set<string>();
+	let parentId: string | null = null;
+	for (const [index, message] of converted.entries()) {
+		const historical = page.messages[index]!;
+		const hydratedId = historical.id;
+		const hydrated: ThreadMessageLike = {
 			...message,
-			id: page.messages[index]!.id,
-			createdAt: new Date(page.messages[index]!.createdAt),
-			...(page.messages[index]!.submittedFeedback &&
-			message.role === "assistant"
+			id: hydratedId,
+			createdAt: new Date(historical.createdAt),
+			...(historical.submittedFeedback && message.role === "assistant"
 				? {
 						metadata: {
 							...message.metadata,
 							submittedFeedback: {
-								type: page.messages[index]!.submittedFeedback,
+								type: historical.submittedFeedback,
 							},
 						},
 					}
 				: null),
-		})),
+		};
+		// The server contract normally guarantees unique message IDs. Keep the
+		// client repository branch-safe if a legacy page violates that contract.
+		if (importedIds.has(hydratedId)) continue;
+		importedIds.add(hydratedId);
+		branchableMessages.push({ message: hydrated, parentId });
+		parentId = hydratedId;
+	}
+
+	const repository = ExportedMessageRepository.fromBranchableArray(
+		branchableMessages,
+		{ headId: parentId },
 	);
 
 	return {

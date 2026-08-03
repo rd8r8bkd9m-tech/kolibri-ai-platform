@@ -24,12 +24,18 @@ import { constructionEstimateAccess } from "@/src/verticals/construction-estimat
 import { ConstructionEstimateClient } from "@/src/verticals/construction-estimates/client";
 import {
 	isNativeEstimateDraftValid,
+	NATIVE_ESTIMATE_PAGE_SIZE,
 	type EstimateDocumentSummary,
 	type NativeEstimate,
 	type NativeEstimateRow,
 } from "@/src/verticals/construction-estimates/contracts";
 
 const formatMoney = (value: string) => {
+	if (/^(?:0|[1-9]\d*)(?:\.\d{1,2})?$/.test(value)) {
+		const [integer, fraction = ""] = value.split(".");
+		const grouped = integer.replace(/\B(?=(\d{3})+(?!\d))/g, " ");
+		return `${grouped},${fraction.padEnd(2, "0")} ₽`;
+	}
 	const amount = Number(value);
 	return Number.isFinite(amount)
 		? new Intl.NumberFormat("ru-RU", {
@@ -415,11 +421,18 @@ function EstimateEditor({
 		"idle" | "saving" | "saved" | "error" | "conflict"
 	>("idle");
 	const [message, setMessage] = useState("");
+	const [pageLoading, setPageLoading] = useState(false);
 
 	const snapshot = JSON.stringify({ title, rows });
 	const dirty = snapshot !== savedSnapshot;
 	const valid = isNativeEstimateDraftValid(title, rows);
-	const total = rows.reduce((sum, row) => sum + Number(localLineTotal(row)), 0);
+	const totalRows = estimate.rowPage?.totalRows ?? rows.length;
+	const rowOffset = estimate.rowPage?.offset ?? 0;
+	const rowPage = Math.floor(rowOffset / NATIVE_ESTIMATE_PAGE_SIZE);
+	const rowPageCount = Math.max(
+		1,
+		Math.ceil(totalRows / NATIVE_ESTIMATE_PAGE_SIZE),
+	);
 
 	const close = () => {
 		if (!dirty) {
@@ -440,7 +453,10 @@ function EstimateEditor({
 		setSaveState("saving");
 		setMessage("");
 		try {
-			const next = await client.open(estimate.projectId);
+			const next = await client.open(estimate.projectId, {
+				offset: rowOffset,
+				limit: NATIVE_ESTIMATE_PAGE_SIZE,
+			});
 			setEstimate(next);
 			setTitle(next.estimateTitle);
 			setRows(next.rows);
@@ -456,7 +472,38 @@ function EstimateEditor({
 			);
 			setSaveState("error");
 		}
-	}, [client, estimate.projectId]);
+	}, [client, estimate.projectId, rowOffset]);
+
+	const loadPage = useCallback(
+		async (nextPage: number) => {
+			if (dirty || pageLoading || saveState === "saving") return;
+			setPageLoading(true);
+			setMessage("");
+			try {
+				const next = await client.open(estimate.projectId, {
+					offset: Math.max(0, nextPage) * NATIVE_ESTIMATE_PAGE_SIZE,
+					limit: NATIVE_ESTIMATE_PAGE_SIZE,
+				});
+				setEstimate(next);
+				setTitle(next.estimateTitle);
+				setRows(next.rows);
+				setSavedSnapshot(
+					JSON.stringify({ title: next.estimateTitle, rows: next.rows }),
+				);
+				setSaveState("idle");
+			} catch (reason) {
+				setMessage(
+					reason instanceof Error
+						? reason.message
+						: "Не удалось загрузить страницу сметы.",
+				);
+				setSaveState("error");
+			} finally {
+				setPageLoading(false);
+			}
+		},
+		[client, dirty, estimate.projectId, pageLoading, saveState],
+	);
 
 	const save = async () => {
 		if (!dirty || !valid || saveState === "saving") return;
@@ -508,6 +555,16 @@ function EstimateEditor({
 							field === "unitPrice"
 								? { priceBasis: "Введено пользователем" }
 								: null),
+							...(field === "description" ||
+							field === "unit" ||
+							field === "unitPrice"
+								? {
+										evidenceId: undefined,
+										marketAggregateId: undefined,
+									priceObservationId: undefined,
+									lineConfidence: "preliminary" as const,
+								}
+							: null),
 						}
 					: row,
 			),
@@ -548,20 +605,45 @@ function EstimateEditor({
 									borderColor: colors.border,
 									color: colors.foreground,
 								},
-							]}
-							value={title}
-						/>
-						<View style={styles.editorSummary}>
-							<Text
-								style={[styles.summaryText, { color: colors.mutedForeground }]}
-							>
-								{rows.length} позиций
-							</Text>
-							<Text style={[styles.summaryTotal, { color: colors.foreground }]}>
-								{formatMoney(total.toFixed(2))}
-							</Text>
-						</View>
-					</View>
+									  ]}
+									  value={title}
+								  />
+								<View style={styles.editorSummary}>
+									<Text
+										style={[styles.summaryText, { color: colors.mutedForeground }]}
+									>
+										{totalRows} позиций
+									</Text>
+									<Text style={[styles.summaryTotal, { color: colors.foreground }]}>
+										{formatMoney(estimate.totals.total)}
+									</Text>
+								</View>
+								{rowPageCount > 1 ? (
+									<View style={styles.pagination}>
+										<Pressable
+											accessibilityRole="button"
+											disabled={rowPage === 0 || dirty || pageLoading}
+											onPress={() => void loadPage(Math.max(0, rowPage - 1))}
+											style={styles.pageButton}
+										>
+											<Text style={{ color: colors.foreground }}>Назад</Text>
+										</Pressable>
+										<Text style={[styles.pageLabel, { color: colors.mutedForeground }]}>
+											{rowOffset + 1}–{Math.min(rowOffset + rows.length, totalRows)} из {totalRows}
+										</Text>
+										<Pressable
+											accessibilityRole="button"
+											disabled={rowPage >= rowPageCount - 1 || dirty || pageLoading}
+											onPress={() =>
+												void loadPage(Math.min(rowPageCount - 1, rowPage + 1))
+											}
+											style={styles.pageButton}
+										>
+											<Text style={{ color: colors.foreground }}>Далее</Text>
+										</Pressable>
+									</View>
+								) : null}
+							</View>
 				}
 				renderItem={({ item }) => (
 					<RowEditor
@@ -848,6 +930,18 @@ const styles = StyleSheet.create({
 	},
 	summaryText: { fontSize: 13, fontWeight: "600" },
 	summaryTotal: { fontSize: 16, fontWeight: "700" },
+	pagination: {
+		alignItems: "center",
+		flexDirection: "row",
+		justifyContent: "space-between",
+		minHeight: 44,
+	},
+	pageButton: {
+		justifyContent: "center",
+		minHeight: 44,
+		paddingHorizontal: 8,
+	},
+	pageLabel: { flex: 1, fontSize: 12, textAlign: "center" },
 	rowCard: { borderRadius: Radius.card, padding: 12 },
 	rowHeading: {
 		alignItems: "center",

@@ -18,6 +18,8 @@ import {
 import type { ComponentType } from "react";
 
 import { Button } from "@/components/ui/button";
+import { PanelSkeleton, FileTreeSkeleton, TableSkeleton } from "@/components/ui/skeleton-patterns";
+import { ContextFilesTree, type FileTreeNode } from "@/components/kolibri-workspace/context-files-tree";
 import {
 	Tooltip,
 	TooltipContent,
@@ -42,8 +44,12 @@ export interface ContextPanelProps {
 	embedded?: boolean;
 	projectName?: string;
 	mode?: ContextPanelMode;
+	loading?: boolean;
+	files?: FileTreeNode[];
 	onClose?: () => void;
 	onOpenSettings?: () => void;
+	onOpenFile?: (file: FileTreeNode) => void;
+	onUploadFile?: () => void;
 }
 
 type EmptyStateProps = {
@@ -137,9 +143,9 @@ const TRUTH_KINDS: readonly TruthKind[] = [
 	},
 	{
 		id: "assumptions",
-		label: "Допущения",
-		emptyLabel: "Допущения не зафиксированы",
-		description: "Каждое допущение будет помечено с основанием и влиянием.",
+		label: "Условия расчёта",
+		emptyLabel: "Условия расчёта не зафиксированы",
+		description: "Каждое условие будет помечено с основанием и влиянием.",
 		icon: CircleDot,
 	},
 	{
@@ -151,7 +157,10 @@ const TRUTH_KINDS: readonly TruthKind[] = [
 	},
 ];
 
-function ReviewPanel() {
+function ReviewPanel({ loading }: { loading?: boolean }) {
+	if (loading) {
+		return <PanelSkeleton rows={6} />;
+	}
 	return (
 		<div>
 			<section
@@ -259,7 +268,14 @@ function ReviewPanel() {
 	);
 }
 
-function TerminalPanel() {
+function TerminalPanel({ loading }: { loading?: boolean }) {
+	if (loading) {
+		return (
+			<div className="bg-[#111214] h-full">
+				<PanelSkeleton rows={3} className="[&_*]:bg-[#27272a]" />
+			</div>
+		);
+	}
 	return (
 		<section
 			className="flex h-full min-h-0 flex-col"
@@ -293,7 +309,10 @@ function TerminalPanel() {
 	);
 }
 
-function BrowserPanel({ onOpenSettings }: { onOpenSettings?: () => void }) {
+function BrowserPanel({ onOpenSettings, loading }: { onOpenSettings?: () => void; loading?: boolean }) {
+	if (loading) {
+		return <PanelSkeleton rows={5} />;
+	}
 	return (
 		<section
 			className="flex h-full min-h-0 flex-col"
@@ -342,7 +361,34 @@ function BrowserPanel({ onOpenSettings }: { onOpenSettings?: () => void }) {
 	);
 }
 
-function FilesPanel() {
+function FilesPanel({ loading, files, onOpenFile, onUploadFile }: PanelComponentProps) {
+	if (loading) {
+		return (
+			<div className="p-3 sm:p-4">
+				<div className="border-border bg-card overflow-hidden rounded-xl border">
+					<header className="border-border/70 flex items-center justify-between border-b px-3.5 py-3">
+						<div>
+							<h3 className="text-xs font-semibold">Файлы контекста</h3>
+							<p className="text-muted-foreground mt-0.5 text-[10px]">Загрузка...</p>
+						</div>
+					</header>
+					<FileTreeSkeleton rows={6} />
+				</div>
+			</div>
+		);
+	}
+
+	if (files && files.length > 0) {
+		return (
+			<div className="h-full min-h-0">
+				<ContextFilesTree
+					files={files}
+					onOpenFile={onOpenFile}
+					onUpload={onUploadFile}
+				/>
+			</div>
+		);
+	}
 	return (
 		<div className="p-3 sm:p-4">
 			<section
@@ -378,7 +424,15 @@ function FilesPanel() {
 	);
 }
 
-const PANEL_CONTENT: Record<ContextPanelMode, ComponentType> = {
+type PanelComponentProps = {
+	loading?: boolean;
+	files?: FileTreeNode[];
+	onOpenFile?: (file: FileTreeNode) => void;
+	onUploadFile?: () => void;
+	onOpenSettings?: () => void;
+};
+
+const PANEL_CONTENT: Record<ContextPanelMode, ComponentType<PanelComponentProps>> = {
 	review: ReviewPanel,
 	terminal: TerminalPanel,
 	browser: BrowserPanel,
@@ -389,8 +443,12 @@ export function ContextPanel({
 	embedded = false,
 	projectName,
 	mode = "review",
+	loading = false,
+	files,
 	onClose,
 	onOpenSettings,
+	onOpenFile,
+	onUploadFile,
 }: ContextPanelProps) {
 	const activeTab = isContextPanelMode(mode) ? mode : "review";
 	const projectLabel = projectName?.trim() || "Проект не выбран";
@@ -427,9 +485,15 @@ export function ContextPanel({
 					className="min-h-0 flex-1 overflow-y-auto outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
 				>
 					{activeTab === "browser" ? (
-						<BrowserPanel onOpenSettings={onOpenSettings} />
+						<BrowserPanel onOpenSettings={onOpenSettings} loading={loading} />
 					) : (
-						<PanelContent />
+						<PanelContent
+							loading={loading}
+							files={files}
+							onOpenFile={onOpenFile}
+							onUploadFile={onUploadFile}
+							onOpenSettings={onOpenSettings}
+						/>
 					)}
 				</div>
 			</aside>

@@ -139,6 +139,119 @@ def request_hash(run_input: AgUiRunInput) -> str:
     return sha256_text(canonical_json(canonical_run_payload(run_input)))
 
 
+def _validated_workspace_context(
+    database: sqlite3.Connection,
+    *,
+    tenant_id: str,
+    project_id: str,
+    created_project: bool,
+    run_input: AgUiRunInput,
+) -> dict[str, Any] | None:
+    """Validate the browser's UI hint against tenant-owned canonical data.
+
+    The snapshot helps an agent resolve phrases such as "in this window". It
+    never grants authority: project and document references must already
+    belong to the authenticated tenant and current Product Chat project.
+    """
+
+    context = run_input.forwarded_props.workspace_context
+    if context is None:
+        return None
+    payload = context.model_dump(mode="json", by_alias=True)
+    thread_project_id = context.thread_project_id
+    if created_project:
+        # A click on "new task" and the following send can occur within one
+        # render. Do not bind a newly created project to the previous thread's
+        # stale display hint.
+        payload["threadProjectId"] = None
+    elif thread_project_id != project_id:
+        raise InvalidRunError(
+            "The active workspace project does not match this chat thread."
+        )
+
+    active_tab = context.active_tab
+    if (
+        active_tab is not None
+        and active_tab.project_id is not None
+        and active_tab.project_id != project_id
+    ):
+        raise InvalidRunError(
+            "The active canvas belongs to another project."
+        )
+
+    referenced_projects = {
+        tab.project_id
+        for tab in context.open_tabs
+        if tab.project_id is not None
+    }
+    if referenced_projects:
+        placeholders = ",".join("?" for _ in referenced_projects)
+        rows = database.execute(
+            f"""
+            SELECT id
+            FROM projects
+            WHERE tenant_id = ? AND id IN ({placeholders})
+            """,
+            (tenant_id, *sorted(referenced_projects)),
+        ).fetchall()
+        if {str(row["id"]) for row in rows} != referenced_projects:
+            raise InvalidRunError(
+                "One or more open canvas projects are unavailable."
+            )
+
+    artifact = context.active_artifact
+    if artifact is not None and artifact.document_id is not None:
+        if artifact.kind == "estimate":
+            document = database.execute(
+                """
+                SELECT content_json
+                FROM estimate_versions
+                WHERE tenant_id = ? AND project_id = ?
+                  AND document_id = ? AND version = ?
+                LIMIT 1
+                """,
+                (
+                    tenant_id,
+                    project_id,
+                    artifact.document_id,
+                    artifact.version,
+                ),
+            ).fetchone()
+        else:
+            document = database.execute(
+                """
+                SELECT content_json
+                FROM document_slots
+                WHERE tenant_id = ? AND project_id = ?
+                  AND id = ? AND version = ?
+                LIMIT 1
+                """,
+                (
+                    tenant_id,
+                    project_id,
+                    artifact.document_id,
+                    artifact.version,
+                ),
+            ).fetchone()
+        if document is None:
+            raise InvalidRunError(
+                "The active canvas document version is unavailable."
+            )
+        if artifact.kind == "estimate" and document["content_json"]:
+            try:
+                canonical_document = json.loads(str(document["content_json"]))
+            except (TypeError, ValueError):
+                canonical_document = None
+            canonical_title = (
+                canonical_document.get("estimateTitle")
+                if isinstance(canonical_document, dict)
+                else None
+            )
+            if isinstance(canonical_title, str) and canonical_title.strip():
+                payload["activeArtifact"]["name"] = canonical_title[:240]
+    return payload
+
+
 def storage_client_run_id(public_run_id: str, canonical_request_hash: str) -> str:
     """Scope transport run IDs to the exact immutable AG-UI request.
 
@@ -1008,6 +1121,14 @@ def accept_run(
                 project_id = str(thread["project_id"])
                 thread_id = str(thread["id"])
 
+            workspace_context = _validated_workspace_context(
+                database,
+                tenant_id=identity.tenant_id,
+                project_id=project_id,
+                created_project=created_project,
+                run_input=run_input,
+            )
+
             try:
                 requested_attachment_refs = [
                     parse_requested_attachment(
@@ -1343,6 +1464,23 @@ def accept_run(
                     created_at,
                 ),
             )
+            if workspace_context is not None:
+                workspace_context_json = canonical_json(workspace_context)
+                database.execute(
+                    """
+                    INSERT INTO chat_run_workspace_contexts (
+                        tenant_id, run_id, schema_version, context_json,
+                        context_hash, created_at
+                    ) VALUES (?, ?, '1.0', ?, ?, ?)
+                    """,
+                    (
+                        identity.tenant_id,
+                        run_id,
+                        workspace_context_json,
+                        sha256_text(workspace_context_json),
+                        created_at,
+                    ),
+                )
             legacy_developer_access = (
                 execution_mode == "developer"
                 and "access_mode"

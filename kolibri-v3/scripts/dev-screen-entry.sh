@@ -13,4 +13,7 @@ npm_bin="${KOLIBRI_V3_NPM_BIN:-/opt/homebrew/bin/npm}"
 
 cd -- "${v3_root}"
 mkdir -p -- "$(dirname -- "${runtime_log}")"
+# Keep persistent development output scoped to the current supervisor run.
+# Historical diagnostics belong in bounded application logs, not this stream.
+: >"${runtime_log}"
 exec "${npm_bin}" run dev >>"${runtime_log}" 2>&1

@@ -17,6 +17,22 @@ function durationLabel(seconds: number) {
 			: `${days} дней`;
 }
 
+export function PublicPlanCatalogFallback({ compact = false }: { compact?: boolean }) {
+	return (
+		<div
+			className={`kp-plan-state is-loading${compact ? " is-compact" : ""}`}
+			role="status"
+			aria-live="polite"
+		>
+			<div className="kp-plan-loading-line" aria-hidden="true" />
+			<div>
+				<strong>Загружаем серверный тариф</strong>
+				<p>Цена и срок доступа появятся после ответа каталога биллинга.</p>
+			</div>
+		</div>
+	);
+}
+
 export async function PublicPlanCatalog({ compact = false }: { compact?: boolean }) {
 	const { error, plan } = await getPublicLaunchPlan();
 	if (!plan) {

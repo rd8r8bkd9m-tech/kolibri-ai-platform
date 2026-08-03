@@ -13,6 +13,7 @@ import {
 } from "@assistant-ui/react-ag-ui";
 import {
 	useCallback,
+	Component,
 	useEffect,
 	useMemo,
 	useRef,
@@ -36,9 +37,8 @@ import {
 	ProductChatClient,
 	createProductAgUiFetch,
 } from "@/lib/product-chat/client";
-import { GeneratedImageToolUI } from "@/components/assistant-ui/generated-image-tool";
-import { WeatherToolUI } from "@/components/assistant-ui/product-widgets";
-import { DeveloperActivityToolUIs } from "@/components/assistant-ui/developer-activity-tool";
+import type { WorkspaceContextV1 } from "@/lib/workspace-context";
+import { WorkspaceContextPublisherProvider } from "@/lib/workspace-context-provider";
 import type {
 	KolibriAgentProfile,
 	ProductChatThread,
@@ -48,6 +48,10 @@ import {
 	DeveloperAgentModeContext,
 	type DeveloperAccessMode,
 } from "@/lib/product-chat/developer-agent-mode";
+import {
+	AcceptedProductChatRunContext,
+	type AcceptedProductChatRun,
+} from "@/lib/product-chat/accepted-run";
 import {
 	capabilityIsAvailable,
 	fetchProductCapabilityManifest,
@@ -73,6 +77,58 @@ type BootstrapResult = {
 	readonly persisted: boolean;
 };
 
+type AssistantRuntimeRecoveryState = {
+	retryKey: number;
+	hasError: boolean;
+};
+
+/**
+ * assistant-ui keeps its message repository outside React state. During a
+ * thread/history replacement it can briefly publish a stale head reference;
+ * remounting the same runtime once lets the canonical history reattach it.
+ */
+class AssistantRuntimeRecoveryBoundary extends Component<
+	Readonly<{ children: ReactNode }>,
+	AssistantRuntimeRecoveryState
+> {
+	state: AssistantRuntimeRecoveryState = { retryKey: 0, hasError: false };
+
+	static getDerivedStateFromError(): Partial<AssistantRuntimeRecoveryState> {
+		return { hasError: true };
+	}
+
+	componentDidCatch(error: unknown) {
+		if (this.state.retryKey < 1) {
+			this.setState((current) => ({
+				retryKey: current.retryKey + 1,
+				hasError: false,
+			}));
+			return;
+		}
+		if (process.env.NODE_ENV === "development") {
+			console.error("[Kolibri Product Chat] runtime recovery failed", error);
+		}
+	}
+
+	render() {
+		if (this.state.hasError) {
+			return (
+				<div
+					role="alert"
+					className="text-muted-foreground flex h-full items-center justify-center p-6 text-sm"
+				>
+					Не удалось восстановить чат. Обновите страницу.
+				</div>
+			);
+		}
+		return (
+			<div key={this.state.retryKey} className="contents">
+				{this.props.children}
+			</div>
+		);
+	}
+}
+
 const INACTIVE_PROJECTION: RuntimeProjection = {
 	status: "inactive",
 	threads: [],
@@ -94,18 +150,23 @@ function ProductChatRuntimeScope({
 	preferredAgentProfile,
 	developerAgentAvailable,
 	capabilityManifest,
+	getWorkspaceContext,
 }: Readonly<{
 	authenticated: boolean;
 	children: ReactNode;
 	preferredAgentProfile: KolibriAgentProfile;
 	developerAgentAvailable: boolean;
 	capabilityManifest: ProductCapabilityManifest | null;
+	getWorkspaceContext: () => WorkspaceContextV1 | null;
 }>) {
 	const client = useMemo(() => new ProductChatClient(), []);
 	const profileRef = useRef(preferredAgentProfile);
 	profileRef.current = preferredAgentProfile;
 	const [developerAccessMode, setDeveloperAccessMode] =
 		useState<DeveloperAccessMode>("standard");
+	const [acceptedRun, setAcceptedRun] = useState<AcceptedProductChatRun | null>(
+		null,
+	);
 	const [dictation, setDictation] = useState<DictationAdapter | undefined>();
 	const developerAccessModeRef = useRef(developerAccessMode);
 	developerAccessModeRef.current = developerAccessMode;
@@ -150,10 +211,14 @@ function ProductChatRuntimeScope({
 							: "developer",
 					getAccessMode: () => developerAccessModeRef.current,
 					getActiveThreadId: () => projectionRef.current.activeThreadId,
+					getWorkspaceContext,
 					onAccepted: (runId) => {
 						activeRunIdRef.current = runId;
 						const threadId = projectionRef.current.activeThreadId;
-						if (threadId) publishPetMessageAccepted(threadId, runId);
+						if (threadId) {
+							setAcceptedRun({ acceptedAt: Date.now(), runId, threadId });
+							publishPetMessageAccepted(threadId, runId);
+						}
 						return refreshThreadsRef.current();
 					},
 				}),
@@ -507,17 +572,19 @@ function ProductChatRuntimeScope({
 					setEnabled: (next) =>
 						setDeveloperAccessMode((current) => {
 							const enabled = current !== "standard";
-							const resolved = typeof next === "function" ? next(enabled) : next;
+							const resolved =
+								typeof next === "function" ? next(enabled) : next;
 							return resolved ? "auto" : "standard";
 						}),
 				}}
 			>
-				<AssistantRuntimeProvider runtime={runtime}>
-					<GeneratedImageToolUI />
-					<WeatherToolUI />
-					<DeveloperActivityToolUIs />
-					{children}
-				</AssistantRuntimeProvider>
+				<AcceptedProductChatRunContext.Provider value={acceptedRun}>
+					<AssistantRuntimeRecoveryBoundary>
+						<AssistantRuntimeProvider runtime={runtime}>
+							{children}
+						</AssistantRuntimeProvider>
+					</AssistantRuntimeRecoveryBoundary>
+				</AcceptedProductChatRunContext.Provider>
 			</DeveloperAgentModeContext.Provider>
 		</ProductCapabilityManifestProvider>
 	);
@@ -560,16 +627,48 @@ export function MyRuntimeProvider({
 	const developerAgentAvailable =
 		identity.user?.role === "owner" &&
 		capabilityIsAvailable(capabilityManifest, "developer.runtime.execute");
+	const workspaceContextRef = useRef<WorkspaceContextV1 | null>(null);
+	const publishWorkspaceContext = useCallback(
+		(context: WorkspaceContextV1 | null) => {
+			workspaceContextRef.current = context;
+			if (typeof document !== "undefined") {
+				if (context) {
+					document.documentElement.setAttribute(
+						"data-kolibri-runtime-surface",
+						context.surface,
+					);
+				} else {
+					document.documentElement.removeAttribute(
+						"data-kolibri-runtime-surface",
+					);
+				}
+			}
+		},
+		[],
+	);
+	const getWorkspaceContext = useCallback(() => {
+		const context = workspaceContextRef.current;
+		if (typeof document !== "undefined") {
+			document.documentElement.setAttribute(
+				"data-kolibri-runtime-context-read",
+				context?.surface ?? "none",
+			);
+		}
+		return context;
+	}, []);
 
 	return (
-		<ProductChatRuntimeScope
-			key={scopeKey}
-			authenticated={authenticated}
-			preferredAgentProfile={preferredAgentProfile}
-			developerAgentAvailable={developerAgentAvailable}
-			capabilityManifest={capabilityManifest}
-		>
-			{children}
-		</ProductChatRuntimeScope>
+		<WorkspaceContextPublisherProvider publish={publishWorkspaceContext}>
+			<ProductChatRuntimeScope
+				key={scopeKey}
+				authenticated={authenticated}
+				preferredAgentProfile={preferredAgentProfile}
+				developerAgentAvailable={developerAgentAvailable}
+				capabilityManifest={capabilityManifest}
+				getWorkspaceContext={getWorkspaceContext}
+			>
+				{children}
+			</ProductChatRuntimeScope>
+		</WorkspaceContextPublisherProvider>
 	);
 }

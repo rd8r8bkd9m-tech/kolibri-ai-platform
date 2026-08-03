@@ -1,7 +1,10 @@
 "use client";
 
 import { type ReactNode, useEffect, useState } from "react";
-import { CanvasFrame } from "@/components/kolibri-workspace/canvas-frame";
+import {
+	CanvasFrame,
+	type CanvasFrameHeaderTab,
+} from "@/components/kolibri-workspace/canvas-frame";
 import {
 	CONTEXT_PANEL_TABS,
 	ContextPanel,
@@ -13,8 +16,10 @@ import {
 	type WorkspaceFileCategory,
 	WorkspaceFileManager,
 } from "@/components/kolibri-workspace/workspace-file-manager";
+import { WorkspaceProjectPicker } from "@/components/kolibri-shell/workspace-project-picker";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type { WorkspaceCatalogLoadState } from "@/lib/workspace-documents";
+import type { WorkspaceProject } from "@/lib/workspace-types";
 import {
 	CANVAS_VIEW_REGISTRY,
 	isCanvasMode,
@@ -32,6 +37,7 @@ export type CanvasSessionTabPresentation = {
 
 export interface CanvasWorkspaceProps {
 	activeSessionTabId?: string;
+	activeProjectId?: string | null;
 	compactChrome?: boolean;
 	fileCategory?: WorkspaceFileCategory;
 	maximized?: boolean;
@@ -41,6 +47,7 @@ export interface CanvasWorkspaceProps {
 	onFilesBack?: () => void;
 	onMinimize?: () => void;
 	onOpenSettings?: () => void;
+	onProjectSelect?: (project: WorkspaceProject) => void;
 	onRetryWorkspaceCatalog?: () => void;
 	onSelectedFileChange?: (file: WorkspaceFile | null) => void;
 	onPlacementChange?: (placement: CanvasPlacement) => void;
@@ -48,6 +55,7 @@ export interface CanvasWorkspaceProps {
 	onToolModeChange?: (mode: ContextPanelMode | null) => void;
 	onToggleMaximize?: () => void;
 	placement?: CanvasPlacement;
+	projects?: readonly WorkspaceProject[];
 	selectedFile?: WorkspaceFile | null;
 	sessionTabs?: readonly CanvasSessionTabPresentation[];
 	surfaceContent?: ReactNode;
@@ -68,6 +76,17 @@ const WORKSPACE_TOOLS = CONTEXT_PANEL_TABS.map((tool) => ({
 	...tool,
 	shortcut: WORKSPACE_TOOL_SHORTCUTS[tool.id],
 }));
+
+const CANVAS_HEADER_TABS: readonly CanvasFrameHeaderTab[] =
+	WORKSPACE_TOOLS.map(({ icon, id, label }) => ({
+		icon,
+		id,
+		title: label,
+	}));
+
+function isContextPanelMode(value: string): value is ContextPanelMode {
+	return CONTEXT_PANEL_TABS.some((tab) => tab.id === value);
+}
 
 function WorkspaceLauncher({
 	onSelect,
@@ -114,6 +133,7 @@ function WorkspaceLauncher({
 
 export function CanvasWorkspace({
 	activeSessionTabId,
+	activeProjectId,
 	compactChrome = false,
 	fileCategory = "all",
 	maximized = false,
@@ -123,6 +143,7 @@ export function CanvasWorkspace({
 	onFilesBack,
 	onMinimize,
 	onOpenSettings,
+	onProjectSelect,
 	onRetryWorkspaceCatalog,
 	onSelectedFileChange,
 	onPlacementChange,
@@ -130,6 +151,7 @@ export function CanvasWorkspace({
 	onToolModeChange,
 	onToggleMaximize,
 	placement = "right",
+	projects = [],
 	selectedFile,
 	sessionTabs = [],
 	surfaceContent,
@@ -182,10 +204,25 @@ export function CanvasWorkspace({
 	return (
 		<CanvasFrame
 			activeTabId={activeSessionTabId}
+			activeHeaderTabId={surfaceContent ? undefined : activeTool ?? undefined}
 			compactChrome={compactChrome}
+			headerActions={
+				<WorkspaceProjectPicker
+					activeProjectId={activeProjectId}
+					onProjectSelect={onProjectSelect}
+					projectName={trimmedProjectName}
+					projects={projects}
+				/>
+			}
+			headerTabs={CANVAS_HEADER_TABS}
 			label="Рабочая область проекта"
 			maximized={maximized}
 			onClose={onClose}
+			onHeaderTabSelect={(nextTool) => {
+				if (!isContextPanelMode(nextTool)) return;
+				setOpenFile(null);
+				setActiveTool(nextTool);
+			}}
 			onMinimize={onMinimize}
 			onPlacementChange={onPlacementChange}
 			onTabSelect={onSessionTabSelect}
@@ -199,46 +236,46 @@ export function CanvasWorkspace({
 				className="flex min-h-0 flex-1 flex-col"
 			>
 				{surfaceContent ? (
-						surfaceContent
-					) : openFile ? (
-						<WorkspaceArtifactEditor
-							key={openFile.id}
-							compactChrome={compactChrome}
-							file={openFile}
-							projectLabel={projectLabel}
-							onBack={() => setOpenFile(null)}
-						/>
-					) : activeTool === "files" ? (
-						<WorkspaceFileManager
-							catalogState={workspaceCatalogState}
-							files={workspaceFiles}
-							initialCategory={fileCategory}
-							projectLabel={projectLabel}
-							onBack={
-								compactChrome
-									? undefined
-									: (onFilesBack ?? (() => setActiveTool(null)))
-							}
-							onOpenFile={setOpenFile}
-							onRetry={onRetryWorkspaceCatalog}
-						/>
-					) : activeTool ? (
-						<ContextPanel
-							embedded
-							projectName={projectLabel}
-							mode={activeTool}
-							onClose={() => setActiveTool(null)}
-							onOpenSettings={onOpenSettings}
-						/>
-					) : CanvasView && definition ? (
-						<CanvasView projectLabel={projectLabel} />
-					) : (
-						<WorkspaceLauncher
-							onSelect={(nextTool) => {
-								setOpenFile(null);
-								setActiveTool(nextTool);
-							}}
-						/>
+					surfaceContent
+				) : openFile ? (
+					<WorkspaceArtifactEditor
+						key={openFile.id}
+						compactChrome={compactChrome}
+						file={openFile}
+						projectLabel={projectLabel}
+						onBack={() => setOpenFile(null)}
+					/>
+				) : activeTool === "files" ? (
+					<WorkspaceFileManager
+						catalogState={workspaceCatalogState}
+						files={workspaceFiles}
+						initialCategory={fileCategory}
+						projectLabel={projectLabel}
+						onBack={
+							compactChrome
+								? undefined
+								: (onFilesBack ?? (() => setActiveTool(null)))
+						}
+						onOpenFile={setOpenFile}
+						onRetry={onRetryWorkspaceCatalog}
+					/>
+				) : activeTool ? (
+					<ContextPanel
+						embedded
+						projectName={projectLabel}
+						mode={activeTool}
+						onClose={() => setActiveTool(null)}
+						onOpenSettings={onOpenSettings}
+					/>
+				) : CanvasView && definition ? (
+					<CanvasView projectLabel={projectLabel} />
+				) : (
+					<WorkspaceLauncher
+						onSelect={(nextTool) => {
+							setOpenFile(null);
+							setActiveTool(nextTool);
+						}}
+					/>
 				)}
 			</div>
 		</CanvasFrame>

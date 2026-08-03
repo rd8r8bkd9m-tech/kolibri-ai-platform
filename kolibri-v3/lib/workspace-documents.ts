@@ -20,7 +20,7 @@ const estimateDocumentRecordSchema = z
 		slotType: z.literal("estimate"),
 		category: z.literal("estimates"),
 		kind: z.literal("estimate"),
-		rowCount: z.number().int().min(0).max(200),
+		rowCount: z.number().int().min(0),
 		total: z.string().regex(/^(?:0|[1-9]\d{0,13})(?:\.\d{2})$/),
 		currency: z.literal("RUB"),
 		editable: z.boolean(),

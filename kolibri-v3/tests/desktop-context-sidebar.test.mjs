@@ -5,7 +5,7 @@ import test from "node:test";
 const readSource = (path) =>
 	readFile(new URL(`../${path}`, import.meta.url), "utf8");
 
-test("desktop shell is one quiet three-column workspace", async () => {
+test("desktop shell has one shared central Canvas and an optional tool panel", async () => {
 	const [
 		wrapper,
 		desktop,
@@ -14,6 +14,7 @@ test("desktop shell is one quiet three-column workspace", async () => {
 		auxiliaryController,
 		layout,
 		frame,
+		canvas,
 		header,
 		composer,
 		sidebarConstants,
@@ -35,6 +36,7 @@ test("desktop shell is one quiet three-column workspace", async () => {
 				"components/kolibri-shell/desktop-workspace/desktop-workspace-layout.tsx",
 			),
 			readSource("components/kolibri-workspace/canvas-frame.tsx"),
+			readSource("components/kolibri-workspace/canvas-workspace.tsx"),
 			readSource("components/kolibri-shell/workspace-header.tsx"),
 			readSource("components/assistant-ui/thread/parts/thread-layout.tsx"),
 			readSource("components/kolibri-shell/sidebar/constants.ts"),
@@ -54,22 +56,63 @@ test("desktop shell is one quiet three-column workspace", async () => {
 	assert.match(layout, /aria-label=["']Диалог с Kolibri["']/);
 	assert.match(layout, /\{auxiliaryOpen && !auxiliaryFullscreen \? \(/);
 
-	assert.match(desktop, /primaryContent=\{null\}/);
-	assert.match(desktop, /primaryOpen=\{false\}/);
+	assert.match(
+		desktop,
+		/primaryContent=\{auxiliary\.primaryOpen \? auxiliaryCanvas : null\}/,
+	);
+	assert.match(desktop, /primaryOpen=\{auxiliary\.primaryOpen\}/);
 	assert.match(desktop, /useAuxiliaryCanvas\(\{/);
-	assert.match(auxiliaryController, /placement: ["']right["']/);
+	assert.match(auxiliaryController, /placement = ["']right["']/);
+	assert.match(auxiliaryController, /PRIMARY_CANVAS_SURFACE_ID/);
+	assert.match(
+		auxiliaryController,
+		/open && activeTab\?\.placement === ["']right["'] && Boolean\(activeTab\.maximized\)/,
+	);
+	assert.match(
+		auxiliaryController,
+		/!tab\.minimized && tab\.placement === activeTab\.placement/,
+	);
+	assert.match(
+		auxiliaryController,
+		/activeTab\.placement !== ["']right["']/,
+	);
+	assert.match(
+		auxiliaryController,
+		/find\(\(tab\) => tab\.placement === ["']right["'] && !tab\.minimized\)/,
+	);
 	assert.match(auxiliaryController, /KOLIBRI_OPEN_ESTIMATE_EVENT/);
-	assert.match(auxiliarySurface, /placement=["']right["']/);
+	assert.match(auxiliarySurface, /placement=\{activeTab\.placement\}/);
 	assert.match(view, /<Thread\b/);
-	assert.match(view, /workspaceOpen=\{auxiliary\.open\}/);
+	assert.match(view, /<ThreadComposer\b/);
+	assert.match(view, /workspaceOpen=\{rightWorkspaceOpen\}/);
+	assert.match(
+		view,
+		/primaryOpen \? undefined : auxiliary\.toggle/,
+	);
+	assert.match(view, /`Диалог · \$\{activeCanvasLabel/);
 	assert.doesNotMatch(desktop, /Рабочий стол/);
 	assert.doesNotMatch(sidebarConstants, /Рабочий стол|id:\s*["']desktop["']/);
 
 	assert.match(frame, /data-slot=["']canvas-frame["']/);
+	assert.match(frame, /headerActions/);
+	assert.match(frame, /headerTabs/);
+	assert.match(frame, /overflow-x-auto/);
+	assert.match(canvas, /activeHeaderTabId/);
+	assert.match(canvas, /onHeaderTabSelect/);
+	assert.match(canvas, /<WorkspaceProjectPicker\b/);
 	assert.match(frame, /data-slot=["']canvas-fullscreen-toggle["']/);
-	assert.match(frame, /tabs\.length > 1 \? \(/);
+	assert.match(frame, /tabs\.length > 0 \? \(/);
 	assert.match(frame, /role=["']tabpanel["']/);
+	assert.match(auxiliaryController, /const dismiss = useCallback/);
+	assert.match(auxiliarySurface, /onClose=\{controller\.close\}/);
+	assert.match(auxiliarySurface, /data-canvas-kind=["']projects["']/);
+	assert.match(
+		auxiliarySurface,
+		/data-canvas-kind=\{activeFile \? ["']artifact["'] : ["']documents["']\}/,
+	);
+	assert.match(auxiliarySurface, /data-canvas-kind=["']references["']/);
 	assert.match(header, /aria-controls=["']workspace-canvas["']/);
+	assert.match(header, /data-context-launcher=["']header["']/);
 	assert.match(composer, /aria-controls=["']workspace-canvas["']/);
 });
 
@@ -101,7 +144,7 @@ test("right canvas exposes exactly the four owner-approved tools", async () => {
 	assert.doesNotMatch(fileManager, /Сетка|grid view|list view/i);
 });
 
-test("an estimate opens beside chat with version-safe artifact rendering", async () => {
+test("an estimate opens in the shared Canvas with version-safe artifact rendering", async () => {
 	const [auxiliaryController, artifact, surface, loader, editor] =
 		await Promise.all([
 		readSource(
@@ -112,7 +155,7 @@ test("an estimate opens beside chat with version-safe artifact rendering", async
 			"components/assistant-ui/product-widgets/estimate-document-surface.tsx",
 		),
 		readSource(
-			"components/assistant-ui/product-widgets/estimate-document-common.tsx",
+			"lib/estimate/document.ts",
 		),
 		readSource("components/assistant-ui/product-widgets/estimate-editor.tsx"),
 	]);
@@ -129,9 +172,9 @@ test("an estimate opens beside chat with version-safe artifact rendering", async
 	assert.match(artifact, /expectedVersion=\{file\.version\}/);
 	assert.match(artifact, /key=\{file\.documentId\}/);
 	assert.doesNotMatch(artifact, /key=\{file\.version\}/);
-	assert.match(loader, /parsed\.data\.documentId !== documentId/);
-	assert.match(loader, /parsed\.data\.projectId !== projectId/);
-	assert.match(loader, /parsed\.data\.version < minimumVersion/);
+	assert.match(loader, /parsed\.data\.documentId !== identity\.documentId/);
+	assert.match(loader, /parsed\.data\.projectId !== identity\.projectId/);
+	assert.match(loader, /parsed\.data\.version < identity\.minimumVersion/);
 	assert.match(surface, /KOLIBRI_DOCUMENTS_CHANGED_EVENT/);
 	assert.doesNotMatch(surface, /setEstimate\(null\)/);
 	assert.match(surface, /data-document-id=\{estimate\.documentId\}/);

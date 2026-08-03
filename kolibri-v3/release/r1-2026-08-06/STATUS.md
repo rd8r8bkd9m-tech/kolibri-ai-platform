@@ -1,6 +1,6 @@
 # Kolibri V3 R1 — release control board
 
-Updated: 2026-07-30 18:59 MSK  
+Updated: 2026-08-02 03:42 MSK
 Target: 2026-08-06 18:00 MSK  
 Production: `https://kolibriai.ru/app`  
 Decision authority: product owner
@@ -8,6 +8,61 @@ Decision authority: product owner
 This file is the operational resume point after any interruption. The
 roadmap defines scope; this board records current truth. A workstream is not
 `DONE` until its required test, artifact or runtime evidence is linked here.
+
+## 2026-08-01 production acceptance checkpoint
+
+Verdict: **BLOCKED**. Live `/api/health` reports commit
+`0874ec5a510d04ccd1ad33af319be0b47df51fbe`, which equals the inspected local
+HEAD but is not reachable from any published `origin` ref. The acceptance
+fixes are uncommitted and therefore are not the deployed artifact. Live still
+returns `/api/v1/health` as 404, discloses `nginx/1.24.0 (Ubuntu)` and a global
+release header, lacks CSP/HSTS, and the pet intercepts the Projects control at
+1363 × 936. Production authenticated QA was intentionally not run without a
+clean disposable QA tenant and production-safe archival path.
+
+Local candidate verification is green: full backend `331 passed`, web
+`162 passed`, both Rust crates fmt/clippy/tests, production build, mobile
+typecheck/`18 passed`/lint, and desktop Playwright `10 passed` across
+1363 × 936 and 1440 × 900. Web dependency audit reports zero; mobile high
+findings are zero after the non-breaking lock update, with 11 moderate
+Expo/xcode transitive findings remaining. Backup/restore is proven by the
+portable rehearsal test, but immutable-candidate restore, rollback, canary,
+external monitoring and production CSP enforcement rollout are not yet
+evidenced. A local enforce-mode production build and Chromium smoke have zero
+console errors; the strict no-inline policy stays report-only until nonce
+propagation is complete.
+See `evidence/live-production-acceptance-2026-08-01.md`.
+
+## 2026-08-02 official estimate document-pack checkpoint
+
+The immutable `EstimateDocumentSnapshot` issue flow and `official_ru_v1`
+renderers are implemented for preliminary and issue modes. The persisted pack
+contains PDF, DOCX, XLSX and ZIP artifacts with tenant-scoped CAS verification,
+exact estimate-version binding, idempotency replay, counterparty requisites
+gating for invoices, and the BFF download contract. The estimate schema reads
+legacy 1.0–1.2 documents and emits the 1.3 display contract.
+
+The estimate card now exposes a responsive, printable HTML preview generated
+from the same immutable snapshot: five vertical document pages, matching the
+official green/teal visual language, with a single `Выпустить официальный`
+action that issues the exact version being viewed before downloads are offered.
+
+Focused document-pack tests are `5 passed`; migration/runtime regressions are
+`7 passed`. A real 100 m² Moscow pack was rendered and visually checked as
+five portrait A4 pages with no horizontal clipping, no JavaScript, and no
+forbidden user-facing term. QA artifacts are under
+`output/pdf/official-preview-koli/qa-100m2-v2-*` and the contact sheet is
+`tmp/qa-official/100m2-v2-contact-sheet.png`.
+
+The canonical quick gate is green after these changes: backend `340 passed`,
+web `165 passed`, Rust estimate `6 passed` including the golden contract, and
+Rust storage executor `27 passed`.
+The subsequent full gate also passed: production web build, mobile typecheck,
+mobile tests `18 passed`, and Expo lint.
+
+This remains a local candidate only. Production is **BLOCKED** until the
+changes are committed into one immutable candidate and the portable release,
+rollback, canary, and owner GO gates are complete.
 
 ## Status vocabulary
 

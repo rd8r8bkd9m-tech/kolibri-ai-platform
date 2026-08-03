@@ -19,6 +19,11 @@ export const toAmount = (quantity: string, unitPrice: string) => {
 };
 
 export const formatMoney = (value: number | string) => {
+	if (typeof value === "string" && /^(?:0|[1-9]\d*)(?:\.\d{1,2})?$/.test(value)) {
+		const [integer, fraction = ""] = value.split(".");
+		const grouped = integer.replace(/\B(?=(\d{3})+(?!\d))/g, " ");
+		return `${grouped},${fraction.padEnd(2, "0")} ₽`;
+	}
 	const numeric = typeof value === "number" ? value : Number(value);
 	return new Intl.NumberFormat("ru-RU", {
 		style: "currency",
@@ -55,6 +60,7 @@ export const emptyRow = (): EditableEstimateRow => ({
 	unitPrice: "0.00",
 	quantityBasis: "Введено пользователем",
 	priceBasis: "Введено пользователем",
+	lineConfidence: "missing",
 	priceEvidence: null,
 });
 
