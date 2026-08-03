@@ -62,7 +62,7 @@ CREATE TABLE IF NOT EXISTS catalog_candidates (
     project_id TEXT,
     source_type TEXT NOT NULL
         CHECK (source_type IN ('ai_generated', 'user_manual', 'estimate_import', 'supplier_import')),
-    original_text TEXT NOT NULL CHECK (length(original_text) BETWEEN 1 AND 2_000),
+    original_text TEXT NOT NULL CHECK (length(original_text) BETWEEN 1 AND 2000),
     proposed_canonical_name TEXT NOT NULL CHECK (length(proposed_canonical_name) BETWEEN 1 AND 300),
     proposed_short_name TEXT NOT NULL CHECK (length(proposed_short_name) BETWEEN 1 AND 160),
     kind TEXT NOT NULL
@@ -222,7 +222,7 @@ CREATE INDEX IF NOT EXISTS ix_pricing_consent_events_scope
 CREATE TABLE IF NOT EXISTS market_pricing_policies (
     policy_version TEXT PRIMARY KEY,
     minimum_independent_contributors INTEGER NOT NULL CHECK (minimum_independent_contributors >= 2),
-    freshness_days INTEGER NOT NULL CHECK (freshness_days BETWEEN 1 AND 3_650),
+    freshness_days INTEGER NOT NULL CHECK (freshness_days BETWEEN 1 AND 3650),
     outlier_method TEXT NOT NULL CHECK (outlier_method = 'tukey_iqr_1_5'),
     active INTEGER NOT NULL CHECK (active IN (0, 1)),
     created_at TEXT NOT NULL

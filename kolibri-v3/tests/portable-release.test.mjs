@@ -1426,6 +1426,21 @@ test("database rehearsal creates an exact restorable snapshot and rolls back its
   assert.equal((await stat(restored)).mode & 0o777, 0o600);
   assert.deepEqual(await readFile(restored), await readFile(backup));
 
+  const rollbackRestored = path.join(canonicalRoot, "rollback-restored.db");
+  const rollback = run("python3", [
+    helper,
+    "restore",
+    "--backup",
+    backup,
+    "--output",
+    rollbackRestored,
+    "--expected-version",
+    "43",
+  ]);
+  requireSuccess(rollback, "database rollback restore");
+  assert.match(rollback.stdout, /database_restore=ok/);
+  assert.deepEqual(await readFile(rollbackRestored), await readFile(backup));
+
   const verified = run("python3", [
     "-c",
     [
@@ -1651,6 +1666,10 @@ test("installer statically binds verification, immutable activation, health iden
   assert.match(
     installer,
     /database-rehearsal[.]py" backup[\s\S]+--source "\$data_root\/kolibri-v3[.]db"[\s\S]+--output "\$backup_dir\/kolibri-v3[.]db"/,
+  );
+  assert.match(
+    installer,
+    /database_helper" restore[\s\S]+--backup "\$backup_dir\/kolibri-v3[.]db"[\s\S]+--output "\$data_root\/kolibri-v3[.]db"/,
   );
   assert.match(installer, /"releaseId": sys[.]argv\[1\]/);
   assert.match(installer, /"releaseCommit": sys[.]argv\[2\]/);

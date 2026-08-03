@@ -363,6 +363,19 @@ def verify_command(arguments: argparse.Namespace) -> None:
     print(f"database_sha256={sha256_file(arguments.database)}")
 
 
+def restore_command(arguments: argparse.Namespace) -> None:
+    atomic_restore(arguments.backup, arguments.output)
+    verification = verify_database(
+        arguments.output,
+        expected_version=arguments.expected_version,
+        write_probe=True,
+    )
+    print("database_restore=ok")
+    print(f"database_schema_version={verification.schema_version}")
+    print(f"database_table_count={verification.table_count}")
+    print(f"database_sha256={sha256_file(arguments.output)}")
+
+
 def rehearse_command(arguments: argparse.Namespace) -> None:
     source, _identity = canonical_regular_file(arguments.source)
     work_dir = canonical_private_directory(arguments.work_dir)
@@ -417,6 +430,12 @@ def parser() -> argparse.ArgumentParser:
     verify_parser.add_argument("--expected-version", type=int)
     verify_parser.add_argument("--write-probe", action="store_true")
     verify_parser.set_defaults(handler=verify_command)
+
+    restore_parser = commands.add_parser("restore")
+    restore_parser.add_argument("--backup", type=Path, required=True)
+    restore_parser.add_argument("--output", type=Path, required=True)
+    restore_parser.add_argument("--expected-version", type=int)
+    restore_parser.set_defaults(handler=restore_command)
 
     rehearse_parser = commands.add_parser("rehearse")
     rehearse_parser.add_argument("--source", type=Path, required=True)

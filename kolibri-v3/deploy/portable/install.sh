@@ -1030,6 +1030,24 @@ rollback() {
   if [[ "$switched" -eq 1 ]]; then
     systemctl stop "${KOLIBRI_INSTANCE}-frontend.service" \
       "${KOLIBRI_INSTANCE}-backend.service" || true
+    if [[ -f "$backup_dir/kolibri-v3.db" ]]; then
+      failed_database="$backup_dir/failed-activation.db"
+      if [[ -f "$data_root/kolibri-v3.db" && ! -L "$data_root/kolibri-v3.db" ]]; then
+        mv "$data_root/kolibri-v3.db" "$failed_database"
+      fi
+      if ! "$database_helper" restore \
+        --backup "$backup_dir/kolibri-v3.db" \
+        --output "$data_root/kolibri-v3.db"; then
+        rm -f "$data_root/kolibri-v3.db"
+        [[ ! -f "$failed_database" ]] || \
+          mv "$failed_database" "$data_root/kolibri-v3.db"
+        echo "install_error=database_rollback_failed" >&2
+      else
+        chown "$KOLIBRI_SERVICE_USER:$KOLIBRI_SERVICE_USER" \
+          "$data_root/kolibri-v3.db"
+        chmod 600 "$data_root/kolibri-v3.db"
+      fi
+    fi
     rm -f "$current_link"
     [[ ! -L "$backup_dir/previous-current" ]] ||
       cp -a "$backup_dir/previous-current" "$current_link"
