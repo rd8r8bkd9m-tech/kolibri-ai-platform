@@ -18,6 +18,8 @@ import threading
 import time
 from typing import Any, Callable, Sequence
 
+from .constants import CODEX_MODEL_DEFAULT
+from .mcp_config import mcp_servers_json
 from .agent_runtime_session_cache import (
     AgentRuntimeSessionCacheError,
     AgentRuntimeSessionCacheProtocol,
@@ -148,31 +150,7 @@ class CodexAppServerRuntime:
         "-c",
         'web_search="live"',
         "-c",
-        "plugins={}",
-        "-c",
-        "mcp_servers={}",
-        "--disable",
-        "plugins",
-        "--disable",
-        "apps",
-        "--disable",
-        "browser_use",
-        "--disable",
-        "computer_use",
-        "--disable",
-        "in_app_browser",
-        "--disable",
-        "multi_agent",
-        "--disable",
-        "multi_agent_v2",
-        "--disable",
-        "goals",
-        "--disable",
-        "workspace_dependencies",
-        "--disable",
-        "image_generation",
-        "--disable",
-        "hooks",
+        f"mcp_servers={mcp_servers_json()}",
     )
 
     def __init__(
@@ -189,7 +167,7 @@ class CodexAppServerRuntime:
         self._model = (
             model
             if model is not None
-            else os.getenv("KOLIBRI_V3_CODEX_MODEL", "gpt-5.5").strip()
+            else os.getenv("KOLIBRI_V3_CODEX_MODEL", CODEX_MODEL_DEFAULT).strip()
         )
         self._effort = (
             effort

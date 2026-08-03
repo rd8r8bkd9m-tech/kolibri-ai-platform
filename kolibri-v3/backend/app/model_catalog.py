@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from typing_extensions import Annotated
 
 from .agent_runtime import AgentRuntimeDescriptor, AgentRuntimeRegistry
+from .constants import MIMO_MODEL_DEFAULT, MIMO_MODEL_DISPLAY
 from .database import get_database
 from .identity import require_user
 from .schemas import AgentProfile, UserSession
@@ -24,8 +25,8 @@ IdentityDependency = Annotated[UserSession, Depends(require_user)]
 _MODEL_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,119}$")
 _OPTION_ID = re.compile(r"^[a-z0-9][a-z0-9_-]{0,31}$")
 
-MIMO_DEFAULT_MODEL_ID = "mimo-v2.5-pro"
-MIMO_DEFAULT_MODEL_NAME = "MiMo 2.5 Pro"
+MIMO_DEFAULT_MODEL_ID = MIMO_MODEL_DEFAULT
+MIMO_DEFAULT_MODEL_NAME = MIMO_MODEL_DISPLAY
 
 
 @dataclass(frozen=True, slots=True)

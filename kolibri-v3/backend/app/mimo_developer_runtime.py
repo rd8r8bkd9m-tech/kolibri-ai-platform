@@ -18,6 +18,8 @@ import tempfile
 import threading
 import time
 from typing import Any, Callable, Sequence
+
+from .constants import MIMO_DEVELOPER_MODEL_DEFAULT
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode, urlsplit
 from urllib.request import Request, urlopen
@@ -1196,7 +1198,7 @@ class MimoDeveloperServerRuntime:
         ]
         model = os.getenv(
             "KOLIBRI_V3_MIMO_DEVELOPER_MODEL",
-            "xiaomi-token-plan-sgp/mimo-v2.5-pro",
+            MIMO_DEVELOPER_MODEL_DEFAULT,
         ).strip()
         if model:
             command.extend(("--model", model))

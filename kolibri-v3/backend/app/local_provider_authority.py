@@ -24,6 +24,7 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.exceptions import InvalidTag
 
 from .config import Settings
+from .constants import MIMO_BASE_URL_DEFAULT
 
 
 _API_KEY = re.compile(r"^[\x21-\x7e]{16,8192}$")
@@ -145,7 +146,7 @@ def _write_private_atomic(path: Path, payload: bytes) -> None:
 def _verify_mimo_key(api_key: str) -> None:
     base_url = os.getenv(
         "KOLIBRI_V3_MIMO_BASE_URL",
-        "https://token-plan-sgp.xiaomimimo.com/v1",
+        MIMO_BASE_URL_DEFAULT,
     ).strip().rstrip("/")
     parsed = urlsplit(base_url)
     if (

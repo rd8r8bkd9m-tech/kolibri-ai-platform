@@ -14,6 +14,16 @@ from pydantic import (
     model_validator,
 )
 
+from .constants import (
+    DEFAULT_BAG_WEIGHT_KG,
+    DEFAULT_BEACON_SPACING_M,
+    DEFAULT_MESH_COVERAGE,
+    DEFAULT_PLASTER_THICKNESS_MM,
+    DEFAULT_ROOM_HEIGHT_M,
+    DEFAULT_WALL_AREA_MULTIPLIER,
+    DEFAULT_WASTE_PCT,
+)
+
 
 DECIMAL_TEXT = re.compile(r"^(?:0|[1-9]\d{0,11})(?:\.\d{1,6})?$")
 DecimalText = Annotated[
@@ -185,7 +195,7 @@ def normalize_plastering_intake(
             r"(\d+(?:[.,]\d+)?)\s*мм",
         ),
     )
-    thickness = explicit_thickness or Decimal("15")
+    thickness = explicit_thickness or DEFAULT_PLASTER_THICKNESS_MM
 
     explicit_waste = _match_decimal(
         source,
@@ -196,7 +206,7 @@ def normalize_plastering_intake(
             ),
         ),
     )
-    waste = explicit_waste or Decimal("10")
+    waste = explicit_waste or DEFAULT_WASTE_PCT
 
     explicit_protection = _named_area(source, r"(?:защит|укрыт)")
     if re.search(r"(?:без\s+защит|защит\w*\s+не\s+треб)", source):
@@ -204,7 +214,7 @@ def normalize_plastering_intake(
         explicit_protection = protection
     else:
         protection = explicit_protection or (
-            wall_area * Decimal("0.25")
+            wall_area * DEFAULT_WALL_AREA_MULTIPLIER
         ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
     explicit_height = _match_decimal(
@@ -216,7 +226,7 @@ def normalize_plastering_intake(
             ),
         ),
     )
-    height = explicit_height or Decimal("3")
+    height = explicit_height or DEFAULT_ROOM_HEIGHT_M
 
     explicit_beacon_spacing = _match_decimal(
         source,
@@ -227,7 +237,7 @@ def normalize_plastering_intake(
             ),
         ),
     )
-    beacon_spacing = explicit_beacon_spacing or Decimal("1.5")
+    beacon_spacing = explicit_beacon_spacing or DEFAULT_BEACON_SPACING_M
 
     explicit_corners = _match_decimal(
         source,
@@ -250,7 +260,7 @@ def normalize_plastering_intake(
     )
     if re.search(r"(?:без\s+сетк|сетк\w*\s+не\s+треб)", source):
         explicit_mesh = Decimal("0")
-    mesh = explicit_mesh if explicit_mesh is not None else Decimal("10")
+    mesh = explicit_mesh if explicit_mesh is not None else DEFAULT_MESH_COVERAGE
 
     explicit_slopes = _named_area(source, r"откос")
     if re.search(r"(?:без\s+откос|откос\w*\s+не\s+учит)", source):
@@ -266,7 +276,7 @@ def normalize_plastering_intake(
             ),
         ),
     )
-    bag_weight = explicit_bag_weight or Decimal("30")
+    bag_weight = explicit_bag_weight or DEFAULT_BAG_WEIGHT_KG
 
     explicit_primer_passes = _match_decimal(
         source,

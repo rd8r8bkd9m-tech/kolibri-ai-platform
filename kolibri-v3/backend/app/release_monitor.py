@@ -27,6 +27,8 @@ from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 from cryptography import x509
 
+from .constants import USER_AGENT_RELEASE_MONITOR
+
 
 _RELEASE_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 _RELEASE_COMMIT_PATTERN = re.compile(r"^[0-9a-f]{40}$")
@@ -156,7 +158,7 @@ def _endpoint_ready(
 ) -> bool:
     request = Request(
         url,
-        headers={"Accept": "application/json", "User-Agent": "kolibri-monitor/1"},
+        headers={"Accept": "application/json", "User-Agent": USER_AGENT_RELEASE_MONITOR},
         method="GET",
     )
     try:

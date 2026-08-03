@@ -14,8 +14,17 @@ from urllib.parse import urlencode, urlsplit
 import httpx
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator, model_validator
 
+from .constants import (
+    FGIS_API_ORIGIN as _FGIS_API_ORIGIN,
+    FGIS_HOST,
+    FGIS_AUTHORITY_INFO_URL,
+    TIMEOUT_FGIS,
+    TIMEOUT_FGIS_CONNECT,
+    USER_AGENT_KOLIBRI_ESTIMATE,
+)
 
-FGIS_API_ORIGIN = "https://fgiscs.minstroyrf.ru"
+
+FGIS_API_ORIGIN = _FGIS_API_ORIGIN
 FGIS_API_BASE = f"{FGIS_API_ORIGIN}/api"
 FGIS_PUBLIC_PRICES_URL = f"{FGIS_API_ORIGIN}/prices"
 FGIS_PUBLISHER = "ФАУ «Главгосэкспертиза России» / ФГИС ЦС"
@@ -37,7 +46,7 @@ RETRYABLE_FGIS_STATUS_CODES = frozenset({429, 502, 503, 504})
 FGIS_SOURCE_POLICY: Mapping[str, Any] = {
     "version": FGIS_SOURCE_POLICY_VERSION,
     "authority": FGIS_PUBLISHER,
-    "authorityInformationUrl": "https://minstroyrf.gov.ru/trades/tsenoobrazovanie/",
+    "authorityInformationUrl": FGIS_AUTHORITY_INFO_URL,
     "publicSurfaceUrl": FGIS_PUBLIC_PRICES_URL,
     "accessClass": "public_read_only_application_endpoint",
     "purpose": "interactive_user_requested_estimate_enrichment",
@@ -49,7 +58,7 @@ FGIS_SOURCE_POLICY: Mapping[str, Any] = {
         "searchAttemptsPerRow": MAX_SEARCH_ATTEMPTS_PER_ROW,
         "concurrentRequests": MAX_CONCURRENT_FGIS_REQUESTS,
         "httpAttempts": MAX_FGIS_HTTP_ATTEMPTS,
-        "timeoutSeconds": 12,
+        "timeoutSeconds": int(TIMEOUT_FGIS),
     },
 }
 
@@ -513,13 +522,13 @@ class FgisPriceAdapter:
         self,
         *,
         transport: httpx.AsyncBaseTransport | None = None,
-        timeout_seconds: float = 12.0,
+        timeout_seconds: float = TIMEOUT_FGIS,
         freshness_days: int = 120,
     ) -> None:
         self._transport = transport
         self._timeout = httpx.Timeout(
             timeout_seconds,
-            connect=min(timeout_seconds, 4.0),
+            connect=min(timeout_seconds, TIMEOUT_FGIS_CONNECT),
         )
         self._freshness_days = freshness_days
 
@@ -553,7 +562,7 @@ class FgisPriceAdapter:
             follow_redirects=False,
             headers={
                 "Accept": "application/json",
-                "User-Agent": "KolibriAI-Estimate/1.0 (+https://kolibriai.ru)",
+                "User-Agent": USER_AGENT_KOLIBRI_ESTIMATE,
             },
         ) as client:
             context = await self._resolve_context(client, region)
@@ -764,7 +773,7 @@ class FgisPriceAdapter:
             raise PricingSourceUnavailable(
                 f"ФГИС ЦС вернула HTTP {response.status_code}."
             )
-        if response.url.host != "fgiscs.minstroyrf.ru":
+        if response.url.host != FGIS_HOST:
             raise PricingSourceProtocolError("FGIS CS response origin changed")
         if "json" not in response.headers.get("content-type", "").casefold():
             raise PricingSourceProtocolError("FGIS CS response is not JSON")

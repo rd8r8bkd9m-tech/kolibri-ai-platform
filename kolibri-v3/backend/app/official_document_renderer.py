@@ -42,6 +42,17 @@ from reportlab.platypus import (
     TableStyle,
 )
 
+from .constants import (
+    PDF_COLOR_INK,
+    PDF_COLOR_TEAL,
+    PDF_COLOR_MUTED,
+    PDF_COLOR_BORDER,
+    PDF_COLOR_BORDER_LIGHT,
+    PDF_COLOR_SURFACE,
+    PDF_COLOR_DIVIDER,
+    PDF_COLOR_TEXT,
+)
+
 from .estimate_document_pack import DocumentPackError, RenderedDocumentFile
 
 
@@ -51,15 +62,15 @@ _FONT_DIR = _ROOT / "assets" / "fonts"
 _PET_MARK = _ROOT.parent / "public" / "pets" / "masters" / "kolibri-v1.png"
 _FONT_REGULAR = "KolibriNotoSans"
 _FONT_BOLD = "KolibriNotoSansBold"
-_INK = colors.HexColor("#10241D")
-_TEAL = colors.HexColor("#128F88")
-_MUTED = colors.HexColor("#66756D")
-_LINE = colors.HexColor("#A8B4AE")
-_LINE_LIGHT = colors.HexColor("#D7DEDA")
-_FILL = colors.HexColor("#F2F5F3")
-_FILL_DARK = colors.HexColor("#E5EBE8")
+_INK = colors.HexColor(PDF_COLOR_INK)
+_TEAL = colors.HexColor(PDF_COLOR_TEAL)
+_MUTED = colors.HexColor(PDF_COLOR_MUTED)
+_LINE = colors.HexColor(PDF_COLOR_BORDER)
+_LINE_LIGHT = colors.HexColor(PDF_COLOR_BORDER_LIGHT)
+_FILL = colors.HexColor(PDF_COLOR_SURFACE)
+_FILL_DARK = colors.HexColor(PDF_COLOR_DIVIDER)
 _WHITE = colors.white
-_BLACK = colors.HexColor("#111111")
+_BLACK = colors.HexColor(PDF_COLOR_TEXT)
 _MONEY_Q = 2
 
 

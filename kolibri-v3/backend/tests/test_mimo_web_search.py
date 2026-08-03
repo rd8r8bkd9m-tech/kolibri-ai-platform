@@ -11,6 +11,7 @@ from app.agent_runtime import LIVE_WEB_SEARCH_CAPABILITY_ID
 from app.config import Settings
 from app.direct_model_runtime import (
     DirectModelError,
+    MIMO_FUNCTION_TOOLS,
     MIMO_WEB_SEARCH_TOOL,
     _mimo_web_search_tool,
     _mimo_response,
@@ -130,7 +131,8 @@ def test_mimo_chat_declares_live_web_search_and_streams_sources(
     request = runtime.calls[0]
     assert request["url"].endswith("/v1/chat/completions")
     assert request["payload"]["tools"] == [
-        {**MIMO_WEB_SEARCH_TOOL, "force_search": True}
+        {**MIMO_WEB_SEARCH_TOOL, "force_search": True},
+        *MIMO_FUNCTION_TOOLS,
     ]
     [system_message, user_message] = request["payload"]["messages"]
     assert system_message["role"] == "system"
@@ -185,7 +187,8 @@ def test_mimo_web_search_rejection_is_not_silently_retried_without_search(
     assert response.closed is True
     assert len(runtime.calls) == 1
     assert runtime.calls[0]["payload"]["tools"] == [
-        {**MIMO_WEB_SEARCH_TOOL, "force_search": True}
+        {**MIMO_WEB_SEARCH_TOOL, "force_search": True},
+        *MIMO_FUNCTION_TOOLS,
     ]
 
 

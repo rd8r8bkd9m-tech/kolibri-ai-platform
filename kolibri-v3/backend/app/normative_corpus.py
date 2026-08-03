@@ -15,6 +15,11 @@ from urllib.parse import urljoin, urlsplit
 import httpx
 from pypdf import PdfReader
 
+from .constants import (
+    TIMEOUT_NORMATIVE,
+    USER_AGENT_NORMATIVE_CORPUS,
+)
+
 
 PARSER_VERSION = "normative-corpus/1.0.0"
 MAX_NORMATIVE_BYTES = 20 * 1024 * 1024
@@ -124,7 +129,7 @@ def source_policy(
 
 
 class NormativeFetcher:
-    def __init__(self, *, timeout_seconds: float = 20.0) -> None:
+    def __init__(self, *, timeout_seconds: float = TIMEOUT_NORMATIVE) -> None:
         self._timeout = httpx.Timeout(
             timeout_seconds,
             connect=min(timeout_seconds, 8.0),
@@ -142,7 +147,7 @@ class NormativeFetcher:
             follow_redirects=False,
             headers={
                 "Accept": "application/pdf,text/plain,text/html;q=0.9",
-                "User-Agent": "Kolibri-Normative-Corpus/1.0",
+                "User-Agent": USER_AGENT_NORMATIVE_CORPUS,
             },
         ) as client:
             for _ in range(MAX_REDIRECTS + 1):

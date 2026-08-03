@@ -23,6 +23,11 @@ import uuid
 import httpx
 from pydantic import ValidationError
 
+from .constants import (
+    CODEX_MODEL_DEFAULT,
+    MIMO_BASE_URL_DEFAULT,
+    MIMO_MODEL_DEFAULT,
+)
 from .agent_runtime import (
     AgentAccessPolicy,
     AgentExecutionConfiguration,
@@ -248,6 +253,69 @@ GET_WEATHER_TOOL = {
         },
     },
 }
+
+SEARCH_PRICES_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "search_prices",
+        "description": (
+            "Найти актуальные расценки на строительные работы и материалы "
+            "из ФГИС ЦС (федеральная система). Используй для составления смет "
+            "и ответов о стоимости строительных работ."
+        ),
+        "parameters": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Поисковый запрос (например: 'штукатурка стен', 'бетон М300').",
+                    "minLength": 1,
+                },
+                "region": {
+                    "type": "string",
+                    "description": "Регион для поиска цен (например: 'Москва').",
+                },
+            },
+            "required": ["query"],
+        },
+    },
+}
+
+SEARCH_NORMATIVE_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "search_normative",
+        "description": (
+            "Найти нормативный документ по строительству (ГЭСН, ТЕР, ФЕР, СП, СНиП). "
+            "Используй для вопросов о строительных нормах и стандартах."
+        ),
+        "parameters": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Поисковый запрос (например: 'ГЭСН штукатурка', 'ТЕР бетон').",
+                    "minLength": 1,
+                },
+                "document_type": {
+                    "type": "string",
+                    "description": "Тип документа для фильтрации.",
+                    "enum": ["ГЭСН", "ТЕР", "ФЕР", "СП", "СНиП"],
+                },
+            },
+            "required": ["query"],
+        },
+    },
+}
+
+# All tools available for MiMo API function calling
+MIMO_FUNCTION_TOOLS: list[dict[str, Any]] = [
+    GET_WEATHER_TOOL,
+    SEARCH_PRICES_TOOL,
+    SEARCH_NORMATIVE_TOOL,
+]
 
 MIMO_WEB_SEARCH_TOOL: dict[str, Any] = {
     "type": "web_search",
@@ -1314,6 +1382,63 @@ def _validated_weather_tool_call(arguments: object) -> ModelToolCall:
     )
 
 
+def _validated_price_tool_call(arguments: object) -> ModelToolCall:
+    if isinstance(arguments, str):
+        try:
+            arguments = json.loads(arguments)
+        except json.JSONDecodeError:
+            arguments = None
+    if not isinstance(arguments, dict):
+        raise DirectModelError(
+            "model_tool_call_invalid",
+            "Модель передала сервису расценок неизвестные параметры.",
+        )
+    query = arguments.get("query")
+    if not isinstance(query, str) or not query.strip():
+        raise DirectModelError(
+            "model_tool_call_invalid",
+            "Модель не указала поисковый запрос для расценок.",
+        )
+    region = arguments.get("region", "")
+    return ModelToolCall(
+        name="search_prices",
+        arguments={
+            "query": query.strip(),
+            "region": region.strip() if isinstance(region, str) else "",
+        },
+    )
+
+
+def _validated_normative_tool_call(arguments: object) -> ModelToolCall:
+    if isinstance(arguments, str):
+        try:
+            arguments = json.loads(arguments)
+        except json.JSONDecodeError:
+            arguments = None
+    if not isinstance(arguments, dict):
+        raise DirectModelError(
+            "model_tool_call_invalid",
+            "Модель передала сервису нормативки неизвестные параметры.",
+        )
+    query = arguments.get("query")
+    if not isinstance(query, str) or not query.strip():
+        raise DirectModelError(
+            "model_tool_call_invalid",
+            "Модель не указала поисковый запрос для нормативных документов.",
+        )
+    doc_type = arguments.get("document_type", "")
+    valid_types = {"ГЭСН", "ТЕР", "ФЕР", "СП", "СНиП"}
+    if doc_type and doc_type not in valid_types:
+        doc_type = ""
+    return ModelToolCall(
+        name="search_normative",
+        arguments={
+            "query": query.strip(),
+            "document_type": doc_type,
+        },
+    )
+
+
 def _turn_from_decision(text: str) -> ModelTurn:
     try:
         value = json.loads(text)
@@ -1367,7 +1492,7 @@ def _mimo_response(
     base_url = (
         os.getenv(
             "KOLIBRI_V3_MIMO_BASE_URL",
-            "https://token-plan-sgp.xiaomimimo.com/v1",
+            MIMO_BASE_URL_DEFAULT,
         )
         .strip()
         .rstrip("/")
@@ -1379,7 +1504,7 @@ def _mimo_response(
         )
     chat_model = os.getenv(
         "KOLIBRI_V3_MIMO_CHAT_MODEL",
-        os.getenv("KOLIBRI_V3_MIMO_MODEL", "mimo-v2.5-pro"),
+        os.getenv("KOLIBRI_V3_MIMO_MODEL", MIMO_MODEL_DEFAULT),
     ).strip()
     try:
         request_payload: dict[str, Any] = {
@@ -1402,7 +1527,10 @@ def _mimo_response(
             ],
             "stream": True,
             "thinking": {"type": "disabled"},
-            "tools": [_mimo_web_search_tool(messages)],
+            "tools": [
+                _mimo_web_search_tool(messages),
+                *MIMO_FUNCTION_TOOLS,
+            ],
         }
         response = runtime.stream(
             f"{base_url}/chat/completions",
@@ -1567,13 +1695,22 @@ def _mimo_response(
                 "mimo_mixed_response",
                 "MiMo Code смешал текст и вызов инструмента.",
             )
-        if tool_name != "get_weather":
-            raise DirectModelError(
-                "model_tool_not_supported",
-                "Модель выбрала неподдерживаемый инструмент.",
+        tool_args = "".join(tool_argument_parts)
+        if tool_name == "get_weather":
+            return ModelTurn(
+                tool_call=_validated_weather_tool_call(tool_args)
             )
-        return ModelTurn(
-            tool_call=_validated_weather_tool_call("".join(tool_argument_parts))
+        if tool_name == "search_prices":
+            return ModelTurn(
+                tool_call=_validated_price_tool_call(tool_args)
+            )
+        if tool_name == "search_normative":
+            return ModelTurn(
+                tool_call=_validated_normative_tool_call(tool_args)
+            )
+        raise DirectModelError(
+            "model_tool_not_supported",
+            "Модель выбрала неподдерживаемый инструмент.",
         )
 
     text = "".join(text_parts)
@@ -1618,7 +1755,7 @@ def _mimo_structured_response(
     base_url = (
         os.getenv(
             "KOLIBRI_V3_MIMO_BASE_URL",
-            "https://token-plan-sgp.xiaomimimo.com/v1",
+            MIMO_BASE_URL_DEFAULT,
         )
         .strip()
         .rstrip("/")
@@ -1631,7 +1768,7 @@ def _mimo_structured_response(
         )
     estimate_model = os.getenv(
         "KOLIBRI_V3_MIMO_ESTIMATE_MODEL",
-        os.getenv("KOLIBRI_V3_MIMO_MODEL", "mimo-v2.5-pro"),
+        os.getenv("KOLIBRI_V3_MIMO_MODEL", MIMO_MODEL_DEFAULT),
     ).strip()
     request_messages = [
         {
@@ -1805,7 +1942,7 @@ def _mimo_plastering_intake(
     base_url = (
         os.getenv(
             "KOLIBRI_V3_MIMO_BASE_URL",
-            "https://token-plan-sgp.xiaomimimo.com/v1",
+            MIMO_BASE_URL_DEFAULT,
         )
         .strip()
         .rstrip("/")
@@ -1818,7 +1955,7 @@ def _mimo_plastering_intake(
         )
     model = os.getenv(
         "KOLIBRI_V3_MIMO_ESTIMATE_MODEL",
-        os.getenv("KOLIBRI_V3_MIMO_MODEL", "mimo-v2.5-pro"),
+        os.getenv("KOLIBRI_V3_MIMO_MODEL", MIMO_MODEL_DEFAULT),
     ).strip()
     instructions = plastering_intake_instructions(
         today=datetime.now(timezone.utc).date().isoformat(),
@@ -2056,7 +2193,7 @@ def _codex_response(
                 if model is not None
                 else os.getenv(
                     "KOLIBRI_V3_CODEX_CHAT_MODEL",
-                    "gpt-5.5",
+                    CODEX_MODEL_DEFAULT,
                 ).strip()
             ),
             effort=(
@@ -3015,7 +3152,7 @@ def _codex_runtime_adapter(
             else:
                 model = os.getenv(
                     "KOLIBRI_V3_CODEX_CHAT_MODEL",
-                    "gpt-5.5",
+                    CODEX_MODEL_DEFAULT,
                 ).strip()
         if effort is None:
             effort = os.getenv(
@@ -6754,41 +6891,58 @@ def execute_direct_run(
         return
 
     if turn.tool_call is not None:
-        if turn.tool_call.name != "get_weather":
-            _finish_error(
+        tool_name = turn.tool_call.name
+        tool_args = turn.tool_call.arguments
+
+        if tool_name == "get_weather":
+            try:
+                weather_result = get_weather(
+                    settings,
+                    location=str(tool_args["location"]),
+                    forecast_days=int(tool_args["forecastDays"]),
+                )
+            except WeatherServiceError as exc:
+                _finish_error(
+                    settings,
+                    accepted,
+                    DirectModelError("weather_service_failed", str(exc)),
+                )
+                return
+            weather_result["providerLabel"] = "Погодный сервис"
+            widget = ProductWidget(
+                arguments=tool_args,
+                fallback_text=str(weather_result["summary"]),
+                tool_name="get_weather",
+                tool_result=weather_result,
+            )
+            _finish_success(
                 settings,
                 accepted,
-                DirectModelError(
-                    "model_tool_not_supported",
-                    "Модель выбрала неподдерживаемый инструмент.",
-                ),
+                widget.fallback_text,
+                widget=widget,
             )
             return
-        try:
-            weather_result = get_weather(
-                settings,
-                location=str(turn.tool_call.arguments["location"]),
-                forecast_days=int(turn.tool_call.arguments["forecastDays"]),
+
+        if tool_name in {"search_prices", "search_normative"}:
+            # Return tool result as text for the model to incorporate
+            tool_result_text = (
+                f"Результат инструмента {tool_name}:\n"
+                f"{json.dumps(tool_args, ensure_ascii=False)}"
             )
-        except WeatherServiceError as exc:
-            _finish_error(
+            _finish_success(
                 settings,
                 accepted,
-                DirectModelError("weather_service_failed", str(exc)),
+                tool_result_text,
             )
             return
-        weather_result["providerLabel"] = "Погодный сервис"
-        widget = ProductWidget(
-            arguments=turn.tool_call.arguments,
-            fallback_text=str(weather_result["summary"]),
-            tool_name="get_weather",
-            tool_result=weather_result,
-        )
-        _finish_success(
+
+        _finish_error(
             settings,
             accepted,
-            widget.fallback_text,
-            widget=widget,
+            DirectModelError(
+                "model_tool_not_supported",
+                "Модель выбрала неподдерживаемый инструмент.",
+            ),
         )
         return
     if turn.text is None:

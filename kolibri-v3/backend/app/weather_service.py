@@ -12,6 +12,14 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import httpx
 
 from .config import Settings
+from .constants import (
+    OPEN_METEO_FORECAST_URL,
+    OPEN_METEO_GEOCODING_URL,
+    OPEN_METEO_SOURCE_URL,
+    TIMEOUT_WEATHER_CONNECT,
+    TIMEOUT_WEATHER_MAX,
+    TIMEOUT_WEATHER_MIN,
+)
 
 
 class WeatherServiceError(RuntimeError):
@@ -385,11 +393,14 @@ def get_weather(
                 return deepcopy(result)
             _WEATHER_CACHE.pop(cache_key, None)
 
-    timeout = min(max(settings.direct_model_timeout_seconds, 5), 15)
+    timeout = min(
+        max(settings.direct_model_timeout_seconds, TIMEOUT_WEATHER_MIN),
+        TIMEOUT_WEATHER_MAX,
+    )
 
     try:
         with httpx.Client(
-            timeout=httpx.Timeout(timeout, connect=5),
+            timeout=httpx.Timeout(timeout, connect=TIMEOUT_WEATHER_CONNECT),
             follow_redirects=False,
             trust_env=False,
         ) as client:
@@ -397,7 +408,7 @@ def get_weather(
             location_confidence = 0.0
             for candidate in _location_candidates(normalized_location):
                 geocoding = client.get(
-                    "https://geocoding-api.open-meteo.com/v1/search",
+                    OPEN_METEO_GEOCODING_URL,
                     params={
                         "name": candidate,
                         "count": 5,
@@ -438,7 +449,7 @@ def get_weather(
             latitude = _number(place.get("latitude"))
             longitude = _number(place.get("longitude"))
             forecast_response = client.get(
-                "https://api.open-meteo.com/v1/forecast",
+                OPEN_METEO_FORECAST_URL,
                 params={
                     "latitude": latitude,
                     "longitude": longitude,
@@ -552,7 +563,7 @@ def get_weather(
         "sources": [
             {
                 "label": "Open-Meteo",
-                "sourceUrl": "https://open-meteo.com/",
+                "sourceUrl": OPEN_METEO_SOURCE_URL,
             }
         ],
     }
