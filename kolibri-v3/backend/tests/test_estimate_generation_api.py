@@ -20,7 +20,7 @@ from app.main import create_app
 
 ORIGIN = {"Origin": "http://testserver"}
 PASSWORD = "correct-horse-battery-staple"
-TASK_BLOB = "task-result-must-not-leak-" * 4_000
+TASK_BLOB = "task_result_must_not_leak_" * 4_000
 CHECKPOINT_BLOB = "checkpoint-payload-must-not-leak-" * 4_000
 
 
