@@ -1381,7 +1381,7 @@ def materialize_estimate_document_pack_widget(
                 provider_profile="server-document-pack-estimate",
                 replace_existing=True,
             )
-        except RuntimeError, ValueError:
+        except (RuntimeError, ValueError):
             return needs_input(
                 version,
                 ("Сохранённая версия сметы",),

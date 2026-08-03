@@ -327,7 +327,7 @@ def _json(raw: object, default: Any) -> Any:
         return default
     try:
         return json.loads(raw)
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         return default
 
 
@@ -393,7 +393,7 @@ def _identifier(value: object, *, field: str) -> str:
 def _decimal(value: object, *, field: str, non_negative: bool = True) -> Decimal:
     try:
         parsed = Decimal(str(value))
-    except InvalidOperation, ValueError:
+    except (InvalidOperation, ValueError):
         raise ValidationFailure(f"{field} must be decimal") from None
     if not parsed.is_finite():
         raise ValidationFailure(f"{field} must be finite")
