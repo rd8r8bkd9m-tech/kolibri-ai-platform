@@ -138,6 +138,112 @@ PYTHONPATH=backend backend/venv/bin/python -m app.owner_bootstrap \
 официального `codex login` остаются только на изолированном Provider Execution
 Authority. V3 backend и браузер получают только безопасный статус.
 
+## MCP серверы и агентные инструменты
+
+V3 использует MCP (Model Context Protocol) серверы для подключения инструментов
+к Codex CLI и MiMo Code. Это позволяет агентам использовать реальные данные
+(погода, расценки, нормативные документы) вместо хардкода.
+
+### Архитектура
+
+```
+Codex CLI (app-server --stdio)
+  ├── web_search="live" (встроенный поиск)
+  ├── kolibri-weather MCP → get_weather()
+  ├── kolibri-pricing MCP → search_prices(), get_reference_prices()
+  └── kolibri-normative MCP → search_normative(), get_normative_document()
+
+MiMo API (function calling)
+  ├── web_search (нативный)
+  ├── get_weather (function calling)
+  ├── search_prices (function calling)
+  └── search_normative (function calling)
+```
+
+### MCP серверы
+
+| Сервер | Файл | Инструменты | Источник данных |
+|--------|------|-------------|-----------------|
+| `kolibri-weather` | `backend/mcp/weather_server.py` | `get_weather` | Open-Meteo API |
+| `kolibri-pricing` | `backend/mcp/pricing_server.py` | `search_prices`, `get_reference_prices` | ФГИС ЦС + справочные расценки |
+| `kolibri-normative` | `backend/mcp/normative_server.py` | `search_normative`, `get_normative_document` | CNTD (ГЭСН/ТЕР/СП) |
+
+### Запуск end-to-end пайплайна
+
+1. **Установите MCP серверы в Codex CLI:**
+
+```bash
+codex mcp add kolibri-weather -- python3 backend/mcp/weather_server.py
+codex mcp add kolibri-pricing -- python3 backend/mcp/pricing_server.py
+codex mcp add kolibri-normative -- python3 backend/mcp/normative_server.py
+```
+
+2. **Проверьте подключение:**
+
+```bash
+codex mcp list
+```
+
+3. **Отправьте тестовый запрос:**
+
+```bash
+# Погода
+codex exec "Какая погода в Москве? Используй kolibri-weather/get_weather."
+
+# Расценки
+codex exec "Найди расценки на штукатурку стен. Используй kolibri-pricing/search_prices."
+
+# Нормативка
+codex exec "Найди ГЭСН на бетонные работы. Используй kolibri-normative/search_normative."
+
+# Смета (полный пайплайн)
+codex exec "Составь смету на штукатурку 20 м². Сначала найди расценки через kolibri-pricing/search_prices."
+```
+
+4. **Через Python (для интеграции в backend):**
+
+```python
+import json
+from backend.mcp.weather_server import server as weather
+from backend.mcp.pricing_server import server as pricing
+
+# Call tool directly
+handler = weather._handlers["get_weather"]
+result = handler(location="Moscow", forecast_days=3)
+print(json.dumps(result, ensure_ascii=False, indent=2))
+```
+
+### Константы (единый источник правды)
+
+Все URL, модели, таймауты, цвета и строительные defaults вынесены в
+`backend/app/constants.py`. Модули импортируют константы вместо хардкода:
+
+```python
+from .constants import MIMO_BASE_URL_DEFAULT, TIMEOUT_FGIS, PDF_COLOR_TEAL
+```
+
+### AGENTS.md и Skills
+
+Агентное поведение определяется в `.agents/AGENTS.md` и скиллах в
+`.agents/skills/`. Codex CLI и MiMo Code читают эти файлы автоматически.
+
+### Переменные окружения
+
+| Переменная | Описание | По умолчанию |
+|-----------|----------|--------------|
+| `KOLIBRI_V3_MIMO_BASE_URL` | URL MiMo API | `https://token-plan-sgp.xiaomimimo.com/v1` |
+| `KOLIBRI_V3_MIMO_MODEL` | Модель MiMo для чата | `mimo-v2.5-pro` |
+| `KOLIBRI_V3_MIMO_CHAT_MODEL` | Модель MiMo для чата (override) | значение `KOLIBRI_V3_MIMO_MODEL` |
+| `KOLIBRI_V3_MIMO_ESTIMATE_MODEL` | Модель MiMo для смет | значение `KOLIBRI_V3_MIMO_MODEL` |
+| `KOLIBRI_V3_CODEX_MODEL` | Модель Codex CLI | `gpt-5.5` |
+| `KOLIBRI_V3_CODEX_EFFORT` | Уровень reasoning Codex | `low` |
+| `KOLIBRI_V3_DATABASE_URL` | URL SQLite базы | `sqlite:///./var/kolibri-v3.db` |
+| `KOLIBRI_V3_ALLOWED_ORIGINS` | CORS origins | `http://127.0.0.1:3103,http://localhost:3103` |
+| `MIMO_API_KEY` | API ключ MiMo | (обязательный) |
+| `OPENAI_API_KEY` | API ключ OpenAI | (обязательный для Codex) |
+
+См. полный список в `.env.example`.
+
 ## Проверки
 
 ```bash
