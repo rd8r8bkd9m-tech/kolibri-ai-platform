@@ -20,6 +20,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useIdentity } from "@/lib/identity/provider";
+import { isAgentProfile } from "@/lib/identity/contracts";
 import type {
   CatalogModel,
   ServiceTierOption,
@@ -96,18 +97,6 @@ const FALLBACK_MODELS: readonly CatalogModel[] = [
     isDefault: true,
     upgrade: null,
   },
-  {
-    id: "mimo-code",
-    profile: "mimo-code",
-    displayName: "MiMo Code",
-    description: "Модель Token Plan.",
-    available: false,
-    supportedReasoningEfforts: [],
-    serviceTiers: [],
-    defaultReasoningEffort: null,
-    isDefault: false,
-    upgrade: null,
-  },
 ];
 
 type MobilePage = "root" | "model" | "effort" | "speed";
@@ -137,7 +126,7 @@ function toModelOption(model: CatalogModel): ModelOption {
     keywords: [
       model.profile,
       model.id,
-      model.profile === "codex-cli" ? "codex openai" : "",
+      model.profile.includes("codex") ? "codex openai" : "",
     ],
     efforts: effortOptions(model),
   };
@@ -149,14 +138,12 @@ function effectiveModelId(
   configuredCodexModel: string | null,
 ) {
   if (user.preferredAgentProfile === "auto") return "auto";
-  if (user.preferredAgentProfile === "mimo-code") return "mimo-code";
   return (
     user.preferredModel ??
     configuredCodexModel ??
-    models.find(
-      (model) => model.profile === "codex-cli" && model.isDefault,
-    )?.id ??
-    models.find((model) => model.profile === "codex-cli")?.id
+    models.find((model) => model.isDefault)?.id ??
+    models.find((model) => model.profile === user.preferredAgentProfile)?.id ??
+    models.find((model) => model.profile === "auto")?.id
   );
 }
 
@@ -389,7 +376,7 @@ function DesktopSelectorMenu(props: SelectorMenuProps) {
       </DropdownMenuSub>
       <DropdownMenuSub>
         <DropdownMenuSubTrigger
-          disabled={props.selectedModel?.profile !== "codex-cli"}
+          disabled={!(props.selectedModel?.serviceTiers.length)}
           className="min-h-11 px-3 text-[15px]"
         >
           <span>Скорость</span>
@@ -551,7 +538,7 @@ function MobileSelectorMenu({
       <DropdownMenuSeparator />
       <DropdownMenuItem
         ref={speedRowRef}
-        disabled={props.selectedModel?.profile !== "codex-cli"}
+        disabled={!(props.selectedModel?.serviceTiers.length)}
         onSelect={(event) => {
           keepMenuOpen(event);
           goTo("speed");
@@ -589,12 +576,16 @@ const ModelProfileSelectorControl: FC<{
   const catalogModels = useMemo(() => {
     const models = modelCatalog.catalog?.models ?? FALLBACK_MODELS;
     const preferred = identity.user?.preferredModel;
+    const preferredProfile = identity.user?.preferredAgentProfile;
     if (preferred && !models.some((model) => model.id === preferred)) {
+      const resolvedProfile = isAgentProfile(preferredProfile ?? "auto")
+        ? (preferredProfile ?? "auto")
+        : "auto";
       return [
         ...models,
         {
           id: preferred,
-          profile: "codex-cli" as const,
+          profile: resolvedProfile,
           displayName: preferred,
           description: "Сохранённая модель временно недоступна.",
           available: false,
@@ -624,12 +615,11 @@ const ModelProfileSelectorControl: FC<{
     (model) => model.id === selectedModelId,
   );
   const selectedEffort =
-    (selectedModel?.profile === "codex-cli"
+    selectedModel?.supportedReasoningEfforts.length
       ? identity.user.preferredReasoningEffort ??
         selectedModel.defaultReasoningEffort ??
-        modelCatalog.catalog?.configuredCodexEffort ??
         undefined
-      : undefined);
+      : undefined;
   const selectedServiceTier = identity.user.preferredServiceTier;
   const selectedTier = selectedModel?.serviceTiers.find(
     (tier) => tier.id === selectedServiceTier,
@@ -647,7 +637,7 @@ const ModelProfileSelectorControl: FC<{
   const triggerAccessibleLabel = [
     `Модель: ${modelName}`,
     effortName ? `Усилие: ${effortName}` : null,
-    selectedModel?.profile === "codex-cli"
+    selectedModel?.serviceTiers.length || selectedServiceTier
       ? `Скорость: ${speedName}`
       : null,
     "Открыть выбор",
@@ -690,26 +680,22 @@ const ModelProfileSelectorControl: FC<{
     if (!model?.available || disabled) return;
     const currentEffort = identity.user?.preferredReasoningEffort;
     const nextEffort =
-      model.profile === "codex-cli"
-        ? model.supportedReasoningEfforts.some(
-            (candidate) => candidate.id === currentEffort,
-          )
-          ? currentEffort ?? model.defaultReasoningEffort
-          : model.defaultReasoningEffort
-        : null;
+      model.supportedReasoningEfforts.some(
+        (candidate) => candidate.id === currentEffort,
+      )
+        ? currentEffort ?? null
+        : model.defaultReasoningEffort;
     const currentTier = identity.user?.preferredServiceTier;
     const nextServiceTier =
-      model.profile === "codex-cli" &&
       currentTier &&
       model.serviceTiers.some((tier) => tier.id === currentTier)
         ? currentTier
         : null;
     if (
       model.profile === identity.user?.preferredAgentProfile &&
-      (model.profile !== "codex-cli" ||
-        (model.id === identity.user.preferredModel &&
-          nextEffort === identity.user?.preferredReasoningEffort &&
-          nextServiceTier === identity.user?.preferredServiceTier))
+      model.id === identity.user.preferredModel &&
+      nextEffort === identity.user?.preferredReasoningEffort &&
+      nextServiceTier === identity.user?.preferredServiceTier
     ) {
       return;
     }
@@ -730,7 +716,6 @@ const ModelProfileSelectorControl: FC<{
       disabled ||
       (isMobileSelector && mobilePageRef.current !== "effort") ||
       !selectedModel ||
-      selectedModel.profile !== "codex-cli" ||
       !selectedModel.supportedReasoningEfforts.some(
         (candidate) => candidate.id === effort,
       ) ||
@@ -741,7 +726,7 @@ const ModelProfileSelectorControl: FC<{
     await runSelection(
       () =>
         identity.setModelSettings({
-          profile: "codex-cli",
+          profile: selectedModel.profile,
           model: selectedModel.id,
           reasoningEffort: effort,
           serviceTier: selectedServiceTier,
@@ -755,7 +740,6 @@ const ModelProfileSelectorControl: FC<{
       disabled ||
       (isMobileSelector && mobilePageRef.current !== "speed") ||
       !selectedModel ||
-      selectedModel.profile !== "codex-cli" ||
       (serviceTier !== null &&
         !selectedModel.serviceTiers.some(
           (candidate) => candidate.id === serviceTier,
@@ -767,7 +751,7 @@ const ModelProfileSelectorControl: FC<{
     await runSelection(
       () =>
         identity.setModelSettings({
-          profile: "codex-cli",
+          profile: selectedModel.profile,
           model: selectedModel.id,
           reasoningEffort: selectedEffort ?? null,
           serviceTier,
