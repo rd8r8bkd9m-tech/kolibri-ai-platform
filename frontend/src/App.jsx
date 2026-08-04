@@ -3,7 +3,9 @@ import { motion, AnimatePresence } from "framer-motion"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 import "./App.css"
+import "./pages/Landing.css"
 import { KolibriBird } from "./components/KolibriBird"
+import Landing from "./pages/Landing"
 
 const API_BASE = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1"
   ? `http://${window.location.hostname}:8000`
@@ -140,6 +142,12 @@ function ClusterView({ status, onRefresh }) {
 }
 
 export default function App() {
+  const isLanding = window.location.pathname === "/" || window.location.pathname === ""
+  
+  if (isLanding) {
+    return <Landing />
+  }
+
   const [messages, setMessages] = useState([])
   const [input, setInput] = useState("")
   const [loading, setLoading] = useState(false)
