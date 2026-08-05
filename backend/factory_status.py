@@ -11,6 +11,71 @@ NODE_DEGRADED_AFTER = int(os.getenv("FACTORY_NODE_DEGRADED_AFTER", "30"))
 NODE_STALE_AFTER = int(os.getenv("FACTORY_NODE_STALE_AFTER", "90"))
 
 
+CANONICAL_FLEET_NODE_IDS: list[str] = [
+    "home",
+    "main",
+    "primary-candidate",
+    "uiap",
+    "qjns",
+    "9fts",
+    "new",
+    "server-kfrm",
+    "reserve242",
+    "highload",
+    "paris",
+    "agent-01",
+    "agent-02",
+    "agent-03",
+    "agent-04",
+    "agent-05",
+    "agent-06",
+    "agent-07",
+    "agent-08",
+    "agent-09",
+    "agent-10",
+]
+
+
+def _canonical_fleet_nodes() -> list[dict[str, Any]]:
+    return [
+        {
+            "node_id": node_id,
+            "hostname": node_id,
+            "health": "offline",
+            "status": "offline",
+            "capabilities": ["offline"],
+        }
+        for node_id in CANONICAL_FLEET_NODE_IDS
+    ]
+
+
+def build_factory_blocked_status(error: Exception | str | None = None) -> dict[str, Any]:
+    baseline = build_factory_status(
+        {"nodes": _canonical_fleet_nodes()},
+        {"tasks": []},
+        {
+            "status": "blocked",
+            "time": datetime.now(timezone.utc).isoformat(),
+            "queue_backend": "fabric_api",
+        },
+    )
+    baseline["error"] = str(error) if error is not None else "control_plane_api_unreachable"
+    baseline["control_plane"].update(
+        {
+            "status": "blocked",
+            "reason": "control_plane_api_unreachable",
+            "fallback_route": {"type": "fabric_api_relay", "endpoint": "/v1/fabric/relay"},
+            "fallback_nodes": CANONICAL_FLEET_NODE_IDS.copy(),
+            "repair_task": {
+                "kind": "repair_control_plane_api",
+                "action": "restore Fabric API reachability or route through a registered relay",
+            },
+            "can_continue_elsewhere": True,
+        },
+    )
+    return baseline
+
+
 def _control_plane_v1_url(path: str) -> str:
     base = CONTROL_PLANE_URL.rstrip("/")
     suffix = path if path.startswith("/") else f"/{path}"

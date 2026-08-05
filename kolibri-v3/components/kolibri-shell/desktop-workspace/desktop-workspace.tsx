@@ -243,18 +243,40 @@ Preserve project, artifact version, source, capture date, and user approval boun
 
 	const openSettings = useCallback(
 		(section: ProfileSettingsSection = "general") => {
+			if (
+				auxiliary.activeTab?.content.kind === "settings" &&
+				auxiliary.activeTab.content.section === section
+			) {
+				setCommandPaletteOpen(false);
+				return;
+			}
+
 			auxiliary.openSettings(section);
 			setCommandPaletteOpen(false);
 		},
-		[auxiliary],
+		[auxiliary.activeTab, auxiliary.openSettings],
 	);
+
+	const accountDestinationRef = useRef<string | null>(null);
+	const accountAlreadyOpenedAsBilling =
+		auxiliary.activeTab?.content.kind === "settings" &&
+		auxiliary.activeTab.content.section === "billing";
 
 	useEffect(() => {
 		const destination = new URL(window.location.href).searchParams.get(
 			"account",
 		);
-		if (destination === "billing") openSettings("billing");
-	}, [openSettings]);
+		if (destination === null) {
+			accountDestinationRef.current = null;
+			return;
+		}
+		if (accountDestinationRef.current === destination) return;
+		accountDestinationRef.current = destination;
+
+		if (destination === "billing" && !accountAlreadyOpenedAsBilling) {
+			openSettings("billing");
+		}
+	}, [accountAlreadyOpenedAsBilling, openSettings]);
 
 	useEffect(() => {
 		const openModels = () => openSettings("ai-models");

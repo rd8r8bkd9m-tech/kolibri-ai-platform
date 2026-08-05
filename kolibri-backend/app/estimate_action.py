@@ -192,14 +192,8 @@ def ensure_estimate_action(
             for section in candidate_sections
         )
     )
-    if (
-        isinstance(candidate, Mapping)
-        and not candidate.get("technology_card")
-        and not candidate_has_sections
-    ):
-        candidate = _professional_scope_fallback(prompt)
     if candidate is None:
-        candidate = _professional_scope_fallback(prompt)
+        return actions
     if isinstance(candidate, Mapping) and (
         candidate.get("technology_card") or candidate.get("sections")
     ):

@@ -1,0 +1,103 @@
+/* Codex look overrides for reused assistant-ui parts. Scoped to .codex-theme. */
+
+.codex-theme {
+	--composer-bg: var(--gray-0);
+	--composer-radius: 16px;
+	--composer-padding: 12px;
+}
+
+.codex-theme .aui-thread-welcome-root {
+	margin-bottom: 0;
+}
+
+.codex-theme .aui-thread-welcome-message-inner {
+	font-size: var(--text-heading-lg);
+	line-height: 1.4;
+	font-weight: 500;
+	letter-spacing: -0.01em;
+	color: var(--color-text-foreground);
+}
+
+.codex-theme .aui-thread-welcome-root p {
+	margin-top: 8px;
+	font-size: 13px;
+	line-height: 1.5;
+	color: var(--color-text-foreground-tertiary);
+}
+
+.codex-theme [data-slot="aui_composer-shell"] {
+	border-color: rgb(0 0 0 / 0.1);
+	box-shadow:
+		0 0 0 0.5px rgb(0 0 0 / 0.04),
+		0 4px 12px -2px rgb(0 0 0 / 0.08);
+}
+
+.codex-theme .aui-composer-input {
+	min-height: 28px;
+	font-size: 14px;
+}
+
+.codex-theme .aui-composer-action-wrapper {
+	min-height: 28px;
+}
+
+/* --- thread: Codex look --- */
+
+.codex-theme [data-slot="aui_thread-viewport"] {
+	background: var(--color-surface);
+}
+
+.codex-theme [data-slot="aui_message-group"] {
+	max-width: 44rem;
+}
+
+.codex-theme [data-slot="aui_assistant-message-content"] {
+	font-size: 14px;
+	line-height: 1.6;
+	color: var(--color-text-foreground);
+}
+
+.codex-theme [data-slot="aui_user-message-root"] {
+	margin-left: auto;
+	width: fit-content;
+	max-width: 70%;
+	border-radius: 16px;
+	background: var(--gray-75);
+	padding: 10px 16px;
+}
+
+.codex-theme [data-slot="tool-group-root"][data-variant="outline"],
+.codex-theme [data-slot="tool-group-root"][data-variant="muted"] {
+	border: 0;
+	background: transparent;
+	border-radius: 8px;
+	padding: 0;
+}
+
+.codex-theme [data-slot="tool-group-trigger"] {
+	font-size: 13px;
+	font-weight: 500;
+	color: var(--gray-600);
+	border-radius: 8px;
+	padding: 6px 8px;
+}
+
+.codex-theme [data-slot="tool-group-trigger"]:hover {
+	background: rgb(0 0 0 / 0.05);
+}
+
+.codex-theme [data-slot="tool-group-content"] {
+	margin: 4px 0 8px;
+	border: 1px solid rgb(0 0 0 / 0.05);
+	border-radius: 8px;
+	background: #f6f6f6;
+	font-family: var(--font-mono-default);
+	font-size: 12px;
+	padding: 12px;
+}
+
+.codex-theme [data-slot="aui_thread-scroll-to-bottom"] {
+	background: var(--gray-0);
+	border: 1px solid rgb(0 0 0 / 0.08);
+	box-shadow: 0 2px 8px -2px rgb(0 0 0 / 0.15);
+}

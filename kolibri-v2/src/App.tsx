@@ -16,7 +16,7 @@ const PublicInfoPage = lazy(() => import('./pages/PublicInfoPage'))
 const AppShellEntry = lazy(() => import('@/features/projects/AppShellEntry'))
 const ChatPage = lazy(() => import('./pages/ChatPage'))
 const LibraryPage = lazy(() => import('./pages/LibraryPage'))
-const EstimatesPage = lazy(() => import('./pages/EstimatesPage'))
+// const EstimatesPage = lazy(() => import('./pages/EstimatesPage'))
 const DocumentsPage = lazy(() => import('./pages/DocumentsPage'))
 const ContractsPage = lazy(() => import('./pages/ContractsPage'))
 const DirectoryPage = lazy(() => import('./pages/DirectoryPage'))
@@ -84,7 +84,7 @@ export default function App() {
                 <Route path="chat/:projectId" element={<ChatPage />} />
                 <Route path="library" element={<LibraryPage />} />
                 <Route path="apps" element={<Navigate to="/app" replace />} />
-                <Route path="estimates" element={<EstimatesPage />} />
+                {/* <Route path="estimates" element={<EstimatesPage />} /> */}
                 <Route path="documents" element={<DocumentsPage />} />
                 <Route path="contracts" element={<ContractsPage />} />
                 <Route path="objects" element={<DirectoryPage />} />

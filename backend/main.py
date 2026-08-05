@@ -1,4 +1,4 @@
-from routes_v1 import router as v1_router
+from routes_v1 import APP_SESSION_COOKIE_NAME, router as v1_router, _is_session_active
 import os
 import time
 import json
@@ -20,9 +20,9 @@ from providers import AIProviderManager
 from tts import TTSEngine
 from stt import STTEngine
 from websearch import WebSearchEngine
-from factory_status import fetch_factory_status
+from factory_status import fetch_factory_status, build_factory_blocked_status
 
-DB_PATH = Path("/opt/kolibri-ai/data/kolibri.db")
+DB_PATH = Path(os.environ.get("KOLIBRI_DB_PATH", os.path.join(os.environ.get("KOLIBRI_DATA_DIR", "/tmp/kolibri-data"), "kolibri.db")))
 DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 
 def init_db():
@@ -92,9 +92,16 @@ class ToolCallRequest(BaseModel):
     message: str
     tools: Optional[List[Dict[str, Any]]] = None
 
-def get_cache_key(messages: list, model: str) -> str:
+def get_cache_key(messages: list, model: str, provider: str | None = None, system_prompt: str | None = None, temperature: float | None = None) -> str:
     content = json.dumps([{"role": m.role, "content": m.content} for m in messages], sort_keys=True)
-    return hashlib.sha256(f"{model}:{content}".encode()).hexdigest()
+    envelope = {
+        "model": model,
+        "provider": provider or "",
+        "system_prompt": system_prompt or "",
+        "temperature": temperature,
+        "messages": content,
+    }
+    return hashlib.sha256(json.dumps(envelope, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
 
 def check_rate_limit(ip: str, limit: int = 60, window: int = 60) -> bool:
     conn = sqlite3.connect(str(DB_PATH))
@@ -177,7 +184,13 @@ async def chat(request: ChatRequest, req: Request):
     model = request.model or "auto"
     provider = request.provider
 
-    cache_key = get_cache_key(request.messages, model)
+    cache_key = get_cache_key(
+        request.messages,
+        model,
+        provider=provider,
+        system_prompt=request.system_prompt,
+        temperature=request.temperature,
+    )
     cached = get_cached_response(cache_key)
     if cached:
         return {
@@ -310,33 +323,7 @@ async def api_factory_status():
     try:
         return await fetch_factory_status()
     except Exception as exc:
-        return JSONResponse(
-            status_code=503,
-            content={
-                "status": "degraded",
-                "source": "control-plane",
-                "error": str(exc),
-                "total_nodes": 0,
-                "online_nodes": 0,
-                "free_ram_gb": 0,
-                "total_ram_gb": 0,
-                "avg_cpu_percent": 0,
-                "queue_size": 0,
-                "nodes": {},
-                "node_list": [],
-                "control_plane": {
-                    "status": "blocked",
-                    "reason": "control_plane_api_unreachable",
-                    "fallback_route": {"type": "fabric_api_relay", "endpoint": "/v1/fabric/relay"},
-                    "fallback_nodes": ["home", "main", "9fts", "new"],
-                    "repair_task": {
-                        "kind": "repair_control_plane_api",
-                        "action": "restore Fabric API reachability or route through a registered relay",
-                    },
-                    "can_continue_elsewhere": True,
-                },
-            },
-        )
+        return JSONResponse(status_code=503, content=build_factory_blocked_status(exc))
 
 
 @app.get("/cluster/status")
@@ -344,6 +331,17 @@ async def cluster_status():
     return await api_factory_status()
 
 app.include_router(v1_router)
+
+@app.get("/api/v1/auth/me")
+async def app_auth_me(request: Request):
+    session_id = request.cookies.get(APP_SESSION_COOKIE_NAME)
+    if not _is_session_active(session_id):
+        raise HTTPException(status_code=401, detail="session_required")
+    return {
+        "id": "legacy-session",
+        "email": "legacy@kolibri.internal",
+        "role": "legacy",
+    }
 
 PROXY_ROUTES = {
     "/api/knowledge": {"target": "http://10.99.0.3:8002", "strip": "/api/knowledge", "add": "/rag"},
@@ -357,6 +355,9 @@ async def proxy_handler(prefix: str, path: str, request: Request):
     req_path = f"/{prefix}/{path}"
     upstream = None
     matched_prefix = None
+    # Keep private app shell under SPA fallback even when path is not a known proxy target.
+    if req_path.startswith("/app"):
+        return _serve_frontend(full_path=prefix if not path else f"{prefix}/{path}", request=request)
 
     for route_prefix, route_cfg in PROXY_ROUTES.items():
         if req_path.startswith(route_prefix):
@@ -393,14 +394,31 @@ async def proxy_handler(prefix: str, path: str, request: Request):
         headers={k: v for k, v in resp.headers.items() if k.lower() not in ("transfer-encoding", "content-encoding", "content-length")},
     )
 
-frontend_path = Path("/opt/kolibri-ai/frontend/dist")
+frontend_path = Path(os.environ.get("KOLIBRI_FRONTEND_DIST", str(Path(__file__).resolve().parent.parent / "frontend" / "dist")))
+def _is_private_app_path(full_path: str) -> bool:
+    return full_path == "app" or full_path.startswith("app/")
+
+
+def _serve_frontend(full_path: str, request: Request):
+    private_app = _is_private_app_path(full_path)
+    if private_app and not _is_session_active(request.cookies.get(APP_SESSION_COOKIE_NAME)):
+        raise HTTPException(status_code=401, detail="private_session_required")
+
+    file_path = frontend_path / full_path
+    if file_path.exists() and file_path.is_file():
+        response = FileResponse(str(file_path))
+    else:
+        response = FileResponse(str(frontend_path / "index.html"))
+
+    if private_app:
+        response.headers["X-Robots-Tag"] = "noindex, nofollow, noarchive"
+        response.headers["Cache-Control"] = "private, no-store, no-cache, must-revalidate"
+    return response
+
+
 if frontend_path.exists():
     app.mount("/assets", StaticFiles(directory=str(frontend_path / "assets")), name="assets")
 
     @app.get("/{full_path:path}")
-    async def serve_frontend(full_path: str):
-        file_path = frontend_path / full_path
-        if file_path.exists() and file_path.is_file():
-            return FileResponse(str(file_path))
-        return FileResponse(str(frontend_path / "index.html"))
-
+    async def serve_frontend(full_path: str, request: Request):
+        return _serve_frontend(full_path=full_path, request=request)

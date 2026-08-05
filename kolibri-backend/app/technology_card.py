@@ -39,14 +39,15 @@ class TechnologyFact(StrictModel):
     meaning: str = Field(min_length=1, max_length=2_000)
 
 
-class TechnologyResource(StrictModel):
+class TechnologyResource(BaseModel):
+    model_config = ConfigDict(extra="allow")
     kind: Literal["work", "material", "equipment", "service"]
     code: str = Field(default="", max_length=80)
     name: str = Field(min_length=1, max_length=320)
     unit: str = Field(min_length=1, max_length=40)
     quantity: str = Field(pattern=DECIMAL_PATTERN, max_length=64)
     price: str = Field(pattern=DECIMAL_PATTERN, max_length=64)
-    quantity_basis: str = Field(min_length=1, max_length=1_000)
+    quantity_basis: str = Field(default="", max_length=1_000)
     procurement_query: str = Field(default="", max_length=1_000)
 
     @model_validator(mode="after")
@@ -63,9 +64,9 @@ class TechnologyOperation(StrictModel):
     name: str = Field(min_length=1, max_length=320)
     method: str = Field(min_length=1, max_length=4_000)
     prerequisites: list[str] = Field(default_factory=list, max_length=100)
-    quality_checks: list[str] = Field(min_length=1, max_length=100)
-    safety_controls: list[str] = Field(min_length=1, max_length=100)
-    resources: list[TechnologyResource] = Field(min_length=1, max_length=500)
+    quality_checks: list[str] = Field(default_factory=list, max_length=100)
+    safety_controls: list[str] = Field(default_factory=list, max_length=100)
+    resources: list[TechnologyResource] = Field(default_factory=list, max_length=500)
 
 
 class TechnologyStage(StrictModel):
@@ -88,7 +89,7 @@ class TechnologyCard(StrictModel):
     title: str = Field(min_length=1, max_length=320)
     object_type: str = Field(min_length=1, max_length=320)
     scope: str = Field(min_length=1, max_length=4_000)
-    user_facts: list[TechnologyFact] = Field(min_length=1, max_length=100)
+    user_facts: list[TechnologyFact] = Field(default_factory=list, max_length=100)
     assumptions: list[str] = Field(default_factory=list, max_length=200)
     exclusions: list[str] = Field(default_factory=list, max_length=200)
     stages: list[TechnologyStage] = Field(min_length=1, max_length=200)

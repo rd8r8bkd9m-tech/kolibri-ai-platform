@@ -1,4 +1,4 @@
-"""Typed in-process Genkit Flow for Kolibri request orchestration."""
+"""Typed in-process request orchestration for Kolibri."""
 
 from __future__ import annotations
 
@@ -6,12 +6,7 @@ import re
 from typing import Any, Literal
 
 from fastapi import HTTPException
-from genkit import Genkit
 from pydantic import BaseModel, Field
-
-
-
-ai = Genkit()
 
 
 class KolibriFlowMessage(BaseModel):
@@ -91,9 +86,8 @@ def _missing_estimate_inputs(text: str) -> list[str]:
 def estimate_execution_instruction(prompt: str) -> str:
     """Return the server-authored execution contract sent to the estimator.
 
-    This is a Genkit Flow instruction, not user content.  It enforces the same
-    technology-first contract for a house, a water well, an industrial rig or
-    any other scope instead of selecting a hard-coded domain template.
+    This instruction enforces the technology-first contract for any scope
+    instead of selecting a hard-coded domain template.
     """
 
     return (
@@ -128,6 +122,17 @@ def _estimate_intent(messages: list[KolibriFlowMessage]) -> bool:
     if latest_index is None:
         return False
     latest = messages[latest_index].content.strip()
+    # Capability questions ("умеешь делать сметы?") are not estimate requests
+    _CAPABILITY_RE = re.compile(
+        r"(?:умеешь|можешь|способен|знаешь|работаешь|делаешь|создаёшь|формируешь)\b.*\bсмет",
+        re.IGNORECASE,
+    )
+    _CAPABILITY_RE2 = re.compile(
+        r"\bсмет\w*\b.*(?:умеешь|можешь|способен|знаешь|работаешь|делаешь|создаёшь|формируешь)",
+        re.IGNORECASE,
+    )
+    if _CAPABILITY_RE.search(latest) or _CAPABILITY_RE2.search(latest):
+        return False
     if any(pattern.search(latest) for pattern in _ESTIMATE_MARKERS):
         return True
     if not re.search(
@@ -151,11 +156,10 @@ def _estimate_intent(messages: list[KolibriFlowMessage]) -> bool:
     return False
 
 
-@ai.flow()
 async def kolibri_chat_orchestration_flow(
     input: KolibriFlowInput,
 ) -> KolibriFlowOutput:
-    """Plan one request before Kolibri selects its MIMA/provider route."""
+    """Plan one request before Kolibri selects its provider route."""
 
     text = _latest_user_text(input.messages)
     if _estimate_intent(input.messages):
@@ -210,36 +214,21 @@ async def plan_kolibri_request(
     *,
     background: bool = False,
 ) -> KolibriFlowOutput:
-    try:
-        flow_input = KolibriFlowInput(
-            messages=[
-                KolibriFlowMessage(
-                    role=(
-                        message.get("role")
-                        if message.get("role") in {"system", "user", "assistant", "tool"}
-                        else "user"
-                    ),
-                    content=str(message.get("content") or "")[:120_000],
-                )
-                for message in messages[:200]
-            ],
-            mode=_base_mode(policy),
-            background=background,
-            requested_tools=[
-                str(item)[:100]
-                for item in (policy or {}).get("allowed_capabilities", [])[:50]
-            ],
+    # Pure local logic
+    plain = [
+        KolibriFlowMessage(
+            role=(m.get("role") if m.get("role") in {"system", "user", "assistant", "tool"} else "user"),
+            content=str(m.get("content") or "")[:120_000],
         )
-        result = await kolibri_chat_orchestration_flow(flow_input)
-    except Exception:
-        raise HTTPException(
-            status_code=503,
-            detail={
-                "code": "genkit_flow_unavailable",
-                "message": "AI orchestration is temporarily unavailable",
-                "recoverable": True,
-            },
-        ) from None
+        for m in messages[:200]
+    ]
+    input = KolibriFlowInput(
+        messages=plain,
+        mode=_base_mode(policy),
+        background=background,
+        requested_tools=[str(i)[:100] for i in (policy or {}).get("allowed_capabilities", [])[:50]],
+    )
+    result = await kolibri_chat_orchestration_flow(input)
 
     if result.intent == "estimate" and (
         result.direct_amounts_allowed
@@ -248,7 +237,7 @@ async def plan_kolibri_request(
     ):
         raise HTTPException(
             status_code=503,
-            detail={"code": "genkit_flow_unsafe_estimate_plan", "recoverable": True},
+            detail={"code": "estimate_plan_unsafe", "recoverable": True},
         )
     return result
 

@@ -31,6 +31,9 @@ def make_task(envelope=None):
         "kind": (envelope or {}).get("kind", "read_only_probe"),
         "attempt": 1,
         "attempt_id": f"{task_id}-attempt-1",
+        "lease_id": f"{task_id}-lease-1",
+        "lease_slot_id": "agent-host-primary",
+        "fencing_token": 1,
         "envelope": envelope or {},
     }
 
@@ -415,6 +418,90 @@ def test_owner_remote_task_with_mimo_invokes_mimo_not_codex(tmp_path, monkeypatc
     assert complete_posts[0][1]["result"]["runner"] == "mimo"
 
 
+def test_read_only_owner_task_runs_codex_cli_in_read_only_sandbox(
+    tmp_path,
+    monkeypatch,
+):
+    agent_host = load_agent_host()
+    monkeypatch.setattr(
+        agent_host.shutil,
+        "which",
+        lambda name: "/usr/bin/codex" if name == "codex" else None,
+    )
+
+    class Host(agent_host.AgentHost):
+        def __init__(self):
+            super().__init__(
+                make_args(
+                    tmp_path,
+                    capabilities="generic_implementation,runner:codex",
+                )
+            )
+            self.posts = []
+            self.commands = []
+
+        def post(self, path, body):
+            self.posts.append((path, body))
+            return body
+
+        def run_command(
+            self,
+            command,
+            cwd,
+            stdout_path,
+            stderr_path,
+            task,
+            branch,
+            logs,
+            env=None,
+            command_label=None,
+        ):
+            del cwd, task, branch, logs, env
+            self.commands.append((command, command_label))
+            stdout_path.write_text(
+                json.dumps({
+                    "msg": {
+                        "type": "agent_message",
+                        "message": "Codex completed.",
+                    }
+                })
+                + "\n",
+                encoding="utf-8",
+            )
+            stderr_path.write_text("", encoding="utf-8")
+
+    task = make_task({
+        "kind": "owner_remote_task",
+        "required_capability": "runner:codex",
+        "runner": "codex",
+        "objective": "Answer without modifying the worktree",
+        "read_only": True,
+        "write_scope": [],
+    })
+    task["kind"] = "owner_remote_task"
+
+    host = Host()
+    host.run_task(task)
+
+    command, command_label = host.commands[0]
+    assert command[:6] == [
+        "/usr/bin/codex",
+        "exec",
+        "--json",
+        "--skip-git-repo-check",
+        "--sandbox",
+        "read-only",
+    ]
+    assert "danger-full-access" not in command
+    assert command_label.endswith("--sandbox read-only <prompt>")
+    complete_posts = [
+        (path, body)
+        for path, body in host.posts
+        if path.endswith("/complete")
+    ]
+    assert complete_posts[0][1]["result"]["runner"] == "codex"
+
+
 def test_owner_remote_task_runner_auth_failure_is_structured_and_redacted(tmp_path, monkeypatch):
     agent_host = load_agent_host()
     monkeypatch.setattr(agent_host.shutil, "which", lambda name: "/usr/bin/codex" if name == "codex" else None)
@@ -481,6 +568,349 @@ def test_owner_remote_task_mimo_unavailable_does_not_fallback_to_codex(tmp_path,
     assert fail_body["error_type"] == "runner_unavailable"
     assert fail_body["result"]["runner"] == "mimo"
     assert fail_body["result"]["blocked_reason"] == "runner_unavailable"
+
+
+def test_api_runner_capability_requires_explicit_gateway_not_api_executable(tmp_path, monkeypatch):
+    agent_host = load_agent_host()
+    monkeypatch.delenv("KOLIBRI_API_RUNNER_URL", raising=False)
+    monkeypatch.delenv("KOLIBRI_API_RUNNER_TOKEN", raising=False)
+    monkeypatch.delenv("KOLIBRI_API_RUNNER_MODEL", raising=False)
+    monkeypatch.setenv("OPENAI_API_KEY", "legacy-fallback-must-not-advertise")
+    monkeypatch.setattr(agent_host.shutil, "which", lambda name: "/usr/bin/api" if name == "api" else None)
+
+    host = make_host(agent_host, tmp_path, capabilities="generic_implementation")
+
+    assert host.runner_status["api"]["status"] == "unavailable"
+    assert host.runner_status["api"]["error_type"] == "api_runner_auth_missing"
+    assert host.runner_status["api"]["path"] is None
+    assert "runner:api" not in host.capabilities
+
+
+def test_api_runner_capability_uses_explicit_private_gateway_without_api_executable(tmp_path, monkeypatch):
+    agent_host = load_agent_host()
+    monkeypatch.setenv(
+        "KOLIBRI_API_RUNNER_URL",
+        "http://127.0.0.1:18443/v1/chat/completions",
+    )
+    monkeypatch.setenv("KOLIBRI_API_RUNNER_TOKEN", "dedicated-gateway-token")
+    monkeypatch.setenv("KOLIBRI_API_RUNNER_MODEL", "gpt-5.6-sol")
+    monkeypatch.setattr(agent_host.shutil, "which", lambda _name: None)
+
+    host = make_host(agent_host, tmp_path, capabilities="generic_implementation")
+
+    assert host.runner_status["api"]["status"] == "available"
+    assert host.runner_status["api"]["transport"] == "provider_gateway"
+    assert host.runner_status["api"]["path"] is None
+    assert "runner:api" in host.capabilities
+
+
+def test_api_runner_gateway_rejects_public_plain_http(tmp_path, monkeypatch):
+    agent_host = load_agent_host()
+    monkeypatch.setenv(
+        "KOLIBRI_API_RUNNER_URL",
+        "http://provider.example/v1/chat/completions",
+    )
+    monkeypatch.setenv("KOLIBRI_API_RUNNER_TOKEN", "dedicated-gateway-token")
+    monkeypatch.setenv("KOLIBRI_API_RUNNER_MODEL", "gpt-5.6-sol")
+
+    host = make_host(agent_host, tmp_path, capabilities="generic_implementation")
+
+    assert host.runner_status["api"]["status"] == "unavailable"
+    assert host.runner_status["api"]["error_type"] == "api_runner_url_insecure"
+    assert "runner:api" not in host.capabilities
+
+
+def test_api_runner_https_gateway_requires_explicit_ca_file(tmp_path, monkeypatch):
+    agent_host = load_agent_host()
+    monkeypatch.setenv(
+        "KOLIBRI_API_RUNNER_URL",
+        "https://78.17.4.108:18443/v1/chat/completions",
+    )
+    monkeypatch.setenv("KOLIBRI_API_RUNNER_TOKEN", "dedicated-gateway-token")
+    monkeypatch.setenv("KOLIBRI_API_RUNNER_MODEL", "gpt-5.6-sol")
+    monkeypatch.delenv("KOLIBRI_API_RUNNER_CA_FILE", raising=False)
+
+    host = make_host(agent_host, tmp_path, capabilities="generic_implementation")
+
+    assert host.runner_status["api"]["status"] == "unavailable"
+    assert host.runner_status["api"]["error_type"] == "api_runner_ca_missing"
+    assert "runner:api" not in host.capabilities
+
+
+def test_api_runner_https_ca_must_be_absolute_readable_regular_file(tmp_path, monkeypatch):
+    agent_host = load_agent_host()
+    monkeypatch.setenv(
+        "KOLIBRI_API_RUNNER_URL",
+        "https://78.17.4.108:18443/v1/chat/completions",
+    )
+    monkeypatch.setenv("KOLIBRI_API_RUNNER_TOKEN", "dedicated-gateway-token")
+    monkeypatch.setenv("KOLIBRI_API_RUNNER_MODEL", "gpt-5.6-sol")
+
+    for invalid_ca in ("relative-ca.pem", str(tmp_path)):
+        monkeypatch.setenv("KOLIBRI_API_RUNNER_CA_FILE", invalid_ca)
+        try:
+            agent_host.api_runner_gateway_configuration()
+        except agent_host.ApiRunnerConfigurationError as exc:
+            assert exc.error_type == "api_runner_ca_invalid"
+        else:
+            raise AssertionError("expected invalid CA configuration")
+
+    unreadable_ca = tmp_path / "unreadable-ca.pem"
+    unreadable_ca.write_text("test-only-ca", encoding="utf-8")
+    real_access = agent_host.os.access
+    monkeypatch.setattr(
+        agent_host.os,
+        "access",
+        lambda path, mode: (
+            False
+            if agent_host.Path(path) == unreadable_ca
+            else real_access(path, mode)
+        ),
+    )
+    monkeypatch.setenv("KOLIBRI_API_RUNNER_CA_FILE", str(unreadable_ca))
+    try:
+        agent_host.api_runner_gateway_configuration()
+    except agent_host.ApiRunnerConfigurationError as exc:
+        assert exc.error_type == "api_runner_ca_invalid"
+    else:
+        raise AssertionError("expected unreadable CA configuration")
+
+
+def test_api_runner_https_uses_private_ca_context_and_no_redirect_handler(tmp_path, monkeypatch):
+    agent_host = load_agent_host()
+    endpoint = "https://78.17.4.108:18443/v1/chat/completions"
+    gateway_token = "dedicated-gateway-token"
+    ca_file = tmp_path / "provider-gateway-ca.pem"
+    ca_file.write_text("test-only-ca", encoding="utf-8")
+    ssl_context = agent_host.ssl.SSLContext(agent_host.ssl.PROTOCOL_TLS_CLIENT)
+    created_contexts = []
+
+    def fake_create_default_context(*, cafile):
+        created_contexts.append(cafile)
+        return ssl_context
+
+    monkeypatch.setattr(agent_host.ssl, "create_default_context", fake_create_default_context)
+    monkeypatch.setenv("KOLIBRI_API_RUNNER_URL", endpoint)
+    monkeypatch.setenv("KOLIBRI_API_RUNNER_TOKEN", gateway_token)
+    monkeypatch.setenv("KOLIBRI_API_RUNNER_MODEL", "gpt-5.6-sol")
+    monkeypatch.setenv("KOLIBRI_API_RUNNER_CA_FILE", str(ca_file))
+    host = make_host(agent_host, tmp_path / "host", capabilities="generic_implementation")
+    configuration = agent_host.api_runner_gateway_configuration()
+    captured = {}
+    response = object()
+
+    class FakeOpener:
+        def open(self, request, timeout):
+            captured["url"] = request.full_url
+            captured["timeout"] = timeout
+            return response
+
+    def fake_build_opener(*handlers):
+        captured["handlers"] = handlers
+        return FakeOpener()
+
+    monkeypatch.setattr(agent_host.urllib.request, "build_opener", fake_build_opener)
+    request = agent_host.urllib.request.Request(
+        endpoint,
+        headers={"Authorization": f"Bearer {gateway_token}"},
+    )
+
+    opened = agent_host.open_api_runner_gateway_request(
+        request,
+        30,
+        ssl_context=configuration["ssl_context"],
+    )
+
+    assert opened is response
+    assert created_contexts == [str(ca_file), str(ca_file)]
+    assert host.runner_status["api"]["status"] == "available"
+    assert "runner:api" in host.capabilities
+    assert gateway_token not in json.dumps(host.runner_status)
+    https_handlers = [
+        handler
+        for handler in captured["handlers"]
+        if isinstance(handler, agent_host.urllib.request.HTTPSHandler)
+    ]
+    assert len(https_handlers) == 1
+    assert https_handlers[0]._context is ssl_context
+    assert any(
+        isinstance(handler, agent_host.ApiRunnerNoRedirectHandler)
+        for handler in captured["handlers"]
+    )
+    assert captured["url"] == endpoint
+    assert captured["timeout"] == 30
+
+
+def test_owner_remote_task_api_uses_explicit_authenticated_gateway_without_openai_fallback(
+    tmp_path,
+    monkeypatch,
+):
+    agent_host = load_agent_host()
+    endpoint = "http://127.0.0.1:18443/v1/chat/completions"
+    gateway_token = "dedicated-gateway-token"
+    monkeypatch.setenv("KOLIBRI_API_RUNNER_URL", endpoint)
+    monkeypatch.setenv("KOLIBRI_API_RUNNER_TOKEN", gateway_token)
+    monkeypatch.setenv("KOLIBRI_API_RUNNER_MODEL", "gpt-5.6-sol")
+    monkeypatch.setenv("OPENAI_API_KEY", "legacy-openai-fallback-trap")
+    captured = {}
+
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self):
+            return json.dumps({
+                "choices": [{
+                    "message": {
+                        "role": "assistant",
+                        "content": "Ответ безопасного Codex gateway",
+                    },
+                }],
+            }).encode("utf-8")
+
+    def fake_urlopen(request, timeout, ssl_context=None):
+        captured["url"] = request.full_url
+        captured["authorization"] = request.headers["Authorization"]
+        captured["body"] = json.loads(request.data.decode("utf-8"))
+        captured["timeout"] = timeout
+        captured["ssl_context"] = ssl_context
+        return FakeResponse()
+
+    monkeypatch.setattr(agent_host, "open_api_runner_gateway_request", fake_urlopen)
+    host = make_host(agent_host, tmp_path, capabilities="generic_implementation")
+    task = make_task({
+        "kind": "owner_remote_task",
+        "required_capability": "runner:api",
+        "runner": "api",
+        "objective": "Собери первый ответ",
+    })
+    task.update({
+        "kind": "owner_remote_task",
+        "lease_id": "lease-contract-1",
+        "fencing_token": 1,
+    })
+
+    result = host.run_owner_remote_task(task)
+
+    assert result["status"] == "completed"
+    assert result["runner"] == "api"
+    assert result["response"] == "Ответ безопасного Codex gateway"
+    assert captured["url"] == endpoint
+    assert captured["authorization"] == f"Bearer {gateway_token}"
+    assert captured["body"] == {
+        "model": "gpt-5.6-sol",
+        "messages": [{"role": "user", "content": "Собери первый ответ"}],
+        "stream": False,
+    }
+    assert captured["ssl_context"] is None
+    assert "legacy-openai-fallback-trap" not in json.dumps(captured)
+
+
+def test_legacy_non_owner_api_runner_keeps_direct_compatibility(tmp_path, monkeypatch):
+    agent_host = load_agent_host()
+    monkeypatch.delenv("KOLIBRI_API_RUNNER_URL", raising=False)
+    monkeypatch.delenv("KOLIBRI_API_RUNNER_TOKEN", raising=False)
+    monkeypatch.delenv("KOLIBRI_API_RUNNER_MODEL", raising=False)
+    monkeypatch.setenv("OPENAI_API_KEY", "legacy-direct-token")
+    captured = {}
+
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self):
+            return json.dumps({
+                "output": [{
+                    "type": "message",
+                    "content": [{"type": "output_text", "text": "Legacy ответ"}],
+                }],
+            }).encode("utf-8")
+
+    def fake_urlopen(request, timeout):
+        captured["url"] = request.full_url
+        captured["timeout"] = timeout
+        return FakeResponse()
+
+    monkeypatch.setattr(agent_host.urllib.request, "urlopen", fake_urlopen)
+    host = make_host(agent_host, tmp_path, capabilities="telegram_chat_response")
+    worktree, artifact_dir = make_paths(tmp_path / "legacy-runner")
+    stdout_path = artifact_dir / "stdout.log"
+    stderr_path = artifact_dir / "stderr.log"
+    task = make_task({
+        "kind": "telegram_chat_response",
+        "runner": "api",
+        "message": "Совместимый вызов",
+    })
+    task["kind"] = "telegram_chat_response"
+
+    response = host.run_requested_ai_runner(
+        "api",
+        "Совместимый вызов",
+        "legacy-direct",
+        worktree,
+        stdout_path,
+        stderr_path,
+        task,
+        None,
+        {"stdout": str(stdout_path), "stderr": str(stderr_path)},
+    )
+
+    assert response == "Legacy ответ"
+    assert captured["url"] == "https://api.openai.com/v1/responses"
+
+
+def test_owner_remote_task_api_redacts_gateway_auth_failure(tmp_path, monkeypatch):
+    agent_host = load_agent_host()
+    endpoint = "http://127.0.0.1:18443/v1/chat/completions"
+    gateway_token = "SUPER_SECRET_PROVIDER_TOKEN"
+    owner_prompt = "SECRET_OWNER_PROMPT"
+    monkeypatch.setenv("KOLIBRI_API_RUNNER_URL", endpoint)
+    monkeypatch.setenv("KOLIBRI_API_RUNNER_TOKEN", gateway_token)
+    monkeypatch.setenv("KOLIBRI_API_RUNNER_MODEL", "gpt-5.6-sol")
+
+    def fake_urlopen(_request, timeout, ssl_context=None):
+        del timeout, ssl_context
+        raise agent_host.urllib.error.HTTPError(
+            endpoint,
+            401,
+            f"Authorization Bearer {gateway_token}",
+            None,
+            None,
+        )
+
+    monkeypatch.setattr(agent_host, "open_api_runner_gateway_request", fake_urlopen)
+    host = make_host(agent_host, tmp_path, capabilities="generic_implementation")
+    task = make_task({
+        "kind": "owner_remote_task",
+        "required_capability": "runner:api",
+        "runner": "api",
+        "objective": owner_prompt,
+    })
+    task.update({
+        "kind": "owner_remote_task",
+        "lease_id": "lease-contract-1",
+        "fencing_token": 1,
+    })
+
+    host.run_task(task)
+
+    fail_posts = [(path, body) for path, body in host.posts if path.endswith("/fail")]
+    assert len(fail_posts) == 1
+    fail_body = fail_posts[0][1]
+    assert fail_body["error_type"] == "runner_auth_blocked"
+    assert fail_body["retry"] is False
+    assert fail_body["result"]["status"] == "blocked"
+    assert fail_body["result"]["runner"] == "api"
+    assert fail_body["result"]["blocked_reason"] == "runner_auth_blocked"
+    serialized = json.dumps(fail_body, ensure_ascii=False)
+    assert gateway_token not in serialized
+    assert owner_prompt not in serialized
 
 
 def test_p0_integration_audit_artifact_path_drift_is_blocked(tmp_path):

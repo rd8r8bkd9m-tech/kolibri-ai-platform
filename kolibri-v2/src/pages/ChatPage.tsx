@@ -7,6 +7,11 @@ import AssistantConversationThread from '@/features/conversation/AssistantConver
 import ConversationEstimateSheet from '@/features/conversation/ConversationEstimateSheet'
 import MimoVoiceButton from '@/features/conversation/MimoVoiceButton'
 import type { ComposerTool } from '@/features/conversation/composerTool'
+import {
+  actionMaterializationEvent,
+  materializeConversationAction,
+  providerAttemptEvent,
+} from '@/features/conversation/actionMaterialization'
 import ArtifactCard, { type ConversationArtifact } from '@/features/conversation/ArtifactCard'
 import {
   expectsImageArtifact,
@@ -56,16 +61,10 @@ import {
   type ProjectMessageStatus,
 } from '@/lib/api'
 import { createUuid } from '@/lib/uuid'
-import { useLocale, type Translate } from '@/features/localization'
+import { useLocale } from '@/features/localization'
 import InPlaceDocumentWorkspace from '@/features/documents/InPlaceDocumentWorkspace'
 
 const fallbackComposerTools: ComposerTool[] = [
-  {
-    key: 'estimate.create',
-    title: 'Смета',
-    description: 'Создать или проверить смету',
-    icon: capabilityIcons['estimate.create'],
-  },
   {
     key: 'file.search',
     title: 'Файлы',
@@ -80,162 +79,8 @@ const fallbackComposerTools: ComposerTool[] = [
   },
 ]
 
-function normalizeEstimateAction(data: Record<string, unknown>): Parameters<typeof estimates.create>[0] {
-  const sections = Array.isArray(data.sections) ? data.sections : []
-  const estimateStatus = data.estimate_status === 'needs_input' || data.estimate_status === 'source_backed' || data.estimate_status === 'verified'
-    ? data.estimate_status
-    : 'preliminary'
-  const pricingStatus = data.pricing_status === 'needs_input' || data.pricing_status === 'source_backed' || data.pricing_status === 'verified'
-    ? data.pricing_status
-    : 'preliminary'
-  return {
-    title: String(data.title || 'Предварительная смета'),
-    client: typeof data.client === 'string' ? data.client : '',
-    object_name: typeof data.object_name === 'string' ? data.object_name : '',
-    region: typeof data.region === 'string' ? data.region : '',
-    currency: typeof data.currency === 'string' ? data.currency : 'RUB',
-    overhead_rate: typeof data.overhead_rate === 'string' ? data.overhead_rate : '0',
-    profit_rate: typeof data.profit_rate === 'string' ? data.profit_rate : '0',
-    contingency_rate: typeof data.contingency_rate === 'string' ? data.contingency_rate : '0',
-    general_contractor_rate: typeof data.general_contractor_rate === 'string' ? data.general_contractor_rate : '0',
-    discount_rate: typeof data.discount_rate === 'string' ? data.discount_rate : '0',
-    vat_rate: typeof data.vat_rate === 'string' ? data.vat_rate : '0',
-    estimate_status: estimateStatus,
-    pricing_status: pricingStatus,
-    scope_status: data.scope_status === 'verified' ? 'verified' : 'unverified',
-    price_sources: Array.isArray(data.price_sources) ? data.price_sources as Parameters<typeof estimates.create>[0]['price_sources'] : [],
-    evidence_issues: Array.isArray(data.evidence_issues) ? data.evidence_issues as Parameters<typeof estimates.create>[0]['evidence_issues'] : [],
-    technology_card: data.technology_card && typeof data.technology_card === 'object'
-      ? data.technology_card as Record<string, unknown>
-      : null,
-    procurement_report: data.procurement_report && typeof data.procurement_report === 'object'
-      ? data.procurement_report as Record<string, unknown>
-      : null,
-    totals: data.totals && typeof data.totals === 'object' ? data.totals as Parameters<typeof estimates.create>[0]['totals'] : undefined,
-    price_as_of: typeof data.price_as_of === 'string' ? data.price_as_of : null,
-    assumptions: Array.isArray(data.assumptions) ? data.assumptions.filter((item): item is string => typeof item === 'string') : [],
-    questions: Array.isArray(data.questions) ? data.questions.filter((item): item is string => typeof item === 'string') : [],
-    source_note: typeof data.source_note === 'string' ? data.source_note : '',
-    sections: sections.map(sectionValue => {
-      const section = sectionValue && typeof sectionValue === 'object' ? sectionValue as Record<string, unknown> : {}
-      const positions = Array.isArray(section.positions) ? section.positions : []
-      return {
-        title: String(section.title || 'Раздел'),
-        positions: positions.map(positionValue => {
-          const position = positionValue && typeof positionValue === 'object' ? positionValue as Record<string, unknown> : {}
-          return {
-            code: String(position.code || ''),
-            name: String(position.name || 'Позиция'),
-            unit: String(position.unit || 'шт'),
-            quantity: String(position.quantity ?? '0'),
-            price: String(position.price ?? '0'),
-            sum: typeof position.sum === 'string' ? position.sum : undefined,
-            source: typeof position.source === 'string' ? position.source : '',
-            source_evidence: position.source_evidence && typeof position.source_evidence === 'object'
-              ? position.source_evidence as NonNullable<NonNullable<Parameters<typeof estimates.create>[0]['sections']>[number]['positions']>[number]['source_evidence']
-              : null,
-            price_evidence: Array.isArray(position.price_evidence)
-              ? position.price_evidence as NonNullable<NonNullable<Parameters<typeof estimates.create>[0]['sections']>[number]['positions']>[number]['price_evidence']
-              : [],
-            comment: typeof position.comment === 'string' ? position.comment : '',
-          }
-        }),
-      }
-    }),
-  }
-}
-
-async function materializeAction(
-  action: ChatAction,
-  projectId?: string,
-  signal?: AbortSignal,
-): Promise<ConversationArtifact | null> {
-  const validatedAction = normalizePersistedAction(action)
-  if (!validatedAction?.data) return null
-  if (validatedAction.type === 'create_estimate') {
-    const payload = normalizeEstimateAction(validatedAction.data)
-    if (projectId) payload.project_id = projectId
-    return { type: 'estimate', value: await estimates.create(payload) }
-  }
-  if (validatedAction.type === 'create_document') {
-    return { type: 'document', value: await documents.create(validatedAction.data as unknown as Parameters<typeof documents.create>[0]) }
-  }
-  if (validatedAction.type === 'present_image') {
-    return { type: 'image', value: await verifyImageArtifact(validatedAction.data, { signal }) }
-  }
-  if (validatedAction.type === 'present_artifact') {
-    return { type: 'file', value: await verifyFileArtifact(validatedAction.data, { signal }) }
-  }
-  return null
-}
-
 function appendWorkSummary(events: ChatWorkSummary[], next: ChatWorkSummary): ChatWorkSummary[] {
   return mergeReplayedWorkSummaries(events, [next])
-}
-
-function artifactMaterializationEvent(
-  action: ChatAction,
-  status: ChatWorkSummary['status'],
-  t: Translate,
-): ChatWorkSummary | null {
-  if (action.type === 'create_estimate') {
-    return {
-      stage: 'artifact_materialization',
-      status,
-      summary: status === 'active'
-        ? t('trace.estimateSaving')
-        : status === 'completed'
-          ? t('trace.estimateSaved')
-          : t('trace.estimateSaveFailed'),
-      artifact_type: 'estimate',
-    }
-  }
-  if (action.type === 'create_document') {
-    return {
-      stage: 'artifact_materialization',
-      status,
-      summary: status === 'active'
-        ? t('trace.documentSaving')
-        : status === 'completed'
-          ? t('trace.documentSaved')
-          : t('trace.documentSaveFailed'),
-      artifact_type: 'document',
-    }
-  }
-  if (action.type === 'present_image') {
-    return {
-      stage: 'artifact_verification',
-      status,
-      summary: status === 'active'
-        ? t('trace.imageVerifying')
-        : status === 'completed'
-          ? t('trace.imageVerified')
-          : t('trace.imageVerificationFailed'),
-      artifact_type: 'image',
-      artifact_id: typeof action.data?.id === 'string' ? action.data.id : undefined,
-    }
-  }
-  if (action.type === 'present_artifact') {
-    return {
-      stage: 'artifact_verification',
-      status,
-      summary: status === 'failed' ? t('trace.artifactFailed') : status === 'completed' ? t('trace.artifactReady') : t('trace.artifactPreparing'),
-      artifact_type: typeof action.data?.type === 'string' ? action.data.type : 'file',
-      artifact_id: typeof action.data?.id === 'string' ? action.data.id : undefined,
-    }
-  }
-  return null
-}
-
-function providerAttemptEvent(event: ChatStreamEvent, t: Translate): ChatWorkSummary | null {
-  if (!event.provider_event || event.provider_event.type !== 'provider.attempt.failed') return null
-  return {
-    stage: 'provider_attempt',
-    status: 'failed',
-    summary: event.provider_event.will_retry
-      ? t('trace.routeRetrying')
-      : t('trace.routeFailed'),
-  }
 }
 
 interface Message {
@@ -853,7 +698,7 @@ export default function ChatPage() {
 
       const action = assistantActions.find(shouldAutoMaterializeAction)
       if (action) {
-        const startedMaterialization = artifactMaterializationEvent(action, 'active', t)
+        const startedMaterialization = actionMaterializationEvent(action, 'active', t)
         if (startedMaterialization) {
           workEvents = appendWorkSummary(workEvents, startedMaterialization)
           setMessages(current => current.map(message => message.id === assistantId ? {
@@ -866,10 +711,13 @@ export default function ChatPage() {
           } : message))
         }
         try {
-          const artifact = await materializeAction(action, durableProject?.id, controller.signal)
+          const artifact = await materializeConversationAction(action, {
+            projectId: durableProject?.id,
+            verificationSignal: controller.signal,
+          })
           if (artifact) {
             materializedArtifact = artifact
-            const completedMaterialization = artifactMaterializationEvent(action, 'completed', t)
+            const completedMaterialization = actionMaterializationEvent(action, 'completed', t)
             if (completedMaterialization) workEvents = appendWorkSummary(workEvents, completedMaterialization)
             assistantActions = []
             setMessages(current => current.map(message => message.id === assistantId ? {
@@ -895,7 +743,7 @@ export default function ChatPage() {
             }, t)
             : t('chat.artifactFailed')
           activeAssistantContentRef.current = assistantContent
-          const failedMaterialization = artifactMaterializationEvent(action, 'failed', t)
+          const failedMaterialization = actionMaterializationEvent(action, 'failed', t)
           if (failedMaterialization) {
             workEvents = appendWorkSummary(workEvents, failedMaterialization)
             setMessages(current => current.map(message => message.id === assistantId ? {
@@ -1004,11 +852,14 @@ export default function ChatPage() {
           let fallbackArtifactFailed = false
           if (fallbackAction) {
             try {
-              const startedMaterialization = artifactMaterializationEvent(fallbackAction, 'active', t)
+              const startedMaterialization = actionMaterializationEvent(fallbackAction, 'active', t)
               if (startedMaterialization) workEvents = appendWorkSummary(workEvents, startedMaterialization)
-              fallbackArtifact = await materializeAction(fallbackAction, durableProject?.id, controller.signal)
+              fallbackArtifact = await materializeConversationAction(fallbackAction, {
+                projectId: durableProject?.id,
+                verificationSignal: controller.signal,
+              })
               materializedArtifact = fallbackArtifact
-              const completedMaterialization = artifactMaterializationEvent(fallbackAction, 'completed', t)
+              const completedMaterialization = actionMaterializationEvent(fallbackAction, 'completed', t)
               if (completedMaterialization) workEvents = appendWorkSummary(workEvents, completedMaterialization)
             } catch (cause) {
               fallbackArtifactFailed = true
@@ -1217,38 +1068,18 @@ export default function ChatPage() {
           setOpenClarificationKey(current => current === actionKey ? null : actionKey)
           return
         }
-        const payload = normalizeEstimateAction(validatedAction.data)
-        if (project?.id) payload.project_id = project.id
-        const created = await estimates.create(payload)
-        setMessages(current => current.map(message => message.id === messageId ? {
-          ...message,
-          artifact: { type: 'estimate', value: created },
-          actions: [],
-        } : message))
-        setActiveEstimate(created)
-      } else if (validatedAction.type === 'create_document') {
-        const created = await documents.create(validatedAction.data as unknown as Parameters<typeof documents.create>[0])
-        setMessages(current => current.map(message => message.id === messageId ? {
-          ...message,
-          artifact: { type: 'document', value: created },
-          actions: [],
-        } : message))
-        setActiveDocument(created)
-      } else if (validatedAction.type === 'present_image') {
-        const value = await verifyImageArtifact(validatedAction.data)
-        setMessages(current => current.map(message => message.id === messageId ? {
-          ...message,
-          artifact: { type: 'image', value },
-          actions: [],
-        } : message))
-      } else if (validatedAction.type === 'present_artifact') {
-        const value = await verifyFileArtifact(validatedAction.data)
-        setMessages(current => current.map(message => message.id === messageId ? {
-          ...message,
-          artifact: { type: 'file', value },
-          actions: [],
-        } : message))
       }
+      const artifact = await materializeConversationAction(validatedAction, {
+        projectId: project?.id,
+      })
+      if (!artifact) return
+      setMessages(current => current.map(message => message.id === messageId ? {
+        ...message,
+        artifact,
+        actions: [],
+      } : message))
+      if (artifact.type === 'estimate') setActiveEstimate(artifact.value)
+      if (artifact.type === 'document') setActiveDocument(artifact.value)
     } finally {
       setActionBusy(null)
     }

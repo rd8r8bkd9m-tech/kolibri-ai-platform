@@ -25,6 +25,10 @@ MIMO_DEVELOPER_MODEL_DEFAULT: str = (
 
 CODEX_MODEL_DEFAULT: str = "gpt-5.5"
 
+OPENAI_BASE_URL_DEFAULT: str = "https://api.openai.com/v1"
+OPENAI_MODEL_DEFAULT: str = "gpt-4o"
+OPENAI_MODEL_DISPLAY: str = "GPT-4o"
+
 # ---------------------------------------------------------------------------
 # External service URLs
 # ---------------------------------------------------------------------------

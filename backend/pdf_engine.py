@@ -80,10 +80,56 @@ def generate_business_document_pdf(document: BusinessDocument, output_path: str 
     path.parent.mkdir(parents=True, exist_ok=True)
     styles = _styles()
     doc = SimpleDocTemplate(str(path), pagesize=A4, leftMargin=16 * mm, rightMargin=16 * mm, topMargin=16 * mm, bottomMargin=16 * mm)
-    story = [_p(document.title, styles["title"]), _p(f"Клиент: {document.client_name}", styles["body"]), _p(f"Исполнитель: {document.contractor_name}", styles["body"]), _p(f"Смета: {document.estimate_id}", styles["body"]), Spacer(1, 8)]
+    story = [
+        _p(document.title, styles["title"]),
+        _p(f"Заказчик: {document.client_name}", styles["body"]),
+        _p(f"Подрядчик / отправитель: {document.contractor_name}", styles["body"]),
+        _p(f"Основание расчёта: смета {document.estimate_id}", styles["body"]),
+        Spacer(1, 8),
+    ]
     for section in document.body_sections:
         story.append(_p(section.get("title", "Раздел"), styles["h2"]))
         story.append(_p(section.get("text", ""), styles["body"]))
-    story.extend([Spacer(1, 12), _p(f"Сумма документа: {document.total} {document.currency}", styles["h2"])])
+        section_rows = section.get("rows")
+        if isinstance(section_rows, list) and section_rows:
+            rows = [[
+                _p("Раздел", styles["small"]),
+                _p("Позиция", styles["small"]),
+                _p("Ед.", styles["small"]),
+                _p("Объём", styles["small"]),
+                _p("Сумма", styles["small"]),
+            ]]
+            for row in section_rows:
+                rows.append([
+                    _p(row.get("section", ""), styles["small"]),
+                    _p(row.get("item", ""), styles["small"]),
+                    _p(row.get("unit", ""), styles["small"]),
+                    _p(row.get("quantity", ""), styles["small"]),
+                    _p(row.get("total", ""), styles["small"]),
+                ])
+            table = Table(rows, colWidths=[27 * mm, 72 * mm, 15 * mm, 20 * mm, 25 * mm], repeatRows=1)
+            table.setStyle(TableStyle([
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#F1F3F5")),
+                ("GRID", (0, 0), (-1, -1), 0.3, colors.HexColor("#C9CDD2")),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 4),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+                ("TOPPADDING", (0, 0), (-1, -1), 4),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+            ]))
+            story.extend([Spacer(1, 5), table])
+    if document.attachments:
+        story.append(_p("Приложения", styles["h2"]))
+        for attachment in document.attachments:
+            story.append(_p(f"• {attachment}", styles["body"]))
+    if document.missing_fields:
+        story.append(_p("Перед подписанием требуется заполнить и проверить", styles["h2"]))
+        for field in document.missing_fields:
+            story.append(_p(f"• {field}", styles["body"]))
+    story.extend([
+        Spacer(1, 12),
+        _p(f"Сумма документа: {document.total} {document.currency}", styles["h2"]),
+        _p(f"Оформление: {document.document_standard}. Требуется проверка уполномоченным лицом перед подписанием.", styles["small"]),
+    ])
     doc.build(story)
     return path

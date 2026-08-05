@@ -258,6 +258,7 @@ class TBankGateway:
                 transport=self._transport,
                 follow_redirects=False,
                 trust_env=False,
+                verify=self.settings.verify_ssl,
             ) as client:
                 response = client.post(
                     f"{self.settings.base_url}/{method}",

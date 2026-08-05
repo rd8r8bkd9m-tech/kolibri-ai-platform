@@ -16,7 +16,7 @@ const navigation = [
 ]
 
 const homeNavigation = [
-  { to: '#workflow', label: 'Создать смету' },
+  { to: '#workflow', label: 'Начать диалог' },
   { to: '/pricing', label: 'Тарифы' },
   { to: '/security', label: 'Безопасность' },
   { to: '/developers', label: 'API' },

@@ -52,7 +52,9 @@ from .market_catalog_router import router as market_catalog_router
 from .model_catalog import router as model_catalog_router
 from .normative_router import router as normative_router
 from .platform_admin import router as platform_admin_router
+from .platform_models import router as platform_models_router
 from .provider_connections import router as provider_connections_router
+from .user_models import router as user_models_router
 from .provider_execution import (
     ProviderExecutionSecurity,
     ProviderExecutionService,
@@ -68,6 +70,7 @@ from .storage_node_executor import (
 )
 from .storage_node_rust_adapter import build_storage_node_executor
 from .trusted_agent_control import router as trusted_agent_control_router
+from .chatgpt_gateway import router as chatgpt_gateway_router
 
 
 NO_STORE_HEADERS = {
@@ -569,6 +572,8 @@ def create_app(
     app.include_router(provider_execution_router)
     app.include_router(model_catalog_router)
     app.include_router(platform_admin_router)
+    app.include_router(platform_models_router)
+    app.include_router(user_models_router)
     app.include_router(construction_agent_admin_router)
     app.include_router(trusted_agent_control_router)
     app.include_router(agent_operations_router)
@@ -583,6 +588,7 @@ def create_app(
     app.include_router(pricing_router)
     app.include_router(market_catalog_router)
     app.include_router(normative_router)
+    app.include_router(chatgpt_gateway_router)
     return app
 
 

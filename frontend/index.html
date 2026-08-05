@@ -2,21 +2,11 @@
 <html lang="ru">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/kolibri.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-    <meta name="theme-color" content="#0d141d" />
-    <title>Kolibri AI</title>
-    <script>
-      if (!window.crypto || !window.crypto.randomUUID) {
-        window.crypto = window.crypto || {};
-        window.crypto.randomUUID = function() {
-          return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, function(c) {
-            var r = Math.random() * 16 | 0, v = c == "x" ? r : (r & 0x3 | 0x8);
-            return v.toString(16);
-          });
-        };
-      }
-    </script>
+    <link rel="icon" href="/kolibri-bird.png" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#f6f2df" />
+    <meta name="description" content="Kolibri OS — единое рабочее пространство для исследований, планов, приложений, документов, автоматизаций и проверенных результатов." />
+    <title>Kolibri OS</title>
   </head>
   <body>
     <div id="root"></div>

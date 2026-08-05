@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+import json as _json
 import re
 import sqlite3
 from typing import Any
@@ -350,6 +351,7 @@ def _load_snapshot(
     database: sqlite3.Connection,
     *,
     tenant_id: str,
+    user_id: str | None = None,
 ) -> ModelCatalogSnapshot:
     statuses = _provider_statuses(database, tenant_id=tenant_id)
     registry = _runtime_registry(request)
@@ -368,8 +370,18 @@ def _load_snapshot(
     if registry is None:
         return ModelCatalogSnapshot(models=tuple(models), profiles=())
 
+    # Key-backed runtimes are available without enrollment; the rest require
+    # a confirmed provider connection row.
+    runtime_settings = getattr(request.app.state, "settings", None)
+    key_backed_availability = {
+        "openai": bool(getattr(runtime_settings, "openai_api_key", None)),
+        "qwen": bool(getattr(runtime_settings, "qwen_api_key", None)),
+    }
     for descriptor in registry.descriptors():
-        available = statuses.get(descriptor.profile_id) == "connected"
+        if descriptor.profile_id in key_backed_availability:
+            available = key_backed_availability[descriptor.profile_id]
+        else:
+            available = statuses.get(descriptor.profile_id) == "connected"
         profile_models, catalog_available = _profile_models(
             registry,
             descriptor,
@@ -389,6 +401,92 @@ def _load_snapshot(
                 modes=tuple(sorted(descriptor.capabilities.modes)),
             )
         )
+    # Load platform-wide models (managed by superadmin, shared API key).
+    # Table may not exist yet during migration window.
+    try:
+        platform_rows = database.execute(
+            """
+            SELECT id, model_id, display_name, description, provider_type,
+                   auto_priority, is_default, supported_reasoning_efforts_json,
+                   service_tiers_json
+            FROM platform_models
+            WHERE is_enabled = 1
+            ORDER BY auto_priority DESC
+            """,
+        ).fetchall()
+    except sqlite3.OperationalError:
+        platform_rows = ()
+    for row in platform_rows:
+        efforts: list[tuple[str, str]] = []
+        raw_efforts = row["supported_reasoning_efforts_json"]
+        if raw_efforts:
+            try:
+                for item in _json.loads(raw_efforts):
+                    if isinstance(item, Mapping):
+                        eid = str(item.get("id", ""))
+                        desc = str(item.get("description", ""))
+                        if eid:
+                            efforts.append((eid, desc))
+            except (ValueError, TypeError):
+                pass
+
+        tiers: list[tuple[str, str, str]] = []
+        raw_tiers = row["service_tiers_json"]
+        if raw_tiers:
+            try:
+                for item in _json.loads(raw_tiers):
+                    if isinstance(item, Mapping):
+                        tid = str(item.get("id", ""))
+                        name = str(item.get("name", ""))
+                        desc = str(item.get("description", ""))
+                        if tid:
+                            tiers.append((tid, name, desc))
+            except (ValueError, TypeError):
+                pass
+
+        platform_model_id = f"platform:{str(row['id'])[:8]}:{row['model_id']}"
+        models.append(
+            ModelCatalogEntry(
+                id=platform_model_id,
+                profile=AgentProfile.AUTO,
+                display_name=str(row["display_name"]),
+                description=str(row["description"] or ""),
+                available=True,
+                supported_reasoning_efforts=tuple(efforts),
+                default_reasoning_effort=efforts[0][0] if efforts else None,
+                service_tiers=tuple(tiers),
+                is_default=bool(row["is_default"]),
+            )
+        )
+
+    # Load user-specific models (added by the user via /v1/user-models).
+    if user_id:
+        try:
+            user_rows = database.execute(
+                """
+                SELECT id, model_id, display_name, provider_type,
+                       auto_priority, is_enabled
+                FROM user_models
+                WHERE tenant_id = ? AND user_id = ? AND is_enabled = 1
+                ORDER BY auto_priority DESC
+                """,
+                (tenant_id, user_id),
+            ).fetchall()
+        except sqlite3.OperationalError:
+            user_rows = ()
+        for row in user_rows:
+            user_model_id = f"user:{str(row['id'])[:8]}:{row['model_id']}"
+            models.append(
+                ModelCatalogEntry(
+                    id=user_model_id,
+                    profile=AgentProfile.AUTO,
+                    display_name=str(row["display_name"]),
+                    description=f"Пользовательская модель ({row['provider_type']})",
+                    available=True,
+                    is_default=False,
+                )
+            )
+
     return ModelCatalogSnapshot(
         models=tuple(models),
         profiles=tuple(profiles),
@@ -583,6 +681,7 @@ def get_model_catalog(
         request,
         database,
         tenant_id=identity.tenant_id,
+        user_id=identity.user_id,
     )
     legacy_profile = snapshot.profile(AgentProfile.CODEX_CLI.value)
     legacy_default = next(

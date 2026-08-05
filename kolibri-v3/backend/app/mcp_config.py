@@ -6,7 +6,6 @@ use to discover and connect to Kolibri's MCP tool servers.
 
 from __future__ import annotations
 
-import json
 import os
 from pathlib import Path
 from typing import Any
@@ -56,6 +55,19 @@ def build_mcp_servers_config() -> dict[str, Any]:
     return servers
 
 
-def mcp_servers_json() -> str:
-    """Return MCP servers config as JSON string for CLI argument."""
-    return json.dumps(build_mcp_servers_config(), ensure_ascii=False)
+def mcp_servers_toml() -> str:
+    """Return MCP servers config as TOML map for Codex CLI -c flag.
+
+    Codex CLI expects TOML format for -c arguments, not JSON.
+    """
+    config = build_mcp_servers_config()
+    if not config:
+        return "{}"
+
+    lines = []
+    for name, server in config.items():
+        args_str = ", ".join(f'"{a}"' for a in server["args"])
+        lines.append(f'"{name}" = {{ command = "{server["command"]}", args = [{args_str}] }}')
+
+    # Join with commas instead of newlines for single-line -c argument
+    return ", ".join(lines)

@@ -150,6 +150,7 @@ class CodexCLISettings:
     # injects gateway configuration; Mac and other hosts keep PATH resolution.
     binary: str = field(default_factory=_default_codex_binary)
     model: str = ""
+    reasoning_effort: str = ""
     oss: bool = False
     cwd: Path = Path(".")
     max_concurrency: int = 4
@@ -161,6 +162,7 @@ class CodexCLISettings:
     max_line_bytes: int = 1024 * 1024
     max_output_bytes: int = 16 * 1024 * 1024
     web_search: str = "live"
+    product_text_only: bool = False
     respect_system_proxy: bool = True
     http_proxy: str = ""
     https_proxy: str = ""
@@ -185,6 +187,10 @@ class CodexCLISettings:
                 default=_default_codex_binary(),
             ),
             model=_first_env("CODEX_CLI_MODEL", "KOLIBRI_CODEX_MODEL"),
+            reasoning_effort=_first_env(
+                "CODEX_CLI_REASONING_EFFORT",
+                "KOLIBRI_CODEX_REASONING_EFFORT",
+            ),
             oss=_bool_env_alias("CODEX_CLI_OSS", "KOLIBRI_CODEX_OSS", False),
             cwd=cwd,
             # The gateway is an asynchronous provider edge, not a single-user
@@ -204,6 +210,10 @@ class CodexCLISettings:
             max_line_bytes=_bounded_int("CODEX_CLI_MAX_LINE_BYTES", 1024 * 1024, 4096, 8 * 1024 * 1024),
             max_output_bytes=_bounded_int("CODEX_CLI_MAX_OUTPUT_BYTES", 16 * 1024 * 1024, 64 * 1024, 64 * 1024 * 1024),
             web_search=os.getenv("CODEX_CLI_WEB_SEARCH", "live").strip().lower(),
+            product_text_only=_bool_env(
+                "CODEX_CLI_PRODUCT_TEXT_ONLY",
+                False,
+            ),
             respect_system_proxy=_bool_env("CODEX_CLI_RESPECT_SYSTEM_PROXY", True),
             http_proxy=_first_env(
                 "CODEX_CLI_HTTP_PROXY",
@@ -245,6 +255,10 @@ def _normalise_messages(
         isinstance(policy, Mapping)
         and policy.get("output_contract") == "kolibri.project.v1"
     )
+    product_text_only = (
+        isinstance(policy, Mapping)
+        and policy.get("product_text_only") is True
+    )
     if project_json:
         lines = [
             "Ты работаешь как внутренний исполнитель Kolibri для сборки статического проекта.",
@@ -255,6 +269,16 @@ def _normalise_messages(
             "Не заявляй о публикации, деплое или созданном файле вне возвращенного JSON.",
             "",
             "Контракт проекта:",
+        ]
+    elif product_text_only:
+        lines = [
+            "Ты работаешь как изолированный текстовый исполнитель Kolibri.",
+            "Верни только полезный пользователю текстовый результат на русском языке.",
+            "Не вызывай shell, MCP, браузер, приложения, плагины, поиск, компьютерные или файловые инструменты.",
+            "Не выполняй внешние эффекты и не заявляй, что они выполнены.",
+            "Не раскрывай private chain-of-thought, credentials, локальные пути или внутреннюю топологию.",
+            "",
+            "Контекст диалога:",
         ]
     else:
         lines = [
@@ -351,6 +375,9 @@ class CodexCLIProvider:
             "binary_available": bool(binary),
             "cwd_available": cwd_ok,
             "model": self.settings.model or "account-default",
+            "reasoning_effort": (
+                self.settings.reasoning_effort or "account-default"
+            ),
             "max_concurrency": self.settings.max_concurrency,
             "proxy_configured": bool(
                 self.settings.http_proxy or self.settings.https_proxy or self.settings.all_proxy
@@ -382,14 +409,74 @@ class CodexCLIProvider:
             "-c",
             "features.multi_agent=false",
         ]
+        if self.settings.product_text_only:
+            # Product text execution is a model turn, not a coding session.
+            # Disable every installed effect-bearing feature at the CLI
+            # boundary; event parsing below independently fails closed if a
+            # future CLI still emits any non-text tool item.
+            argv.extend(
+                [
+                    "--ignore-rules",
+                    "--strict-config",
+                    "-c",
+                    "mcp_servers={}",
+                ],
+            )
+            for feature in (
+                "shell_tool",
+                "shell_snapshot",
+                "unified_exec",
+                "browser_use",
+                "browser_use_external",
+                "browser_use_full_cdp_access",
+                "computer_use",
+                "in_app_browser",
+                "apps",
+                "plugins",
+                "plugin_sharing",
+                "image_generation",
+                "hooks",
+                "multi_agent",
+                "code_mode",
+                "code_mode_only",
+                "auth_elicitation",
+                "request_permissions_tool",
+                "skill_mcp_dependency_install",
+                "tool_call_mcp_elicitation",
+                "workspace_dependencies",
+            ):
+                argv.extend(["--disable", feature])
         if self.settings.respect_system_proxy:
             argv.extend(["--enable", "respect_system_proxy"])
-        if self.settings.web_search in {"disabled", "cached", "indexed", "live"}:
+        if self.settings.product_text_only:
+            argv.extend(["-c", 'web_search="disabled"'])
+        elif self.settings.web_search in {"disabled", "cached", "indexed", "live"}:
             argv.extend(["-c", f'web_search="{self.settings.web_search}"'])
         if self.settings.oss:
             argv.append("--oss")
         if self.settings.model:
             argv.extend(["--model", self.settings.model])
+        if self.settings.reasoning_effort:
+            if (
+                not 1 <= len(self.settings.reasoning_effort) <= 32
+                or any(
+                    char
+                    not in "abcdefghijklmnopqrstuvwxyz0123456789_-"
+                    for char in self.settings.reasoning_effort
+                )
+            ):
+                raise CodexCLIError(
+                    "codex_cli_reasoning_effort_invalid",
+                )
+            argv.extend(
+                [
+                    "-c",
+                    (
+                        "model_reasoning_effort="
+                        f'"{self.settings.reasoning_effort}"'
+                    ),
+                ],
+            )
         for image in images:
             argv.extend(["--image", str(image)])
         argv.append("-")
@@ -444,12 +531,17 @@ class CodexCLIProvider:
         self,
         process: asyncio.subprocess.Process,
         run_id: str,
+        *,
+        max_content_chars: int | None = None,
+        max_content_bytes: int | None = None,
     ) -> AsyncIterator[dict[str, Any]]:
         if process.stdout is None:
             raise CodexCLIUnavailable()
         seen_agent_text: dict[str, str] = {}
         emitted_text = False
         output_bytes = 0
+        content_chars = 0
+        content_bytes = 0
         turn_failed = False
         turn_completed = False
         while True:
@@ -469,6 +561,22 @@ class CodexCLIProvider:
             if not isinstance(event, dict):
                 raise CodexCLIInvalidOutput()
             event_type = str(event.get("type") or "")
+            if (
+                self.settings.product_text_only
+                and event_type
+                not in {
+                    "thread.started",
+                    "turn.started",
+                    "item.started",
+                    "item.updated",
+                    "item.completed",
+                    "turn.completed",
+                    "turn.failed",
+                }
+            ):
+                raise CodexCLIError(
+                    "codex_cli_product_event_forbidden",
+                )
             if event_type == "thread.started":
                 yield {
                     "content": "",
@@ -488,8 +596,20 @@ class CodexCLIProvider:
             elif event_type in {"item.started", "item.updated", "item.completed"}:
                 item = event.get("item")
                 if not isinstance(item, dict):
+                    if self.settings.product_text_only:
+                        raise CodexCLIError(
+                            "codex_cli_product_event_forbidden",
+                        )
                     continue
                 item_type = str(item.get("type") or "")
+                if (
+                    self.settings.product_text_only
+                    and item_type
+                    not in {"reasoning", "agent_message", "plan"}
+                ):
+                    raise CodexCLIError(
+                        "codex_cli_product_tool_forbidden",
+                    )
                 if item_type == "reasoning":
                     continue
                 if item_type == "agent_message":
@@ -505,6 +625,18 @@ class CodexCLIProvider:
                     if len(text) >= len(previous):
                         seen_agent_text[item_id] = text
                     if delta:
+                        content_chars += len(delta)
+                        content_bytes += len(delta.encode("utf-8"))
+                        if (
+                            max_content_chars is not None
+                            and content_chars > max_content_chars
+                        ) or (
+                            max_content_bytes is not None
+                            and content_bytes > max_content_bytes
+                        ):
+                            raise CodexCLIError(
+                                "codex_cli_product_output_limit",
+                            )
                         emitted_text = True
                         yield {"content": delta, "done": False}
                     continue
@@ -560,6 +692,24 @@ class CodexCLIProvider:
         image_paths = tuple(Path(image).resolve() for image in (images or ()))
         if len(image_paths) > 8 or any(not image.is_file() for image in image_paths):
             raise CodexCLIError("codex_cli_image_invalid")
+        max_content_chars: int | None = None
+        max_content_bytes: int | None = None
+        if self.settings.product_text_only:
+            raw_limit = (
+                policy.get("max_output_tokens")
+                if isinstance(policy, Mapping)
+                else None
+            )
+            if (
+                not isinstance(raw_limit, int)
+                or isinstance(raw_limit, bool)
+                or not 64 <= raw_limit <= 8192
+            ):
+                raise CodexCLIError(
+                    "codex_cli_product_policy_required",
+                )
+            max_content_chars = raw_limit * 4
+            max_content_bytes = raw_limit * 8
         prompt = _normalise_messages(messages, policy=policy)
         prompt_bytes = prompt.encode("utf-8")
         if len(prompt_bytes) > self.settings.max_prompt_bytes:
@@ -608,7 +758,12 @@ class CodexCLIProvider:
 
             try:
                 async with asyncio.timeout(self.settings.attempt_timeout_seconds):
-                    async for event in self._normalised_events(process, run_id):
+                    async for event in self._normalised_events(
+                        process,
+                        run_id,
+                        max_content_chars=max_content_chars,
+                        max_content_bytes=max_content_bytes,
+                    ):
                         yield event
             except TimeoutError as exc:
                 await self._terminate(process)

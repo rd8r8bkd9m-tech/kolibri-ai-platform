@@ -6,6 +6,7 @@ import type {
   ChatAction,
   ChatWorkSummary,
   Document,
+  DocumentCreateInput,
   Estimate,
   EstimateCreateInput,
   EstimateEvidenceIssue,
@@ -169,7 +170,7 @@ function normalizeEvidenceIssues(value: unknown): EstimateEvidenceIssue[] | null
   return result
 }
 
-function normalizeEstimateDraft(value: unknown): EstimateCreateInput | null {
+export function normalizeEstimateCreateInput(value: unknown): EstimateCreateInput | null {
   const data = record(value)
   if (!data) return null
   const title = requiredString(data.title, 160)
@@ -299,7 +300,7 @@ function normalizeEstimateDraft(value: unknown): EstimateCreateInput | null {
   }
 }
 
-function normalizeDocumentDraft(value: unknown): Record<string, unknown> | null {
+export function normalizeDocumentCreateInput(value: unknown): DocumentCreateInput | null {
   const data = record(value)
   if (!data) return null
   const title = requiredString(data.title, 160)
@@ -327,7 +328,7 @@ export function normalizePersistedAction(value: unknown): ChatAction | null {
   const label = requiredString(action.label, 120)
   if (!type || !label || !ACTION_TYPES.has(type)) return null
   if (type === 'create_estimate') {
-    const data = normalizeEstimateDraft(action.data)
+    const data = normalizeEstimateCreateInput(action.data)
     if (!data) return null
     const safeLabel = data.estimate_status === 'needs_input'
       ? 'Уточнить данные для сметы'
@@ -335,8 +336,8 @@ export function normalizePersistedAction(value: unknown): ChatAction | null {
     return { type, label: safeLabel, data: data as unknown as UnknownRecord }
   }
   if (type === 'create_document') {
-    const data = normalizeDocumentDraft(action.data)
-    return data ? { type, label, data } : null
+    const data = normalizeDocumentCreateInput(action.data)
+    return data ? { type, label, data: { ...data } } : null
   }
   try {
     const data = record(action.data)

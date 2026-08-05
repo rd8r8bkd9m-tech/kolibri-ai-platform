@@ -66,7 +66,6 @@ function LayoutShell({ user }: { user: AuthUser | null }) {
   }, [])
 
   const title = useMemo(() => {
-    if (location.pathname === '/estimates') return t('shell.estimate')
     if (location.pathname === '/documents') return t('shell.document')
     if (location.pathname === '/contracts') return t('shell.contracts')
     if (location.pathname === '/library') return t('shell.files')
@@ -118,7 +117,6 @@ function LayoutShell({ user }: { user: AuthUser | null }) {
             onCollapse={() => setRailPinned(false)}
             onNew={() => navigate('/chat')}
             onSettings={() => navigate('/settings')}
-            onEstimates={() => navigate('/estimates')}
             onContracts={() => navigate('/contracts')}
             onFiles={() => navigate('/library')}
             onObjects={() => navigate('/objects')}
@@ -163,7 +161,6 @@ function LayoutShell({ user }: { user: AuthUser | null }) {
             onHistory={() => setHistoryOpen(true)}
             onSearch={() => setSearchOpen(true)}
             onFiles={() => navigate('/library')}
-            onEstimates={() => navigate('/estimates')}
             onContracts={() => navigate('/contracts')}
             onObjects={() => navigate('/objects')}
             onClients={() => navigate('/clients')}

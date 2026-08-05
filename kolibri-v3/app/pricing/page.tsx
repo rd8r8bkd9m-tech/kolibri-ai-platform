@@ -1,10 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Suspense } from "react";
-import {
-	PublicPlanCatalog,
-	PublicPlanCatalogFallback,
-} from "@/components/public-site/public-plan-catalog";
+import { PublicPlanCatalog } from "@/components/public-site/public-plan-catalog";
 import { PublicShell } from "@/components/public-site/public-shell";
 import { getPublicCommerceConfig } from "@/lib/server/public-commerce";
 
@@ -21,15 +17,13 @@ export default function PricingPage() {
 				<div className="kp-container kp-pricing-layout">
 					<header className="kp-page-heading">
 						<p className="kp-eyebrow kp-eyebrow-dark"><span /> Тарифы</p>
-						<h1>Один понятный тариф на старте.</h1>
+					<h1>Один понятный тариф на старте.</h1>
 						<p>
 							Название, стоимость и срок доступа загружаются из серверного каталога.
 							Публичная страница не хранит и не подменяет цену.
 						</p>
 					</header>
-					<Suspense fallback={<PublicPlanCatalogFallback />}>
-						<PublicPlanCatalog />
-					</Suspense>
+					<PublicPlanCatalog />
 					<div className="kp-pricing-notes">
 						<h2>Как получить доступ</h2>
 						<ol>

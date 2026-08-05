@@ -36,6 +36,9 @@ def make_direct_task(task_id, objective="repair the contract"):
         "kind": "owner_remote_task",
         "attempt": 1,
         "attempt_id": f"{task_id}-attempt-1",
+        "lease_id": f"{task_id}-lease-1",
+        "fencing_token": 1,
+        "lease_slot_id": "agent-host-primary",
         "max_retries": 1,
         "envelope": {
             "kind": "owner_remote_task",
@@ -189,3 +192,77 @@ def test_direct_mimo_http_403_illegal_access_is_policy_blocked_without_prompt_le
         "stderr.log",
         "stdout.log",
     ]
+
+
+def test_legacy_dispatch_uses_leased_kind_not_conflicting_envelope_kind(
+    tmp_path,
+    monkeypatch,
+):
+    agent_host = load_agent_host()
+    monkeypatch.setattr(
+        agent_host.shutil,
+        "which",
+        lambda name: "/usr/bin/mimo" if name == "mimo" else None,
+    )
+
+    class Host(agent_host.AgentHost):
+        def post(self, path, body):
+            return body
+
+    host = Host(make_args(tmp_path))
+    task = make_direct_task("LEGACY-KIND-PRECEDENCE")
+    task["kind"] = "read_only_probe"
+    result_path = (
+        tmp_path
+        / "artifacts"
+        / task["task_id"]
+        / task["attempt_id"]
+        / "result.json"
+    )
+    result_path.parent.mkdir(parents=True)
+    dispatches = []
+
+    monkeypatch.setattr(
+        host,
+        "validate_runtime_permission_contract",
+        lambda _task: "read_only",
+    )
+    monkeypatch.setattr(
+        host,
+        "run_read_only_probe",
+        lambda _task: (
+            dispatches.append("read_only_probe")
+            or {
+                "status": "completed",
+                "result_path": str(result_path),
+                "worktree": str(tmp_path / "work"),
+            }
+        ),
+    )
+
+    def reject_legacy_direct(_task):
+        dispatches.append("legacy_direct_mimo")
+        raise AssertionError(
+            "Envelope kind overrode the leased top-level task kind",
+        )
+
+    monkeypatch.setattr(
+        host,
+        "run_direct_mimo_task",
+        reject_legacy_direct,
+    )
+    monkeypatch.setattr(
+        agent_host,
+        "finalize_runner_contract",
+        lambda _task, result, _artifact_dir, *, worktree: result,
+    )
+    monkeypatch.setattr(
+        host,
+        "write_result",
+        lambda _artifact_dir, _result: result_path,
+    )
+    monkeypatch.setattr(host, "complete", lambda *_args: None)
+
+    host.run_task(task)
+
+    assert dispatches == ["read_only_probe"]

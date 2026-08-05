@@ -15,12 +15,15 @@ import {
 	Moon,
 	Palette,
 	Plug,
+	Plus,
 	RefreshCw,
 	Search,
 	Settings2,
 	ShieldCheck,
 	Store,
 	Sun,
+	TestTube2,
+	Trash2,
 	UserRound,
 } from "lucide-react";
 import {
@@ -59,6 +62,15 @@ import { type AgentProfile, accountInitials } from "@/lib/identity/contracts";
 import { useIdentity } from "@/lib/identity/provider";
 import { useModelCatalog } from "@/lib/models/provider";
 import { effectiveModelSelectionId } from "@/lib/models/selection";
+import {
+	createUserModel,
+	deleteUserModel,
+	getUserModels,
+	testUserModel,
+	updateUserModel,
+	type UserManagedModel,
+	type UserModelCreate,
+} from "@/lib/models/user-models-client";
 import {
 	connectCodexLogin,
 	connectMimo,
@@ -1628,6 +1640,8 @@ function AiModelsSection() {
 					любую из уже доступных моделей.
 				</p>
 			)}
+
+			<UserModelsSection />
 		</section>
 	);
 }
@@ -1781,5 +1795,381 @@ function SectionHeading({
 				{description}
 			</p>
 		</div>
+	);
+}
+
+const USER_PROVIDER_OPTIONS = [
+	{ value: "openai", label: "OpenAI" },
+	{ value: "anthropic", label: "Anthropic" },
+	{ value: "qwen", label: "Qwen" },
+	{ value: "custom", label: "Custom (OpenAI-compatible)" },
+] as const;
+
+function UserModelsSection() {
+	const modelCatalog = useModelCatalog();
+	const [models, setModels] = useState<UserManagedModel[]>([]);
+	const [loading, setLoading] = useState(true);
+	const [showForm, setShowForm] = useState(false);
+	const [busy, setBusy] = useState<string | null>(null);
+	const [message, setMessage] = useState<string | null>(null);
+	const [failed, setFailed] = useState(false);
+
+	// Form state
+	const [providerType, setProviderType] = useState("openai");
+	const [modelId, setModelId] = useState("");
+	const [displayName, setDisplayName] = useState("");
+	const [apiKey, setApiKey] = useState("");
+	const [baseUrl, setBaseUrl] = useState("");
+	const [autoPriority, setAutoPriority] = useState("50");
+
+	const load = useCallback(async (signal?: AbortSignal) => {
+		setLoading(true);
+		try {
+			setModels(await getUserModels(signal));
+		} catch {
+			// Silently fail — user may not have any models yet
+		} finally {
+			if (!signal?.aborted) setLoading(false);
+		}
+	}, []);
+
+	useEffect(() => {
+		const controller = new AbortController();
+		void load(controller.signal);
+		return () => controller.abort();
+	}, [load]);
+
+	const resetForm = () => {
+		setProviderType("openai");
+		setModelId("");
+		setDisplayName("");
+		setApiKey("");
+		setBaseUrl("");
+		setAutoPriority("50");
+	};
+
+	const handleCreate = async (event: FormEvent) => {
+		event.preventDefault();
+		setBusy("create");
+		setMessage(null);
+		setFailed(false);
+		try {
+			const payload: UserModelCreate = {
+				providerType,
+				modelId,
+				displayName,
+				apiKey,
+				baseUrl: providerType === "custom" ? baseUrl : undefined,
+				autoPriority: Number(autoPriority) || 50,
+			};
+			const created = await createUserModel(payload);
+			setModels((prev) => [created, ...prev]);
+			setMessage(`Модель «${created.displayName}» подключена.`);
+			resetForm();
+			setShowForm(false);
+			await modelCatalog.refresh();
+		} catch (err) {
+			setFailed(true);
+			setMessage(
+				err instanceof Error ? err.message : "Не удалось подключить модель.",
+			);
+		} finally {
+			setBusy(null);
+		}
+	};
+
+	const handleTest = async (id: string) => {
+		setBusy(`test:${id}`);
+		setMessage(null);
+		setFailed(false);
+		try {
+			const result = await testUserModel(id);
+			setMessage(result.message);
+			setFailed(result.status !== "connected");
+			setModels((prev) =>
+				prev.map((m) =>
+					m.id === id
+						? { ...m, lastTestStatus: result.status, lastTestedAt: new Date().toISOString() }
+						: m,
+				),
+			);
+		} catch (err) {
+			setFailed(true);
+			setMessage(
+				err instanceof Error ? err.message : "Ошибка тестирования.",
+			);
+		} finally {
+			setBusy(null);
+		}
+	};
+
+	const handleToggle = async (id: string, enabled: boolean) => {
+		setBusy(`toggle:${id}`);
+		setMessage(null);
+		setFailed(false);
+		try {
+			const updated = await updateUserModel(id, { isEnabled: !enabled });
+			setModels((prev) => prev.map((m) => (m.id === id ? updated : m)));
+			await modelCatalog.refresh();
+		} catch (err) {
+			setFailed(true);
+			setMessage(
+				err instanceof Error ? err.message : "Ошибка обновления.",
+			);
+		} finally {
+			setBusy(null);
+		}
+	};
+
+	const handleDelete = async (id: string) => {
+		setBusy(`delete:${id}`);
+		setMessage(null);
+		setFailed(false);
+		try {
+			await deleteUserModel(id);
+			setModels((prev) => prev.filter((m) => m.id !== id));
+			await modelCatalog.refresh();
+			setMessage("Модель удалена.");
+		} catch (err) {
+			setFailed(true);
+			setMessage(
+				err instanceof Error ? err.message : "Ошибка удаления.",
+			);
+		} finally {
+			setBusy(null);
+		}
+	};
+
+	return (
+		<section className="mt-8 border-t pt-6">
+			<div className="flex items-start justify-between gap-4">
+				<div>
+					<h3 className="text-[13px] font-semibold">Мои модели</h3>
+					<p className="text-muted-foreground mt-1 max-w-xl text-[12px] leading-5">
+						Подключите дополнительные модели со своими API-ключами. Они появятся
+						в каталоге моделей для выбора.
+					</p>
+				</div>
+				<Button
+					type="button"
+					variant="outline"
+					size="sm"
+					onClick={() => setShowForm(!showForm)}
+					className="rounded-lg shadow-none"
+				>
+					<Plus className="size-4" aria-hidden="true" />
+					{showForm ? "Скрыть" : "Добавить модель"}
+				</Button>
+			</div>
+
+			{showForm ? (
+				<form
+					onSubmit={(e) => void handleCreate(e)}
+					className="mt-4 space-y-3 rounded-2xl border bg-card p-4"
+				>
+					<div className="grid gap-3 sm:grid-cols-2">
+						<div className="space-y-1.5">
+							<label className="text-[12px] font-medium text-muted-foreground">
+								Провайдер
+							</label>
+							<select
+								value={providerType}
+								onChange={(e) => setProviderType(e.target.value)}
+								className="h-10 w-full rounded-xl border bg-background px-3 text-[12px] shadow-none"
+							>
+								{USER_PROVIDER_OPTIONS.map((opt) => (
+									<option key={opt.value} value={opt.value}>
+										{opt.label}
+									</option>
+								))}
+							</select>
+						</div>
+						<div className="space-y-1.5">
+							<label className="text-[12px] font-medium text-muted-foreground">Model ID *</label>
+							<Input value={modelId} onChange={(e) => setModelId(e.target.value)} placeholder="gpt-4o" className="h-10 rounded-xl text-[12px] shadow-none" />
+						</div>
+						<div className="space-y-1.5">
+							<label className="text-[12px] font-medium text-muted-foreground">Название *</label>
+							<Input value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="GPT-4o" className="h-10 rounded-xl text-[12px] shadow-none" />
+						</div>
+						<div className="space-y-1.5">
+							<label className="text-[12px] font-medium text-muted-foreground">
+								API ключ *
+							</label>
+							<Input
+								type="password"
+								value={apiKey}
+								onChange={(e) => setApiKey(e.target.value)}
+								placeholder="sk-..."
+								className="h-10 rounded-xl text-[12px] shadow-none"
+							/>
+						</div>
+						{providerType === "custom" ? (
+							<div className="space-y-1.5">
+								<label className="text-[12px] font-medium text-muted-foreground">Base URL *</label>
+								<Input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="https://api.example.com/v1" className="h-10 rounded-xl text-[12px] shadow-none" />
+							</div>
+						) : null}
+						<div className="space-y-1.5">
+							<label className="text-[12px] font-medium text-muted-foreground">Приоритет (0–100)</label>
+							<Input value={autoPriority} onChange={(e) => setAutoPriority(e.target.value)} inputMode="numeric" placeholder="50" className="h-10 rounded-xl text-[12px] shadow-none" />
+						</div>
+					</div>
+					<div className="flex gap-2">
+						<Button
+							type="submit"
+							size="sm"
+							disabled={busy !== null || !modelId || !displayName || !apiKey}
+							className="rounded-lg shadow-none"
+						>
+							{busy === "create" ? (
+								<LoaderCircle className="size-4 animate-spin" />
+							) : (
+								<Plus className="size-4" />
+							)}
+							Подключить
+						</Button>
+						<Button
+							type="button"
+							variant="outline"
+							size="sm"
+							onClick={() => {
+								setShowForm(false);
+								resetForm();
+							}}
+							className="rounded-lg shadow-none"
+						>
+							Отмена
+						</Button>
+					</div>
+				</form>
+			) : null}
+
+			{message ? (
+				<p
+					className={cn(
+						"mt-3 rounded-xl px-3 py-2 text-[12px]",
+						failed
+							? "border border-destructive/30 text-destructive"
+							: "bg-muted/40 text-muted-foreground",
+					)}
+					role={failed ? "alert" : "status"}
+				>
+					{message}
+				</p>
+			) : null}
+
+			{loading ? (
+				<div className="text-muted-foreground mt-4 flex items-center gap-2 text-[12px]">
+					<LoaderCircle className="size-4 animate-spin" aria-hidden="true" />
+					Загрузка моделей…
+				</div>
+			) : models.length ? (
+				<div className="mt-4 space-y-2">
+					{models.map((model) => (
+						<article
+							key={model.id}
+							className="rounded-2xl border bg-card p-4"
+						>
+							<div className="flex items-start justify-between gap-3">
+								<div className="min-w-0 flex-1">
+									<div className="flex items-center gap-2">
+										<p className="truncate text-[13px] font-semibold">
+											{model.displayName}
+										</p>
+										<span
+											className={cn(
+												"rounded-full border px-2 py-0.5 text-[11px] font-medium",
+												model.isEnabled
+													? "border-emerald-600/30 text-emerald-700"
+													: "text-muted-foreground",
+											)}
+										>
+											{model.isEnabled ? "Включена" : "Отключена"}
+										</span>
+										<span className="rounded-full border px-2 py-0.5 text-[11px] text-muted-foreground">
+											{model.providerType}
+										</span>
+									</div>
+									<p className="text-muted-foreground mt-1 truncate text-[11px]">
+										{model.modelId}
+										{model.baseUrl ? ` · ${model.baseUrl}` : ""}
+										{` · приоритет ${model.autoPriority}`}
+									</p>
+									{model.lastTestedAt ? (
+										<p className="text-muted-foreground mt-1 text-[10px]">
+											Тест:{" "}
+											{new Date(model.lastTestedAt).toLocaleString("ru-RU")} —{" "}
+											{model.lastTestStatus === "connected"
+												? "успешно"
+												: model.lastTestStatus ?? "—"}
+										</p>
+									) : null}
+								</div>
+								<div className="flex shrink-0 items-center gap-1">
+									<Button
+										type="button"
+										variant="outline"
+										size="sm"
+										disabled={busy !== null}
+										onClick={() => void handleTest(model.id)}
+										className="rounded-lg shadow-none"
+										title="Тестировать"
+									>
+										{busy === `test:${model.id}` ? (
+											<LoaderCircle className="size-4 animate-spin" />
+										) : (
+											<TestTube2 className="size-4" />
+										)}
+									</Button>
+									<Button
+										type="button"
+										variant="outline"
+										size="sm"
+										disabled={busy !== null}
+										onClick={() =>
+											void handleToggle(model.id, model.isEnabled)
+										}
+										className="rounded-lg shadow-none"
+										title={model.isEnabled ? "Отключить" : "Включить"}
+									>
+										{busy === `toggle:${model.id}` ? (
+											<LoaderCircle className="size-4 animate-spin" />
+										) : (
+											<Check
+												className={cn(
+													"size-4",
+													!model.isEnabled && "opacity-30",
+												)}
+											/>
+										)}
+									</Button>
+									<Button
+										type="button"
+										variant="outline"
+										size="sm"
+										disabled={busy !== null}
+										onClick={() => void handleDelete(model.id)}
+										className="rounded-lg shadow-none text-destructive hover:text-destructive"
+										title="Удалить"
+									>
+										{busy === `delete:${model.id}` ? (
+											<LoaderCircle className="size-4 animate-spin" />
+										) : (
+											<Trash2 className="size-4" />
+										)}
+									</Button>
+								</div>
+							</div>
+						</article>
+					))}
+				</div>
+			) : (
+				<p className="text-muted-foreground mt-4 text-[12px]">
+					У вас нет подключённых моделей. Нажмите «Добавить модель», чтобы
+					подключить свою первую модель.
+				</p>
+			)}
+		</section>
 	);
 }

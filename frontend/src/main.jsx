@@ -12,6 +12,17 @@ import { createRoot } from "react-dom/client"
 import "./index.css"
 import App from "./App.jsx"
 
+// Remove the legacy kiosk service worker. It cached extension requests and
+// kept obsolete API paths alive after the Home-only application release.
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.getRegistrations().then((registrations) => {
+    registrations.forEach((registration) => registration.unregister());
+  }).catch(() => {});
+}
+if ("caches" in window) {
+  caches.keys().then((keys) => Promise.all(keys.map((key) => caches.delete(key)))).catch(() => {});
+}
+
 createRoot(document.getElementById("root")).render(
   <StrictMode>
     <App />

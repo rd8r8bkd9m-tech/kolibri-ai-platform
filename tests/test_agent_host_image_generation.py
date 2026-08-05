@@ -51,6 +51,9 @@ def test_agent_host_generates_telegram_image_with_configured_command(tmp_path, m
         "task_id": "TGIMG-1",
         "attempt": 1,
         "attempt_id": "TGIMG-1-attempt-1",
+        "lease_id": "TGIMG-1-lease-1",
+        "lease_slot_id": "agent-host-primary",
+        "fencing_token": 1,
         "envelope": {
             "kind": "telegram_image_generation",
             "prompt": "Нарисуй птичку Колибри",
@@ -75,16 +78,23 @@ def test_agent_host_control_plane_failover(tmp_path, monkeypatch):
     agent_host = load_agent_host()
     calls = []
 
-    def fake_request(method, url, body=None, timeout=20):
+    def fake_request(method, url, body=None, timeout=20, **kwargs):
+        del kwargs
         calls.append((method, url, body, timeout))
-        if url.startswith("http://down"):
+        if url.startswith("http://127.0.0.1:9101"):
             raise RuntimeError("down")
         return {"ok": True}
 
     monkeypatch.setattr(agent_host, "request", fake_request)
+    token_file = tmp_path / "agent-control-token"
+    token_file.write_text("t" * 48, encoding="ascii")
+    monkeypatch.setenv(
+        "KOLIBRI_CONTROL_PLANE_BEARER_TOKEN_FILE",
+        str(token_file),
+    )
     args = argparse.Namespace(
-        control_url="http://down:9101",
-        control_urls="http://down:9101,http://alive:9101",
+        control_url="http://127.0.0.1:9101",
+        control_urls="http://127.0.0.1:9101,http://127.0.0.1:9102",
         node_id="primary-candidate",
         agent_id="agent-host-primary",
         capabilities="generic_implementation",
@@ -97,8 +107,8 @@ def test_agent_host_control_plane_failover(tmp_path, monkeypatch):
     )
     host = agent_host.AgentHost(args)
     assert host.get("/health") == {"ok": True}
-    assert calls[0][1] == "http://down:9101/health"
-    assert calls[1][1] == "http://alive:9101/health"
-    assert host.control_url == "http://alive:9101"
+    assert calls[0][1] == "http://127.0.0.1:9101/health"
+    assert calls[1][1] == "http://127.0.0.1:9102/health"
+    assert host.control_url == "http://127.0.0.1:9102"
     host.post("/v1/tasks/lease", {"node_id": "primary-candidate"})
-    assert calls[-1][1] == "http://alive:9101/v1/tasks/lease"
+    assert calls[-1][1] == "http://127.0.0.1:9102/v1/tasks/lease"

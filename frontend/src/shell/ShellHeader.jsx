@@ -12,7 +12,7 @@ export function ShellHeader({ navigation, projectCount, title, onNewProject, onO
       onBrandActivate={navigation.toggle}
       onBrandPreviewEnter={navigation.onPointerEnter}
       onBrandPreviewLeave={navigation.onPointerLeave}
-      subtitle="Kolibri AI OS"
+      subtitle="Kolibri AI OS v4"
       title={title}
     >
       <button aria-label="История проектов" className="desktop-history-action" onClick={onOpenProjects} type="button">

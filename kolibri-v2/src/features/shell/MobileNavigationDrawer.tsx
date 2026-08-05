@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import { Bot, Building2, FileSignature, FileSpreadsheet, FolderOpen, Search, Settings, SquarePen, UserRound, X } from 'lucide-react'
+import { Bot, Building2, FileSignature, FolderOpen, Search, Settings, SquarePen, UserRound, X } from 'lucide-react'
 import type { AuthUser, Project } from '@/lib/api'
 import { useLocale } from '@/features/localization'
 import { verifiedDisplayName, verifiedInitials } from '@/features/auth/shellIdentity'
@@ -15,7 +15,6 @@ interface MobileNavigationDrawerProps {
   onHistory: () => void
   onSearch: () => void
   onFiles: () => void
-  onEstimates: () => void
   onContracts: () => void
   onObjects: () => void
   onClients: () => void
@@ -39,7 +38,6 @@ export default function MobileNavigationDrawer({
   onHistory,
   onSearch,
   onFiles,
-  onEstimates,
   onContracts,
   onObjects,
   onClients,
@@ -122,10 +120,6 @@ export default function MobileNavigationDrawer({
           <button type="button" onClick={() => onNavigate(onSearch)}>
             <Search size={20} strokeWidth={1.8} />
             <span>{t('shell.search')}</span>
-          </button>
-          <button type="button" className={activePath === '/estimates' ? 'is-active' : undefined} aria-current={activePath === '/estimates' ? 'page' : undefined} onClick={() => onNavigate(onEstimates)}>
-            <FileSpreadsheet size={20} strokeWidth={1.8} />
-            <span>{t('shell.estimate')}</span>
           </button>
           <button type="button" className={activePath === '/contracts' ? 'is-active' : undefined} aria-current={activePath === '/contracts' ? 'page' : undefined} onClick={() => onNavigate(onContracts)}>
             <FileSignature size={20} strokeWidth={1.8} />

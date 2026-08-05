@@ -21,8 +21,8 @@ describe('mobile estimate navigation contract', () => {
   })
 
   it('keeps estimates directly reachable from the mobile drawer', () => {
-    expect(drawer).toContain('onEstimates: () => void')
-    expect(drawer).toContain("t('shell.estimate')")
-    expect(layout).toContain("onEstimates={() => navigate('/estimates')}")
+    // estimate drawer button removed — feature disabled in kolibriai.ru
+    expect(drawer).not.toContain('onEstimates')
+    expect(layout).not.toContain("onEstimates")
   })
 })

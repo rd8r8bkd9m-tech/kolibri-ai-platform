@@ -65,7 +65,7 @@ export function PublicShell({
 							href="/app"
 							prefetch
 						>
-							Открыть Kolibri
+							Открыть КолИ
 						</Link>
 					</div>
 				</div>
@@ -98,7 +98,7 @@ export function PublicShell({
 								Реквизиты готовятся к публикации
 							</span>
 						)}
-						<span>© {new Date().getFullYear()} Kolibri AI</span>
+						<span>© {new Date().getFullYear()} КолИ</span>
 					</div>
 				</div>
 			</footer>

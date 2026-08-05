@@ -5,14 +5,19 @@ import {
 	Ban,
 	Bot,
 	Building2,
+	Check,
 	HardDrive,
+	KeyRound,
 	LayoutDashboard,
 	ListTodo,
 	LoaderCircle,
+	Plus,
 	RefreshCw,
 	ScrollText,
 	Server,
 	ShieldCheck,
+	TestTube2,
+	Trash2,
 	Users,
 } from "lucide-react";
 import {
@@ -58,6 +63,15 @@ import {
 	mergeBoundedFirstPage,
 	useVisibleDocumentRefresh,
 } from "@/lib/platform-admin/visible-document-refresh";
+import {
+	createPlatformModel,
+	deletePlatformModel,
+	type PlatformModel,
+	type PlatformModelCreate,
+	getPlatformModels,
+	testPlatformModel,
+	updatePlatformModel,
+} from "@/lib/platform-admin/models-client";
 import { cn } from "@/lib/utils";
 
 type Snapshot = {
@@ -67,6 +81,7 @@ type Snapshot = {
 	operations: AgentOperation[];
 	providers: AgentProviderAvailability[];
 	runtimes: AgentRuntimeAvailability[];
+	platformModels: PlatformModel[];
 	tenantCursor: string | null;
 	userCursor: string | null;
 	auditCursor: string | null;
@@ -77,7 +92,7 @@ type Snapshot = {
 
 type PageKind = "tenants" | "users" | "operations" | "audit";
 type PlatformAdminView =
-	"overview" | "hosts" | "agents" | "tasks" | "clients" | "audit";
+	"overview" | "hosts" | "agents" | "tasks" | "clients" | "models" | "audit";
 
 const PLATFORM_ADMIN_VIEWS: Array<{
 	id: PlatformAdminView;
@@ -89,6 +104,7 @@ const PLATFORM_ADMIN_VIEWS: Array<{
 	{ id: "agents", label: "Агенты", icon: Bot },
 	{ id: "tasks", label: "Задачи", icon: ListTodo },
 	{ id: "clients", label: "Клиенты", icon: Users },
+	{ id: "models", label: "Модели", icon: Bot },
 	{ id: "audit", label: "Аудит", icon: ScrollText },
 ];
 
@@ -165,9 +181,10 @@ export function PlatformAdminSection() {
 	const load = useCallback(async (signal?: AbortSignal) => {
 		setLoading(true);
 		try {
-			const [admin, operations] = await Promise.all([
+			const [admin, operations, models] = await Promise.all([
 				getPlatformAdminSnapshot(signal),
 				getAgentOperationsPage(undefined, signal),
+				getPlatformModels(signal),
 			]);
 			setSnapshot({
 				...admin,
@@ -177,6 +194,7 @@ export function PlatformAdminSection() {
 				providersTruncated: operations.availability.providersTruncated,
 				runtimes: operations.availability.runtimes,
 				runtimesTruncated: operations.availability.runtimesTruncated,
+				platformModels: models,
 			});
 			operationStatusesRef.current = new Map(
 				operations.items.map((operation) => [
@@ -741,6 +759,17 @@ export function PlatformAdminSection() {
 						</>
 					) : null}
 
+					{activeView === "models" ? (
+						<PlatformModelsPanel
+							models={snapshot.platformModels}
+							onModelsChange={(updated) =>
+								setSnapshot((s) =>
+									s ? { ...s, platformModels: updated } : s,
+								)
+							}
+						/>
+					) : null}
+
 					{activeView === "audit" ? (
 						<AdminGroup
 							icon={ScrollText}
@@ -1268,6 +1297,405 @@ function UserControlCard({
 					)}
 					Отозвать сессии
 				</Button>
+			</div>
+			<StatusMessage failed={failed} message={message} />
+		</article>
+	);
+}
+
+const PROVIDER_OPTIONS = [
+	{ value: "openai", label: "OpenAI" },
+	{ value: "anthropic", label: "Anthropic" },
+	{ value: "qwen", label: "Qwen" },
+	{ value: "mimo", label: "MiMo" },
+	{ value: "custom", label: "Custom (OpenAI-compatible)" },
+] as const;
+
+function PlatformModelsPanel({
+	models,
+	onModelsChange,
+}: {
+	models: PlatformModel[];
+	onModelsChange: (models: PlatformModel[]) => void;
+}) {
+	const [showForm, setShowForm] = useState(false);
+	const [formBusy, setFormBusy] = useState(false);
+	const [formError, setFormError] = useState<string | null>(null);
+	const [formSuccess, setFormSuccess] = useState<string | null>(null);
+
+	// Form state
+	const [providerType, setProviderType] = useState("openai");
+	const [providerName, setProviderName] = useState("");
+	const [modelId, setModelId] = useState("");
+	const [displayName, setDisplayName] = useState("");
+	const [description, setDescription] = useState("");
+	const [apiKey, setApiKey] = useState("");
+	const [baseUrl, setBaseUrl] = useState("");
+	const [autoPriority, setAutoPriority] = useState("50");
+
+	const resetForm = () => {
+		setProviderType("openai");
+		setProviderName("");
+		setModelId("");
+		setDisplayName("");
+		setDescription("");
+		setApiKey("");
+		setBaseUrl("");
+		setAutoPriority("50");
+		setFormError(null);
+		setFormSuccess(null);
+	};
+
+	const handleCreate = async (event: FormEvent) => {
+		event.preventDefault();
+		setFormBusy(true);
+		setFormError(null);
+		setFormSuccess(null);
+		try {
+			const payload: PlatformModelCreate = {
+				providerType,
+				providerName: providerName || undefined,
+				modelId,
+				displayName,
+				description: description || undefined,
+				apiKey,
+				baseUrl: providerType === "custom" ? baseUrl : undefined,
+				autoPriority: Number(autoPriority) || 50,
+			};
+			const created = await createPlatformModel(payload);
+			onModelsChange([created, ...models]);
+			setFormSuccess(`Модель «${created.displayName}» добавлена.`);
+			resetForm();
+			setShowForm(false);
+		} catch (err) {
+			setFormError(
+				err instanceof Error ? err.message : "Не удалось добавить модель.",
+			);
+		} finally {
+			setFormBusy(false);
+		}
+	};
+
+	return (
+		<AdminGroup
+			icon={Bot}
+			title="Платформенные модели"
+			description="Модели, доступные всем пользователям платформы. API-ключ хранится на уровне платформы."
+		>
+			<div className="mb-4 flex items-center gap-3">
+				<Button
+					type="button"
+					variant="outline"
+					size="sm"
+					onClick={() => {
+						setShowForm(!showForm);
+						setFormError(null);
+						setFormSuccess(null);
+					}}
+					className="rounded-lg shadow-none"
+				>
+					<Plus className="size-4" aria-hidden="true" />
+					{showForm ? "Скрыть форму" : "Добавить модель"}
+				</Button>
+				{formSuccess ? (
+					<span className="text-[12px] text-emerald-600">{formSuccess}</span>
+				) : null}
+			</div>
+
+			{showForm ? (
+				<form
+					onSubmit={(e) => void handleCreate(e)}
+					className="mb-6 space-y-3 rounded-2xl border bg-card p-4"
+				>
+					<h4 className="text-[13px] font-semibold">Новая модель</h4>
+					<div className="grid gap-3 sm:grid-cols-2">
+						<div className="space-y-1.5">
+							<label className="text-[12px] font-medium text-muted-foreground">
+								Тип провайдера
+							</label>
+							<select
+								value={providerType}
+								onChange={(e) => setProviderType(e.target.value)}
+								className="h-10 w-full rounded-xl border bg-background px-3 text-[12px] shadow-none"
+							>
+								{PROVIDER_OPTIONS.map((opt) => (
+									<option key={opt.value} value={opt.value}>
+										{opt.label}
+									</option>
+								))}
+							</select>
+						</div>
+						<LabeledInput
+							label="Название провайдера"
+							value={providerName}
+							onChange={setProviderName}
+							placeholder={providerType}
+						/>
+						<LabeledInput
+							label="Model ID *"
+							value={modelId}
+							onChange={setModelId}
+							placeholder="gpt-4o"
+						/>
+						<LabeledInput
+							label="Отображаемое имя *"
+							value={displayName}
+							onChange={setDisplayName}
+							placeholder="GPT-4o"
+						/>
+						<div className="space-y-1.5">
+							<label className="text-[12px] font-medium text-muted-foreground">
+								API ключ *
+							</label>
+							<Input
+								type="password"
+								value={apiKey}
+								onChange={(e) => setApiKey(e.target.value)}
+								placeholder="sk-..."
+								className="h-10 rounded-xl text-[12px] shadow-none"
+							/>
+						</div>
+						{providerType === "custom" ? (
+							<LabeledInput
+								label="Base URL *"
+								value={baseUrl}
+								onChange={setBaseUrl}
+								placeholder="https://api.example.com/v1"
+							/>
+						) : null}
+						<LabeledInput
+							label="Приоритет (0–100)"
+							value={autoPriority}
+							onChange={setAutoPriority}
+							inputMode="numeric"
+							placeholder="50"
+						/>
+					</div>
+					<div>
+						<label className="text-[12px] font-medium text-muted-foreground">
+							Описание
+						</label>
+						<textarea
+							value={description}
+							onChange={(e) => setDescription(e.target.value)}
+							placeholder="Краткое описание модели"
+							rows={2}
+							className="mt-1 w-full rounded-xl border bg-background px-3 py-2 text-[12px] shadow-none resize-none"
+						/>
+					</div>
+					{formError ? (
+						<p className="text-[12px] text-destructive" role="alert">
+							{formError}
+						</p>
+					) : null}
+					<div className="flex gap-2">
+						<Button
+							type="submit"
+							size="sm"
+							disabled={formBusy || !modelId || !displayName || !apiKey}
+							className="rounded-lg shadow-none"
+						>
+							{formBusy ? (
+								<LoaderCircle className="size-4 animate-spin" />
+							) : (
+								<Plus className="size-4" />
+							)}
+							Добавить
+						</Button>
+						<Button
+							type="button"
+							variant="outline"
+							size="sm"
+							onClick={() => {
+								setShowForm(false);
+								resetForm();
+							}}
+							className="rounded-lg shadow-none"
+						>
+							Отмена
+						</Button>
+					</div>
+				</form>
+			) : null}
+
+			{models.length ? (
+				<div className="space-y-2">
+					{models.map((model) => (
+						<PlatformModelCard
+							key={model.id}
+							model={model}
+							onUpdated={(updated) =>
+								onModelsChange(
+									models.map((m) => (m.id === updated.id ? updated : m)),
+								)
+							}
+							onDeleted={(id) =>
+								onModelsChange(models.filter((m) => m.id !== id))
+							}
+						/>
+					))}
+				</div>
+			) : (
+				<EmptyState text="Платформенные модели не добавлены." />
+			)}
+		</AdminGroup>
+	);
+}
+
+function PlatformModelCard({
+	model,
+	onUpdated,
+	onDeleted,
+}: {
+	model: PlatformModel;
+	onUpdated: (model: PlatformModel) => void;
+	onDeleted: (id: string) => void;
+}) {
+	const [busy, setBusy] = useState<"test" | "toggle" | "delete" | null>(null);
+	const [message, setMessage] = useState<string | null>(null);
+	const [failed, setFailed] = useState(false);
+
+	const runTest = async () => {
+		setBusy("test");
+		setMessage(null);
+		setFailed(false);
+		try {
+			const result = await testPlatformModel(model.id);
+			setMessage(result.message);
+			setFailed(result.status !== "connected");
+			onUpdated({ ...model, lastTestStatus: result.status, lastTestedAt: new Date().toISOString() });
+		} catch (err) {
+			setMessage(err instanceof Error ? err.message : "Ошибка тестирования.");
+			setFailed(true);
+		} finally {
+			setBusy(null);
+		}
+	};
+
+	const toggleEnabled = async () => {
+		setBusy("toggle");
+		setMessage(null);
+		setFailed(false);
+		try {
+			const updated = await updatePlatformModel(model.id, {
+				isEnabled: !model.isEnabled,
+			});
+			onUpdated(updated);
+		} catch (err) {
+			setMessage(err instanceof Error ? err.message : "Ошибка обновления.");
+			setFailed(true);
+		} finally {
+			setBusy(null);
+		}
+	};
+
+	const remove = async () => {
+		setBusy("delete");
+		setMessage(null);
+		setFailed(false);
+		try {
+			await deletePlatformModel(model.id);
+			onDeleted(model.id);
+		} catch (err) {
+			setMessage(err instanceof Error ? err.message : "Ошибка удаления.");
+			setFailed(true);
+			setBusy(null);
+		}
+	};
+
+	const statusTone =
+		model.lastTestStatus === "connected"
+			? "ready"
+			: model.lastTestStatus === "failed"
+				? "failed"
+				: "neutral";
+
+	return (
+		<article className="rounded-2xl border bg-card p-4">
+			<div className="flex items-start justify-between gap-3">
+				<div className="min-w-0 flex-1">
+					<div className="flex items-center gap-2">
+						<p className="truncate text-[13px] font-semibold">
+							{model.displayName}
+						</p>
+						<AgentStateBadge
+							state={model.isEnabled ? "ready" : "neutral"}
+							label={model.isEnabled ? "Включена" : "Отключена"}
+						/>
+						<AgentStateBadge state={statusTone} label={model.providerType} />
+					</div>
+					<p className="text-muted-foreground mt-1 truncate text-[11px]">
+						{model.modelId}
+						{model.baseUrl ? ` · ${model.baseUrl}` : ""}
+						{` · приоритет ${model.autoPriority}`}
+					</p>
+					{model.description ? (
+						<p className="text-muted-foreground mt-1 text-[11px]">
+							{model.description}
+						</p>
+					) : null}
+					{model.lastTestedAt ? (
+						<p className="text-muted-foreground mt-1 text-[10px]">
+							Последний тест:{" "}
+							{new Date(model.lastTestedAt).toLocaleString("ru-RU")} —{" "}
+							{model.lastTestStatus === "connected"
+								? "успешно"
+								: model.lastTestStatus ?? "нет данных"}
+						</p>
+					) : null}
+				</div>
+				<div className="flex shrink-0 items-center gap-1">
+					<Button
+						type="button"
+						variant="outline"
+						size="sm"
+						disabled={busy !== null}
+						onClick={() => void runTest()}
+						className="rounded-lg shadow-none"
+						title="Тестировать подключение"
+					>
+						{busy === "test" ? (
+							<LoaderCircle className="size-4 animate-spin" />
+						) : (
+							<TestTube2 className="size-4" />
+						)}
+					</Button>
+					<Button
+						type="button"
+						variant="outline"
+						size="sm"
+						disabled={busy !== null}
+						onClick={() => void toggleEnabled()}
+						className="rounded-lg shadow-none"
+						title={model.isEnabled ? "Отключить" : "Включить"}
+					>
+						{busy === "toggle" ? (
+							<LoaderCircle className="size-4 animate-spin" />
+						) : (
+							<Check
+								className={cn(
+									"size-4",
+									!model.isEnabled && "opacity-30",
+								)}
+							/>
+						)}
+					</Button>
+					<Button
+						type="button"
+						variant="outline"
+						size="sm"
+						disabled={busy !== null}
+						onClick={() => void remove()}
+						className="rounded-lg shadow-none text-destructive hover:text-destructive"
+						title="Удалить"
+					>
+						{busy === "delete" ? (
+							<LoaderCircle className="size-4 animate-spin" />
+						) : (
+							<Trash2 className="size-4" />
+						)}
+					</Button>
+				</div>
 			</div>
 			<StatusMessage failed={failed} message={message} />
 		</article>

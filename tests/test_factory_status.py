@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
 
-from factory_status import build_factory_status
+from factory_status import build_factory_status, build_factory_blocked_status
 
 
 def test_build_factory_status_normalizes_control_plane_nodes():
@@ -75,3 +75,37 @@ def test_frontend_uses_live_factory_status_endpoint():
     assert "Свежие" in app_source
     assert "Деградируют" in app_source
     assert "Устарели" in app_source
+
+
+def test_factory_blocked_status_falls_back_to_canonical_fleet():
+    payload = build_factory_blocked_status("control_plane_api_unreachable")
+
+    assert payload["status"] == "degraded"
+    assert payload["total_nodes"] == 21
+    assert payload["online_nodes"] == 0
+    assert len(payload["node_list"]) == 21
+    assert payload["control_plane"]["status"] == "blocked"
+    assert payload["control_plane"]["reason"] == "control_plane_api_unreachable"
+    assert payload["control_plane"]["fallback_nodes"] == [
+        "home",
+        "main",
+        "primary-candidate",
+        "uiap",
+        "qjns",
+        "9fts",
+        "new",
+        "server-kfrm",
+        "reserve242",
+        "highload",
+        "paris",
+        "agent-01",
+        "agent-02",
+        "agent-03",
+        "agent-04",
+        "agent-05",
+        "agent-06",
+        "agent-07",
+        "agent-08",
+        "agent-09",
+        "agent-10",
+    ]

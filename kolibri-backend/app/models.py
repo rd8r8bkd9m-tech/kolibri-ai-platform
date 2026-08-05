@@ -636,6 +636,7 @@ class ProjectDB(Base):
     status = Column(String, nullable=False, default="active")
     version = Column(Integer, nullable=False, default=1)
     message_count = Column(Integer, nullable=False, default=0)
+    run_count = Column(Integer, nullable=False, default=0, server_default="0")
     attributes = Column("metadata", JSON, nullable=False, default=dict)
     idempotency_key = Column(String, nullable=True)
     create_request_hash = Column(String, nullable=True)
@@ -719,6 +720,202 @@ class ProjectMessageMutationDB(Base):
     __table_args__ = (
         UniqueConstraint("message_id", "idempotency_key", name="uq_message_mutations_idempotency"),
         Index("ix_message_mutations_scope_created", "scope_id", "created_at"),
+    )
+
+
+class ProductRunDB(Base):
+    """Canonical Product Chat run owned by Product/Data Authority."""
+
+    __tablename__ = "product_runs"
+
+    id = Column(String, primary_key=True)
+    project_id = Column(
+        String,
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    scope_id = Column(String, nullable=False)
+    tenant_id = Column(String, nullable=False)
+    organization_id = Column(
+        String,
+        ForeignKey("organizations.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    run_sequence = Column(Integer, nullable=False)
+    input_message_id = Column(
+        String,
+        ForeignKey("project_messages.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    retry_of_run_id = Column(String, nullable=True)
+    resume_of_run_id = Column(String, nullable=True)
+    case_id = Column(String, nullable=False)
+    goal_id = Column(String, nullable=True)
+    home_task_id = Column(String, nullable=True)
+    lifecycle = Column(String, nullable=False, default="accepted", server_default="accepted")
+    outcome = Column(String, nullable=True)
+    last_event_sequence = Column(Integer, nullable=False, default=0, server_default="0")
+    last_event_id = Column(String, nullable=True)
+    active_interrupt_ids = Column(JSON, nullable=False, default=list, server_default="[]")
+    version = Column(Integer, nullable=False, default=1, server_default="1")
+    created_by = Column(String, nullable=False)
+    preferred_agent_profile = Column(String, nullable=False, default="auto", server_default="auto")
+    client_run_id = Column(String, nullable=True)
+    idempotency_key = Column(String, nullable=False)
+    request_hash = Column(String, nullable=False)
+    created_at = Column(DateTime, nullable=False, default=_now)
+    updated_at = Column(DateTime, nullable=False, default=_now, onupdate=_now)
+    finished_at = Column(DateTime, nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint("project_id", "run_sequence", name="uq_product_runs_sequence"),
+        UniqueConstraint("project_id", "idempotency_key", name="uq_product_runs_idempotency"),
+        Index("ix_product_runs_scope_updated", "scope_id", "updated_at"),
+        Index("ix_product_runs_thread_sequence", "project_id", "run_sequence"),
+        Index("ix_product_runs_lifecycle_updated", "lifecycle", "updated_at"),
+    )
+
+
+class ProductRunEventDB(Base):
+    """Immutable ordered Product Run event record."""
+
+    __tablename__ = "product_run_events"
+
+    id = Column(String, primary_key=True)
+    run_id = Column(
+        String,
+        ForeignKey("product_runs.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    sequence = Column(Integer, nullable=False)
+    event_type = Column(String, nullable=False)
+    record = Column(JSON, nullable=False)
+    created_at = Column(DateTime, nullable=False, default=_now)
+
+    __table_args__ = (
+        UniqueConstraint("run_id", "sequence", name="uq_product_run_events_sequence"),
+        Index("ix_product_run_events_run_sequence", "run_id", "sequence"),
+    )
+
+
+class ProductRunInterruptDB(Base):
+    """Persisted Product interrupt; the public contract remains immutable by version."""
+
+    __tablename__ = "product_run_interrupts"
+
+    id = Column(String, primary_key=True)
+    run_id = Column(
+        String,
+        ForeignKey("product_runs.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    scope_id = Column(String, nullable=False)
+    state = Column(String, nullable=False)
+    version = Column(Integer, nullable=False, default=1, server_default="1")
+    record = Column(JSON, nullable=False)
+    created_at = Column(DateTime, nullable=False, default=_now)
+    updated_at = Column(DateTime, nullable=False, default=_now, onupdate=_now)
+
+    __table_args__ = (
+        Index("ix_product_run_interrupts_run_state", "run_id", "state"),
+        Index("ix_product_run_interrupts_scope_updated", "scope_id", "updated_at"),
+    )
+
+
+class ProductRunOutboxDB(Base):
+    """Durable owner-local dispatch job containing a versioned Home command."""
+
+    __tablename__ = "product_run_outbox"
+
+    id = Column(String, primary_key=True)
+    run_id = Column(
+        String,
+        ForeignKey("product_runs.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+    )
+    scope_id = Column(String, nullable=False)
+    state = Column(String, nullable=False, default="queued", server_default="queued")
+    attempts = Column(Integer, nullable=False, default=0, server_default="0")
+    max_attempts = Column(Integer, nullable=False, default=3, server_default="3")
+    lease_owner = Column(String, nullable=True)
+    lease_until = Column(DateTime, nullable=True)
+    available_at = Column(DateTime, nullable=False, default=_now)
+    command_envelope = Column(JSON, nullable=False)
+    last_error_code = Column(String, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=_now)
+    updated_at = Column(DateTime, nullable=False, default=_now, onupdate=_now)
+    completed_at = Column(DateTime, nullable=True)
+
+    __table_args__ = (
+        Index("ix_product_run_outbox_state_available", "state", "available_at"),
+        Index("ix_product_run_outbox_scope_updated", "scope_id", "updated_at"),
+    )
+
+
+class ProductRunBudgetDB(Base):
+    """Atomic UTC-day execution budget owned by Product/Data Authority."""
+
+    __tablename__ = "product_run_budgets"
+
+    id = Column(String, primary_key=True)
+    scope_id = Column(String, nullable=False)
+    bucket_date = Column(String, nullable=False)
+    max_runs = Column(Integer, nullable=False)
+    reserved_runs = Column(Integer, nullable=False, default=0, server_default="0")
+    succeeded_runs = Column(Integer, nullable=False, default=0, server_default="0")
+    failed_runs = Column(Integer, nullable=False, default=0, server_default="0")
+    created_at = Column(DateTime, nullable=False, default=_now)
+    updated_at = Column(DateTime, nullable=False, default=_now, onupdate=_now)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "scope_id",
+            "bucket_date",
+            name="uq_product_run_budgets_scope_bucket",
+        ),
+        Index(
+            "ix_product_run_budgets_scope_bucket",
+            "scope_id",
+            "bucket_date",
+        ),
+    )
+
+
+class ProductRunBudgetReservationDB(Base):
+    """One durable quota reservation bound exactly to one Product run."""
+
+    __tablename__ = "product_run_budget_reservations"
+
+    id = Column(String, primary_key=True)
+    run_id = Column(
+        String,
+        ForeignKey("product_runs.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+    )
+    budget_id = Column(
+        String,
+        ForeignKey("product_run_budgets.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    scope_id = Column(String, nullable=False)
+    preferred_agent_profile = Column(String, nullable=False)
+    state = Column(String, nullable=False, default="reserved", server_default="reserved")
+    created_at = Column(DateTime, nullable=False, default=_now)
+    finished_at = Column(DateTime, nullable=True)
+
+    __table_args__ = (
+        Index(
+            "ix_product_run_budget_reservations_budget_state",
+            "budget_id",
+            "state",
+        ),
+        Index(
+            "ix_product_run_budget_reservations_scope_created",
+            "scope_id",
+            "created_at",
+        ),
     )
 
 

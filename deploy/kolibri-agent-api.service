@@ -6,6 +6,7 @@ After=network.target
 Type=simple
 Environment=KOLIBRI_AGENT_KEY=change-me
 Environment=KOLIBRI_NODE_ID=agent-01
+Environment=KOLIBRI_CONTROL_PLANE_URL=http://10.99.0.1:9101
 Environment=KOLIBRI_CONTROL_URL=http://10.99.0.1:9101
 ExecStart=/usr/local/bin/mimo serve --port 8001 --api-key $KOLIBRI_AGENT_KEY
 Restart=always

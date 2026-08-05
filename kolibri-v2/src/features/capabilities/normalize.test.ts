@@ -62,7 +62,7 @@ describe('capability UI gate', () => {
     expect(uiCapabilityMenu(catalog)).toEqual([])
   })
 
-  it('shows estimate and document editors only from their exact live backend contracts', () => {
+  it('shows document editor from its exact live backend contract', () => {
     const catalog = {
       availability: 'partial' as const,
       capabilities: [
@@ -71,7 +71,7 @@ describe('capability UI gate', () => {
         capability({ id: 'estimate.create', name: 'Непроверенная смета', route: { healthy: false }, renderer: { available: true, id: 'estimate_editor' } }),
       ],
     }
-    expect(uiCapabilityMenu(catalog).map(item => item.key)).toEqual(['estimate.create', 'document.editor'])
+    expect(uiCapabilityMenu(catalog).map(item => item.key)).toEqual(['document.editor'])
   })
 
   it('normalizes an explicit live backend contract without optimistic defaults', () => {

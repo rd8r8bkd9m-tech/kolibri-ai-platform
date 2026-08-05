@@ -1,6 +1,6 @@
-import Link from "next/link";
-import { ArrowRight, Check, CircleAlert } from "lucide-react";
+import { Check, CircleAlert } from "lucide-react";
 import { getPublicLaunchPlan } from "@/lib/server/public-billing";
+import { PublicPlanCheckoutButton } from "./landing/public-plan-checkout-button";
 
 const rubles = new Intl.NumberFormat("ru-RU", {
 	style: "currency",
@@ -18,6 +18,8 @@ function durationLabel(seconds: number) {
 }
 
 export function PublicPlanCatalogFallback({ compact = false }: { compact?: boolean }) {
+	const fallbackNote = "Цена не подставляется вручную и появится только из каталога биллинга.";
+
 	return (
 		<div
 			className={`kp-plan-state is-loading${compact ? " is-compact" : ""}`}
@@ -26,25 +28,26 @@ export function PublicPlanCatalogFallback({ compact = false }: { compact?: boole
 		>
 			<div className="kp-plan-loading-line" aria-hidden="true" />
 			<div>
-				<strong>Загружаем серверный тариф</strong>
-				<p>Цена и срок доступа появятся после ответа каталога биллинга.</p>
+				<strong>Тариф готовится к публикации</strong>
+				<p>Серверный каталог тарифов временно недоступен.</p>
+				<p>{fallbackNote}</p>
 			</div>
 		</div>
 	);
 }
 
 export async function PublicPlanCatalog({ compact = false }: { compact?: boolean }) {
-	const { error, plan } = await getPublicLaunchPlan();
+	const { plan } = await getPublicLaunchPlan();
+	const fallbackNote = "Цена не подставляется вручную и появится только из каталога биллинга.";
+
 	if (!plan) {
 		return (
 			<div className="kp-plan-state is-warning" role="status">
 				<CircleAlert aria-hidden="true" />
 				<div>
 					<strong>Тариф готовится к публикации</strong>
-					<p>
-						{error}
-					</p>
-					<p>Цена не подставляется вручную и появится только из каталога биллинга.</p>
+					<p>Серверный каталог тарифов временно недоступен.</p>
+					<p>{fallbackNote}</p>
 				</div>
 			</div>
 		);
@@ -64,9 +67,7 @@ export async function PublicPlanCatalog({ compact = false }: { compact?: boolean
 				<li><Check /> Доступ после подтверждения банка</li>
 			</ul>
 			<div className="kp-plan-action">
-				<Link className="kp-button kp-button-primary" href="/app">
-					Войти и оплатить <ArrowRight aria-hidden="true" />
-				</Link>
+				<PublicPlanCheckoutButton planCode={plan.code} />
 				<small>Оплата выполняется в личном кабинете на защищённой странице Т‑Банка.</small>
 			</div>
 		</article>

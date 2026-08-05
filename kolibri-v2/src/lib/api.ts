@@ -313,6 +313,17 @@ export interface Document {
   updated_at: string
 }
 
+export interface DocumentCreateInput {
+  title: string
+  type?: string
+  client?: string
+  project?: string
+  content?: string
+  variables?: Record<string, string>
+  template?: string
+  estimate_id?: string
+}
+
 export interface ImageArtifact {
   id: string
   type: 'image'
@@ -765,7 +776,7 @@ export const documents = {
     return request<PaginatedList<Document>>(`/documents?${qs}`)
   },
   get: (id: string) => request<Document>(`/documents/${id}`),
-  create: (data: { title: string; type?: string; client?: string; project?: string; content?: string; variables?: Record<string, string>; template?: string; estimate_id?: string }) =>
+  create: (data: DocumentCreateInput) =>
     request<Document>('/documents', { method: 'POST', body: JSON.stringify(data) }),
   update: (id: string, data: Partial<Document>) =>
     request<Document>(`/documents/${id}`, { method: 'PUT', body: JSON.stringify(data) }),

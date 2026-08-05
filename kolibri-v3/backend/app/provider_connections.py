@@ -49,7 +49,7 @@ MutationAuthDependency = Annotated[None, Depends(require_mutation_auth)]
 # These IDs name the two transport-specific enrollment adapters implemented in
 # this module. Common storage and projection accept any registered bounded
 # runtime profile; adding a runtime does not add another orchestration branch.
-PROVIDER_IDS = ("mimo-code", "codex-cli")
+PROVIDER_IDS = ("mimo-code", "codex-cli", "openai")
 PROVIDER_ENROLLMENT_CAPABILITY = "product.provider.enrollment.request"
 _PROVIDER_ID = re.compile(r"^[a-z0-9][a-z0-9._-]{1,95}$")
 _IDEMPOTENCY_NONCE = re.compile(
@@ -63,6 +63,7 @@ _MAX_CREDENTIAL_BODY_BYTES = 12 * 1_024
 _ADAPTER_PROVIDER_NAMES = {
     "mimo-code": "MiMo Code",
     "codex-cli": "Codex CLI",
+    "openai": "OpenAI GPT",
 }
 _PRESENTATION = {
     "not_configured": (

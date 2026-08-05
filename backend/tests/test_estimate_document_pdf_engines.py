@@ -48,6 +48,30 @@ def test_business_document_pack_has_required_documents():
     assert {item.document_type for item in pack} == {DocumentType.commercial_offer, DocumentType.contract, DocumentType.completion_act, DocumentType.invoice}
 
 
+def test_contract_is_a_standalone_legal_structure_with_estimate_as_attachment():
+    estimate = create_estimate_from_prompt("Строительство дома 100 м2", client_name="Иванов И.И.")
+    document = create_business_document(estimate, DocumentType.contract, contractor_name="ООО Подрядчик")
+    headings = [section["title"] for section in document.body_sections]
+    body = " ".join(section["text"] for section in document.body_sections)
+    assert len(document.body_sections) >= 14
+    assert any("Предмет" in heading for heading in headings)
+    assert any("Сдача и приёмка" in heading for heading in headings)
+    assert any("Реквизиты и подписи" in heading for heading in headings)
+    assert estimate.estimate_id in body
+    assert document.attachments[0].endswith(estimate.estimate_id)
+    assert document.document_standard == "ГОСТ Р 7.0.97-2025"
+    assert document.legal_review_required is True
+
+
+def test_commercial_offer_has_business_document_sections():
+    estimate = create_estimate_from_prompt("Ремонт офиса 50 м2", client_name="Заказчик")
+    document = create_business_document(estimate, DocumentType.commercial_offer, contractor_name="ООО Подрядчик")
+    headings = {section["title"] for section in document.body_sections}
+    assert {"О предложении", "Состав предложения", "Основные позиции", "Стоимость", "Допущения и исключения", "Реквизиты и подпись"} <= headings
+    assert next(section for section in document.body_sections if section["title"] == "Основные позиции")["rows"]
+    assert document.attachments == [f"Приложение № 1 — Смета № {estimate.estimate_id}"]
+
+
 def test_pdf_generation_supports_cyrillic_documents(tmp_path: Path):
     estimate = create_estimate_from_prompt("Смета на санузел 8 м2", client_name="Тестовый клиент")
     estimate_path = generate_estimate_pdf(estimate, tmp_path / "smeta.pdf")

@@ -22,6 +22,7 @@ from decimal import Decimal
 from typing import List, Optional, Dict, Any
 
 from fastapi import FastAPI, HTTPException, Query, Depends, Header, Request, Cookie
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from contextlib import asynccontextmanager
@@ -269,6 +270,19 @@ async def structured_http_error(request: Request, exc: StarletteHTTPException):
         },
     )
 
+
+from app.product_errors import (
+    ProductChatError,
+    product_chat_error_handler,
+    product_request_validation_error_handler,
+)
+
+app.add_exception_handler(ProductChatError, product_chat_error_handler)
+app.add_exception_handler(
+    RequestValidationError,
+    product_request_validation_error_handler,
+)
+
 from app.routers.telegram import router as telegram_router
 app.include_router(telegram_router)
 
@@ -283,6 +297,9 @@ app.include_router(tool_router)
 
 from app.routers.projects import router as projects_router
 app.include_router(projects_router)
+
+from app.routers.product_chat import router as product_chat_router
+app.include_router(product_chat_router)
 
 from app.routers.project_documents import router as project_documents_router
 app.include_router(project_documents_router)

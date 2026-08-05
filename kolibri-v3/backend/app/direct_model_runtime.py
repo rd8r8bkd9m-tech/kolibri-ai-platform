@@ -3428,6 +3428,304 @@ def _mimo_runtime_adapter(
     )
 
 
+def _openai_response(
+    settings: Settings,
+    *,
+    messages: list[dict[str, str]],
+    instructions: str,
+    runtime: MimoClientRuntime,
+    on_delta: Callable[[str], None],
+    cancellation_signal: threading.Event | None = None,
+) -> ModelTurn:
+    api_key = settings.openai_api_key
+    if not api_key:
+        raise DirectModelError(
+            "openai_api_key_missing",
+            "OpenAI API ключ не настроен. Добавьте OPENAI_API_KEY в .env.local.",
+        )
+    base_url = settings.openai_base_url
+    chat_model = settings.openai_model
+    try:
+        request_payload: dict[str, Any] = {
+            "model": chat_model,
+            "messages": [
+                {"role": "system", "content": instructions},
+                *messages,
+            ],
+            "stream": True,
+        }
+        response = runtime.stream(
+            f"{base_url}/chat/completions",
+            api_key=api_key,
+            payload=request_payload,
+        )
+    except httpx.HTTPError:
+        raise DirectModelError(
+            "openai_request_failed",
+            "OpenAI API сейчас недоступен. Повторите запрос.",
+        ) from None
+    if response.status_code == 401:
+        response.close()
+        raise DirectModelError(
+            "openai_api_key_rejected",
+            "OpenAI отклонил ключ. Проверьте OPENAI_API_KEY.",
+        )
+    if response.status_code != 200:
+        status_code = response.status_code
+        response.close()
+        raise DirectModelError(
+            "openai_request_failed",
+            f"OpenAI API вернул HTTP {status_code}.",
+        )
+
+    text_parts: list[str] = []
+    try:
+        for line in response.iter_lines():
+            if cancellation_signal is not None and cancellation_signal.is_set():
+                raise DirectModelError(
+                    "run_cancelled",
+                    "Задача остановлена пользователем.",
+                )
+            if not line.startswith("data: "):
+                continue
+            data = line[6:].strip()
+            if data == "[DONE]":
+                break
+            try:
+                chunk = json.loads(data)
+            except json.JSONDecodeError:
+                continue
+            choices = chunk.get("choices") or []
+            if not choices:
+                continue
+            delta = choices[0].get("delta") or {}
+            content = delta.get("content")
+            if content:
+                text_parts.append(content)
+                on_delta(content)
+    finally:
+        response.close()
+
+    return ModelTurn(text="".join(text_parts))
+
+
+def _openai_runtime_adapter(
+    settings: Settings,
+    *,
+    client_transport: MimoClientRuntime,
+) -> DelegatingAgentRuntime:
+    descriptor = AgentRuntimeDescriptor(
+        profile_id="openai",
+        runtime_id="openai-runtime",
+        display_name="OpenAI GPT",
+        auto_priority=20,
+        capabilities=AgentRuntimeCapabilities(
+            modes=frozenset({"chat", "structured"}),
+            streaming=True,
+            structured_output=True,
+            activity_events=False,
+            persistent_sessions=False,
+            model_catalog=False,
+        ),
+    )
+
+    def execute(request: AgentRuntimeRequest) -> AgentRuntimeResult:
+        selection = request.configuration.selection
+        if any(
+            value is not None
+            for value in (
+                selection.reasoning_effort,
+                selection.service_tier,
+            )
+        ):
+            raise AgentRuntimeError(
+                "agent_model_selection_not_supported",
+                "OpenAI не поддерживает эти настройки.",
+                category="configuration",
+            )
+        if request.mode == "developer":
+            raise AgentRuntimeError(
+                "developer_agent_unavailable",
+                "OpenAI не поддерживает режим разработчика.",
+                category="unavailable",
+            )
+        try:
+            turn = _openai_response(
+                settings,
+                messages=_runtime_messages(request),
+                instructions=request.instructions,
+                runtime=client_transport,
+                on_delta=request.on_delta or (lambda _delta: None),
+                cancellation_signal=request.cancellation_signal,
+            )
+        except DirectModelError as exc:
+            raise _runtime_error(exc) from None
+        return AgentRuntimeResult(text=(turn.text or "").strip()[:200_000])
+
+    def start() -> None:
+        client_transport.start()
+
+    def close() -> None:
+        client_transport.close()
+
+    return DelegatingAgentRuntime(
+        descriptor=descriptor,
+        execute=execute,
+        start=start,
+        close=close,
+    )
+
+
+
+
+def _qwen_response(
+    settings: Settings,
+    *,
+    messages: list[dict[str, str]],
+    instructions: str,
+    runtime: MimoClientRuntime,
+    on_delta: Callable[[str], None],
+    cancellation_signal: threading.Event | None = None,
+) -> ModelTurn:
+    api_key = settings.qwen_api_key
+    if not api_key:
+        raise DirectModelError(
+            "qwen_api_key_missing",
+            "Qwen API ключ не настроен. Добавьте KOLIBRI_V3_QWEN_API_KEY в .env.local.",
+        )
+    base_url = settings.qwen_base_url
+    chat_model = settings.qwen_model
+    try:
+        request_payload: dict[str, Any] = {
+            "model": chat_model,
+            "messages": [
+                {"role": "system", "content": instructions},
+                *messages,
+            ],
+            "stream": True,
+        }
+        response = runtime.stream(
+            f"{base_url}/chat/completions",
+            api_key=api_key,
+            payload=request_payload,
+        )
+    except httpx.HTTPError:
+        raise DirectModelError(
+            "qwen_request_failed",
+            "Qwen API сейчас недоступен. Повторите запрос.",
+        ) from None
+    if response.status_code == 401:
+        response.close()
+        raise DirectModelError(
+            "qwen_api_key_rejected",
+            "DashScope отклонил ключ. Проверьте KOLIBRI_V3_QWEN_API_KEY.",
+        )
+    if response.status_code != 200:
+        status_code = response.status_code
+        response.close()
+        raise DirectModelError(
+            "qwen_request_failed",
+            f"Qwen API вернул HTTP {status_code}.",
+        )
+
+    text_parts: list[str] = []
+    try:
+        for line in response.iter_lines():
+            if cancellation_signal is not None and cancellation_signal.is_set():
+                raise DirectModelError(
+                    "run_cancelled",
+                    "Задача остановлена пользователем.",
+                )
+            if not line.startswith("data: "):
+                continue
+            data = line[6:].strip()
+            if data == "[DONE]":
+                break
+            try:
+                chunk = json.loads(data)
+            except json.JSONDecodeError:
+                continue
+            choices = chunk.get("choices") or []
+            if not choices:
+                continue
+            delta = choices[0].get("delta") or {}
+            content = delta.get("content")
+            if content:
+                text_parts.append(content)
+                on_delta(content)
+    finally:
+        response.close()
+
+    return ModelTurn(text="".join(text_parts))
+
+
+def _qwen_runtime_adapter(
+    settings: Settings,
+    *,
+    client_transport: MimoClientRuntime,
+) -> DelegatingAgentRuntime:
+    descriptor = AgentRuntimeDescriptor(
+        profile_id="qwen",
+        runtime_id="qwen-runtime",
+        display_name="Qwen (DashScope)",
+        auto_priority=30,
+        capabilities=AgentRuntimeCapabilities(
+            modes=frozenset({"chat", "structured"}),
+            streaming=True,
+            structured_output=True,
+            activity_events=False,
+            persistent_sessions=False,
+            model_catalog=False,
+        ),
+    )
+
+    def execute(request: AgentRuntimeRequest) -> AgentRuntimeResult:
+        selection = request.configuration.selection
+        if any(
+            value is not None
+            for value in (
+                selection.reasoning_effort,
+                selection.service_tier,
+            )
+        ):
+            raise AgentRuntimeError(
+                "agent_model_selection_not_supported",
+                "Qwen не поддерживает эти настройки.",
+                category="configuration",
+            )
+        if request.mode == "developer":
+            raise AgentRuntimeError(
+                "developer_agent_unavailable",
+                "Qwen не поддерживает режим разработчика.",
+                category="unavailable",
+            )
+        try:
+            turn = _qwen_response(
+                settings,
+                messages=_runtime_messages(request),
+                instructions=request.instructions,
+                runtime=client_transport,
+                on_delta=request.on_delta or (lambda _delta: None),
+                cancellation_signal=request.cancellation_signal,
+            )
+        except DirectModelError as exc:
+            raise _runtime_error(exc) from None
+        return AgentRuntimeResult(text=(turn.text or "").strip()[:200_000])
+
+    def start() -> None:
+        client_transport.start()
+
+    def close() -> None:
+        client_transport.close()
+
+    return DelegatingAgentRuntime(
+        descriptor=descriptor,
+        execute=execute,
+        start=start,
+        close=close,
+    )
+
+
 def build_agent_runtime_registry(
     settings: Settings,
     *,
@@ -3456,6 +3754,26 @@ def build_agent_runtime_registry(
             developer_transport=mimo_developer_transport,
         )
     )
+    if settings.openai_api_key:
+        openai_client = MimoClientRuntime(
+            timeout_seconds=settings.direct_model_timeout_seconds,
+        )
+        registry.register(
+            _openai_runtime_adapter(
+                settings,
+                client_transport=openai_client,
+            )
+        )
+    if settings.qwen_api_key:
+        qwen_client = MimoClientRuntime(
+            timeout_seconds=settings.direct_model_timeout_seconds,
+        )
+        registry.register(
+            _qwen_runtime_adapter(
+                settings,
+                client_transport=qwen_client,
+            )
+        )
     return registry
 
 

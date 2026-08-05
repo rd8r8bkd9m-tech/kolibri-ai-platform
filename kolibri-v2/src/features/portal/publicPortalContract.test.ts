@@ -40,11 +40,11 @@ describe('public portal release contract', () => {
 
   it('keeps the estimating hero functional without unsupported vanity metrics', () => {
     expect(landing).toContain('className="kp-cinematic-hero"')
-    expect(landing).toContain('Смета и документы — из одного сообщения')
-    expect(landing).toContain('Объём')
-    expect(landing).toContain('Источник')
-    expect(landing).toContain('Смета по чертежам')
-    expect(landing).toContain('Проверить готовую смету')
+    expect(landing).toContain('От задачи к готовому результату')
+    expect(landing).toContain('Диалог')
+    expect(landing).toContain('Результат')
+    expect(landing).toContain('Создать документ')
+    expect(landing).toContain('Проверить документ')
     expect(landing).toContain('Сравнить цены')
     expect(landing).toContain('navigate(`/app?q=${encodeURIComponent(task)}`)')
     expect(landing).not.toMatch(/500\+|50\+|98%|24\/7/)

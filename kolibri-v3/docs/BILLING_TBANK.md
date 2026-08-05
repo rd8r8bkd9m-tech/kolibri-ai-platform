@@ -1,8 +1,11 @@
 # T-Банк (Т-Касса): серверный контур оплаты Kolibri V3
 
-Статус: безопасный test-mode путь реализован, production выключен. Реальные
-платежи, отмены и возвраты не выполнялись. Личный кабинет Т-Бизнес был только
-прочитан и не изменялся.
+Статус: реализованы безопасные сценарии `test` и `demo`, добавлен
+ограниченно-гейтованный production-контур (HTTPS-URL, non-DEMO-терминал,
+подтверждение реальных списаний). Реальные платежи, отмены и возвраты
+требуют финальной активации в кабинете Т-Бизнес и проверки домена `kolibriai.ru`.
+Личный кабинет до этого момента служил источником требований и проверкой состояния,
+а не источником кода.
 
 ## Источники и выбранный протокол
 
@@ -155,10 +158,15 @@ KOLIBRI_V3_TBANK_PASSWORD=
 KOLIBRI_V3_TBANK_NOTIFICATION_URL=https://kolibriai.ru/api/v3/billing/tbank/notifications
 KOLIBRI_V3_TBANK_RETURN_ORIGIN=https://kolibriai.ru
 KOLIBRI_V3_TBANK_TIMEOUT_SECONDS=10
+KOLIBRI_V3_TBANK_VERIFY_SSL=true
 KOLIBRI_V3_TBANK_RECEIPT_MODE=disabled|required
 KOLIBRI_V3_TBANK_TAXATION=osn|usn_income|usn_income_outcome|esn|patent
 KOLIBRI_V3_TBANK_PRODUCTION_CONFIRMED=false
 ```
+
+`KOLIBRI_V3_TBANK_VERIFY_SSL=false` использовать только в локальной dev-среде для
+локального TLS-цепочки с самоподписанным сертификатом. Для production
+поведение обязательно с проверкой сертификата (`true`).
 
 Production требует одновременно `KOLIBRI_V3_ENV=production`, HTTPS callback
 URL, `MODE=production`, не-DEMO терминал и

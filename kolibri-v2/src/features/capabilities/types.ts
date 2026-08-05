@@ -23,7 +23,6 @@ export interface CapabilityRendererEvidence {
 }
 
 export type UiCapabilityKey =
-  | 'estimate.create'
   | 'document.editor'
   | 'web.search'
   | 'file.search'

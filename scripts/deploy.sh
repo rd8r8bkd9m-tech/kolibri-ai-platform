@@ -2,6 +2,14 @@
 # Kolibri AI Platform — Deploy script
 # Usage: ./scripts/deploy.sh [main|uiap|qjns|9fts|home|all]
 
+# Historical fleet-copy helper. It is deliberately fail-closed so it cannot be
+# mistaken for the Kolibri product release lane.
+if [[ "${KOLIBRI_ALLOW_LEGACY_FLEET_DEPLOY:-}" != "1" ]]; then
+    echo "Этот скрипт не выпускает kolibriai.ru и заблокирован от случайного запуска." >&2
+    echo "Единый production-порядок: docs/ops/KOLIBRI_PRODUCTION_DEPLOY.md" >&2
+    exit 2
+fi
+
 set -e
 
 SERVER=${1:-all}

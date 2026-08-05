@@ -33,13 +33,20 @@ export async function getPublicLaunchPlan(): Promise<PublicPlanResult> {
 			return { plan: null, error: "Серверный каталог тарифов временно недоступен." };
 		}
 		const payload = (await response.json()) as { items?: unknown };
-		if (!Array.isArray(payload.items) || payload.items.length !== 1 || !validPlan(payload.items[0])) {
+		if (!Array.isArray(payload.items) || payload.items.length === 0) {
 			return {
 				plan: null,
-				error: "В серверном каталоге должен быть один утверждённый тариф запуска.",
+				error: "В серверном каталоге пока нет активных тарифов.",
 			};
 		}
-		return { plan: payload.items[0], error: null };
+		const launchPlan = payload.items.find(validPlan) as BillingPlan | null;
+		if (launchPlan === null) {
+			return {
+				plan: null,
+				error: "В серверном каталоге есть ошибка данных тарифа.",
+			};
+		}
+		return { plan: launchPlan, error: null };
 	} catch {
 		return { plan: null, error: "Серверный каталог тарифов временно недоступен." };
 	}

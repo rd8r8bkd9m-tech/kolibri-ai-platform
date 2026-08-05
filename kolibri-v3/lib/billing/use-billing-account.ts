@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+	BillingApiError,
 	type BillingPaymentIntent,
 	type BillingPlan,
 	type BillingReturnSurface,
@@ -205,8 +206,10 @@ export function useBillingAccount(options: BillingAccountOptions = {}) {
 		};
 	}, [loadAccount, paymentIntentId, pollGeneration]);
 
-	const beginPayment = useCallback(async (planCode: string) => {
-		if (checkoutInFlight.current) return;
+	const beginPayment = useCallback(async (
+		planCode: string,
+	): Promise<string | null> => {
+		if (checkoutInFlight.current) return null;
 		checkoutInFlight.current = true;
 		setCreatingPlan(planCode);
 		setPaymentError(null);
@@ -228,12 +231,20 @@ export function useBillingAccount(options: BillingAccountOptions = {}) {
 				draft.idempotencyKey,
 				returnSurface,
 			);
+			if (!nextPayment.paymentUrl) {
+				throw new BillingApiError(
+					502,
+					"billing_provider_protocol_error",
+					"Банк не вернул ссылку на оплату.",
+				);
+			}
 			writeDraft({ ...draft, intentId: nextPayment.id });
 			setPayment(nextPayment);
 			setPaymentIntentId(nextPayment.id);
-			if (nextPayment.paymentUrl) window.location.assign(nextPayment.paymentUrl);
+			return nextPayment.paymentUrl;
 		} catch (error) {
 			setPaymentError(errorMessage(error));
+			return null;
 		} finally {
 			checkoutInFlight.current = false;
 			setCreatingPlan(null);
@@ -243,9 +254,7 @@ export function useBillingAccount(options: BillingAccountOptions = {}) {
 	return {
 		beginPayment,
 		checkingPayment,
-		continuePayment: () => {
-			if (payment?.paymentUrl) window.location.assign(payment.paymentUrl);
-		},
+		continuePayment: () => payment?.paymentUrl ?? null,
 		creatingPlan,
 		loadError,
 		loading,

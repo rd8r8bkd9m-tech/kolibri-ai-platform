@@ -6,10 +6,13 @@ import {
 	Clock3,
 	CreditCard,
 	LoaderCircle,
+	Play,
 	RefreshCw,
 	ShieldCheck,
 } from "lucide-react";
+import { useState } from "react";
 import { BillingPaymentState } from "@/components/billing/billing-payment-state";
+import { BillingCheckoutOverlay } from "@/components/billing/billing-checkout-overlay";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import type {
@@ -133,11 +136,55 @@ function PlanCard({
 					) : (
 						<CreditCard className="size-4" aria-hidden="true" />
 					)}
-					Перейти к оплате
+					Оплатить
 				</Button>
 				<p className="mt-3 text-center text-[10px] leading-4 text-muted-foreground">
-					Оплата откроется на защищённой странице Т‑Банка. Данные карты не
-					передаются Kolibri.
+					Оплата откроется на защищённой странице Т‑Банка.
+					Данные карты не передаются Kolibri.
+				</p>
+			</div>
+		</article>
+	);
+}
+
+function RuntimeCheckCard({
+	busy,
+	disabled,
+	onRun,
+	plan,
+}: {
+	busy: boolean;
+	disabled: boolean;
+	onRun: () => void;
+	plan: BillingPlan;
+}) {
+	return (
+		<article className="flex min-h-40 flex-col rounded-2xl border bg-card p-5 shadow-[0_10px_30px_rgb(15_23_42_/_0.04)]">
+			<div>
+				<p className="text-[14px] font-semibold">Runtime-check оплаты</p>
+				<p className="mt-2 text-[12px] text-muted-foreground">
+					Короткий проход: создаём intent по тарифу «{plan.name}», открываем
+					платежную страницу T‑Банка и после возврата проверяем `paymentUrl`
+					и статус в том же чате кабинета.
+				</p>
+			</div>
+			<div className="mt-auto pt-6">
+				<Button
+					type="button"
+					disabled={disabled}
+					onClick={onRun}
+					variant="outline"
+					className="min-h-11 w-full rounded-xl"
+				>
+					{busy ? (
+						<LoaderCircle className="size-4 animate-spin" aria-hidden="true" />
+					) : (
+						<Play className="size-4" aria-hidden="true" />
+					)}
+					Запустить runtime-check в один проход
+				</Button>
+				<p className="mt-3 text-center text-[10px] leading-4 text-muted-foreground">
+					После возврата статус оплаченного intent появляется в блоке ниже.
 				</p>
 			</div>
 		</article>
@@ -146,11 +193,22 @@ function PlanCard({
 
 export function BillingAccountSection() {
 	const account = useBillingAccount();
+	const [checkoutUrl, setCheckoutUrl] = useState<string | null>(null);
 	const paidSubscriptions = account.subscriptions.filter(
 		(subscription) =>
 			subscription.status === "active" &&
 			subscription.currentPeriodEnd > Date.now() / 1_000,
 	);
+
+	const startPlanPayment = async (planCode: string) => {
+		const nextPaymentUrl = await account.beginPayment(planCode);
+		if (nextPaymentUrl) setCheckoutUrl(nextPaymentUrl);
+	};
+
+	const continuePayment = () => {
+		const nextPaymentUrl = account.continuePayment();
+		if (nextPaymentUrl) setCheckoutUrl(nextPaymentUrl);
+	};
 
 	return (
 		<section data-slot="billing-account-section">
@@ -166,13 +224,21 @@ export function BillingAccountSection() {
 				</p>
 			</div>
 
-			<BillingPaymentState
-				checking={account.checkingPayment}
-				error={account.paymentError}
-				onContinue={account.continuePayment}
-				onRefresh={account.refreshPayment}
-				payment={account.payment}
-			/>
+				<BillingPaymentState
+					checking={account.checkingPayment}
+					error={account.paymentError}
+					onContinue={continuePayment}
+					onRefresh={account.refreshPayment}
+					payment={account.payment}
+				/>
+				{account.plans.length > 0 ? (
+					<RuntimeCheckCard
+						busy={Boolean(account.creatingPlan)}
+						disabled={account.creatingPlan !== null}
+						plan={account.plans[0]}
+						onRun={() => void startPlanPayment(account.plans[0].code)}
+					/>
+				) : null}
 
 			{account.loading ? (
 				<div
@@ -259,7 +325,7 @@ export function BillingAccountSection() {
 										plan={plan}
 										busy={account.creatingPlan === plan.code}
 										disabled={account.creatingPlan !== null}
-										onBuy={() => void account.beginPayment(plan.code)}
+										onBuy={() => void startPlanPayment(plan.code)}
 									/>
 								))}
 							</div>
@@ -272,17 +338,26 @@ export function BillingAccountSection() {
 									/>
 								</span>
 								<p className="mt-4 text-sm font-semibold">
-									Оплата пока не подключена
+									Тариф готовится к публикации
 								</p>
 								<p className="mt-1 max-w-md text-[12px] leading-5 text-muted-foreground">
-									Тарифы и кнопка оплаты появятся только после публикации
-									подтверждённых условий.
+									Серверный каталог тарифов временно недоступен.
+								</p>
+								<p className="mt-1 max-w-md text-[12px] leading-5 text-muted-foreground">
+									Цена не подставляется вручную и появится только из каталога биллинга.
 								</p>
 							</div>
-						)}
-					</section>
-				</>
+				)}
+			</section>
+		</>
 			)}
+			{checkoutUrl ? (
+				<BillingCheckoutOverlay
+					open
+					paymentUrl={checkoutUrl}
+					onClose={() => setCheckoutUrl(null)}
+				/>
+			) : null}
 		</section>
 	);
 }

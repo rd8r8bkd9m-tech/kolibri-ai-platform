@@ -17,3 +17,7 @@ backend/venv/bin/python -m pytest -q tests/test_factory_control_superfactory.py 
 ```
 
 Production deploy and DNS remain approval-gated.
+
+The only production lane for the Kolibri product is defined in
+[`docs/ops/KOLIBRI_PRODUCTION_DEPLOY.md`](ops/KOLIBRI_PRODUCTION_DEPLOY.md).
+Legacy fleet copy scripts are not a production release mechanism.

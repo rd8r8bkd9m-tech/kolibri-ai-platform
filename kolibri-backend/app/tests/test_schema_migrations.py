@@ -54,8 +54,12 @@ def test_fresh_alembic_chain_creates_scoped_documents_and_estimate_relation(
             column["name"]: column for column in inspector.get_columns("documents")
         }
         assert MigrationContext.configure(connection).get_current_revision() == (
-            "025_normative_source_claims"
+            "028_repair_durable_responses"
         )
+        assert {
+            "product_run_budgets",
+            "product_run_budget_reservations",
+        }.issubset(set(inspector.get_table_names()))
         assert {"scope_id", "estimate_id", "organization_id"}.issubset(document_columns)
         assert document_columns["scope_id"]["nullable"] is False
         estimate_columns = {
@@ -124,6 +128,43 @@ def test_fresh_alembic_chain_creates_scoped_documents_and_estimate_relation(
             "clients",
             "construction_objects",
         }.issubset(inspector.get_table_names())
+    engine.dispose()
+
+
+def test_revision_021_sqlite_round_trip_preserves_estimate_reference_actions(
+    tmp_path: Path,
+):
+    engine = create_engine(f"sqlite:///{tmp_path / 'estimate-project-case.db'}")
+    with engine.begin() as connection:
+        config = _config(connection)
+        command.upgrade(config, "020_estimate_price_as_of")
+
+        def reference_actions() -> dict[str, tuple[str, str]]:
+            return {
+                str(row[3]): (str(row[2]), str(row[6]).upper())
+                for row in connection.exec_driver_sql(
+                    'PRAGMA foreign_key_list("estimates")'
+                ).fetchall()
+            }
+
+        baseline = reference_actions()
+        assert baseline == {
+            "organization_id": ("organizations", "SET NULL"),
+            "client_record_id": ("clients", "SET NULL"),
+            "object_record_id": ("construction_objects", "SET NULL"),
+        }
+
+        command.upgrade(config, "021_estimate_project_case")
+        assert reference_actions() == {
+            **baseline,
+            "project_id": ("projects", "SET NULL"),
+        }
+
+        command.downgrade(config, "020_estimate_price_as_of")
+        assert reference_actions() == baseline
+        assert "project_id" not in {
+            column["name"] for column in sa.inspect(connection).get_columns("estimates")
+        }
     engine.dispose()
 
 
@@ -209,7 +250,49 @@ def test_revision_011_backfills_personal_org_without_claiming_other_scopes(
     # Revision 001 predates the global catalog table; normal startup creates
     # the complete model baseline before Alembic verification.
     _models.CatalogItemDB.__table__.create(bind=engine)
-    assert ensure_database_schema(engine) == "025_normative_source_claims"
+    assert ensure_database_schema(engine) == "028_repair_durable_responses"
+    engine.dispose()
+
+
+def test_forward_repair_restores_skipped_durable_response_tables(
+    tmp_path: Path,
+):
+    engine = create_engine(f"sqlite:///{tmp_path / 'skipped-responses.db'}")
+    Base.metadata.create_all(bind=engine)
+    with engine.begin() as connection:
+        command.stamp(_config(connection), "027_product_run_budgets")
+        connection.exec_driver_sql("DROP TABLE public_response_events")
+        connection.exec_driver_sql("DROP TABLE public_responses")
+
+    assert ensure_database_schema(engine) == "028_repair_durable_responses"
+
+    inspector = sa.inspect(engine)
+    assert {
+        "public_responses",
+        "public_response_events",
+    }.issubset(inspector.get_table_names())
+    assert {
+        "id",
+        "owner_scope",
+        "organization_id",
+        "status",
+        "idempotency_key",
+        "request_hash",
+        "payload",
+        "created_at",
+        "updated_at",
+    } == {
+        column["name"]
+        for column in inspector.get_columns("public_responses")
+    }
+    assert ("owner_scope", "idempotency_key") in {
+        tuple(constraint.get("column_names") or ())
+        for constraint in inspector.get_unique_constraints("public_responses")
+    }
+    assert ("response_id", "sequence") in {
+        tuple(constraint.get("column_names") or ())
+        for constraint in inspector.get_unique_constraints("public_response_events")
+    }
     engine.dispose()
 
 
@@ -292,8 +375,8 @@ def test_unversioned_create_all_database_is_adopted_and_backfilled(tmp_path: Pat
     revision = ensure_database_schema(engine)
 
     with engine.connect() as connection:
-        assert revision == "025_normative_source_claims"
-        assert MigrationContext.configure(connection).get_current_revision() == "025_normative_source_claims"
+        assert revision == "028_repair_durable_responses"
+        assert MigrationContext.configure(connection).get_current_revision() == "028_repair_durable_responses"
         assert "tax_regime" in {
             column["name"] for column in sa.inspect(connection).get_columns("estimates")
         }
@@ -593,7 +676,7 @@ def test_sqlite_schema_creation_waits_for_cross_process_lock(tmp_path: Path):
         holder_stdout, holder_stderr = holder.communicate(timeout=30)
         assert holder.returncode == 0, holder_stderr or holder_stdout
         assert runner.returncode == 0, runner_stderr or runner_stdout
-        assert runner_stdout.strip().endswith("025_normative_source_claims")
+        assert runner_stdout.strip().endswith("028_repair_durable_responses")
     finally:
         release_path.touch(exist_ok=True)
         for process in (runner, holder):

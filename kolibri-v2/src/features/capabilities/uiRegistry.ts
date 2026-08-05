@@ -10,13 +10,7 @@ interface UiCapabilityDefinition {
 }
 
 const DEFINITIONS: readonly UiCapabilityDefinition[] = [
-  {
-    key: 'estimate.create',
-    aliases: ['estimate.create'],
-    renderers: ['estimate_editor'],
-    title: 'Смета',
-    description: 'Создать и редактировать смету',
-  },
+  // estimate.create — disabled: heavy estimate composer removed from kolibriai.ru
   {
     key: 'document.editor',
     aliases: ['document.editor'],
@@ -156,7 +150,6 @@ export function findUiCapability(
 
 export function capabilityPrompt(key: UiCapabilityKey): string {
   const prompts: Record<UiCapabilityKey, string> = {
-    'estimate.create': 'Создай смету: ',
     'document.editor': 'Создай редактируемый документ: ',
     'web.search': 'Найди в интернете актуальную информацию и укажи источники: ',
     'file.search': 'Проанализируй прикреплённые файлы: ',

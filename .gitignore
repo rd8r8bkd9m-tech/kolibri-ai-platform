@@ -27,6 +27,7 @@ data/
 .DS_Store
 
 # Build artifacts
+/kolibri-v3.zip
 build/
 target/
 *.pcm
@@ -46,13 +47,19 @@ target/
 
 # Runtime
 .codex-runtime/
-.codex/
+.codex/*
+!.codex/config.toml
+!.codex/agents/
+!.codex/agents/**
+.codex/environments/environment.toml
+.codex-runs/
 .factory/
 .mimocode/
 .playwright-cli/
 logs/
 output/
 server.pid
+project/local/
 frontend/storybook-static/
 frontend/test-results/
 *.js

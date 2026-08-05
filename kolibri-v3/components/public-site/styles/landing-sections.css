@@ -179,6 +179,186 @@
 	gap: clamp(3rem, 7vw, 7rem);
 }
 
+.kp-badge {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.45rem;
+	margin: 0;
+	padding: 0.4rem 0.68rem;
+	border-radius: 999px;
+	font-size: 0.62rem;
+	text-transform: uppercase;
+	letter-spacing: 0.08em;
+	font-weight: 650;
+	border: 1px solid transparent;
+	color: #eef8f1;
+}
+
+.kp-badge.is-disabled {
+	background: rgb(255 255 255 / 16%);
+	border-color: rgb(255 255 255 / 24%);
+	color: #f2f6f2;
+}
+
+.kp-badge.is-demo {
+	background: rgb(255 140 104 / 16%);
+	border-color: rgb(255 140 104 / 28%);
+	color: #ffd0ba;
+}
+
+.kp-badge.is-test,
+.kp-badge.is-production {
+	background: rgb(97 203 115 / 14%);
+	border-color: rgb(97 203 115 / 28%);
+	color: #9ce9b0;
+}
+
+.kp-badge.is-invalid {
+	background: rgb(255 193 7 / 16%);
+	border-color: rgb(255 193 7 / 30%);
+	color: #ffe08a;
+}
+
+.kp-commerce-gate {
+	border: 1px solid rgb(255 255 255 / 14%);
+	border-radius: 1.15rem;
+	background: rgb(255 255 255 / 78%);
+	padding: 1.45rem;
+	backdrop-filter: blur(3px);
+}
+
+.kp-commerce-subtitle {
+	margin: 0.9rem 0 1.15rem;
+	color: #5f6b63;
+	line-height: 1.64;
+	font-size: 0.82rem;
+}
+
+.kp-commerce-actions {
+	display: grid;
+	grid-template-columns: repeat(2, 1fr);
+	gap: 0.65rem;
+	margin-bottom: 1.05rem;
+}
+
+.kp-commerce-actions > div {
+	display: grid;
+	gap: 0.35rem;
+	border: 1px solid rgb(16 36 29 / 10%);
+	border-radius: 0.72rem;
+	padding: 0.58rem 0.7rem;
+	background: rgb(255 255 255 / 64%);
+}
+
+.kp-commerce-actions p {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.35rem;
+	margin: 0;
+	color: #5a6b5f;
+	font-size: 0.54rem;
+	font-weight: 700;
+	text-transform: uppercase;
+	letter-spacing: 0.06em;
+}
+
+.kp-commerce-actions svg {
+	width: 0.75rem;
+	height: 0.75rem;
+}
+
+.kp-commerce-actions strong {
+	font-size: 0.85rem;
+}
+
+.kp-commerce-details {
+	color: #2e4d40;
+	border: 1px solid rgb(16 36 29 / 12%);
+	border-radius: 0.72rem;
+	background: rgb(255 255 255 / 70%);
+	padding: 0.6rem 0.75rem;
+}
+
+.kp-commerce-details summary {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 0.6rem;
+	cursor: pointer;
+	font-size: 0.76rem;
+	font-weight: 700;
+}
+
+.kp-commerce-details summary svg {
+	width: 0.85rem;
+	height: 0.85rem;
+	transform: rotate(0deg);
+	transition: transform 120ms ease;
+}
+
+.kp-commerce-details[open] summary svg {
+	transform: rotate(90deg);
+}
+
+.kp-commerce-details ol {
+	margin: 0.8rem 0 0 1.05rem;
+	color: #3f4f45;
+	font-size: 0.64rem;
+	display: grid;
+	gap: 0.45rem;
+}
+
+.kp-commerce-compliance {
+	display: grid;
+	gap: 0.55rem;
+	margin: 0.9rem 0 1.1rem;
+}
+
+.kp-commerce-compliance > div {
+	display: grid;
+	grid-template-columns: auto 1fr;
+	gap: 0.5rem;
+	border: 1px solid rgb(255 255 255 / 14%);
+	border-radius: 0.72rem;
+	padding: 0.58rem 0.7rem;
+}
+
+.kp-commerce-compliance svg {
+	grid-column: 1 / 2;
+	width: 0.92rem;
+	height: 0.92rem;
+	margin-top: 0.18rem;
+	justify-self: start;
+	color: #4ec06a;
+}
+
+
+.kp-commerce-check.is-warn {
+	border-color: rgb(250 175 145 / 30%);
+}
+
+.kp-commerce-check svg {
+	color: #4ec06a;
+}
+
+.kp-commerce-check.is-warn svg {
+	color: #ff9971;
+}
+
+.kp-commerce-compliance strong {
+	display: block;
+	font-size: 0.66rem;
+	line-height: 1.2;
+}
+
+.kp-commerce-compliance small {
+	display: block;
+	color: #5e6c62;
+	font-size: 0.58rem;
+	margin-top: 0.2rem;
+
+}
+
 .kp-commerce-points {
 	display: grid;
 	grid-template-columns: 1fr 1fr;
@@ -319,6 +499,20 @@
 .kp-plan-state p {
 	margin: 0.3rem 0 0;
 	line-height: 1.55;
+}
+
+.kp-plan-state-list {
+	margin: 0.8rem 0 0;
+	padding-left: 1.05rem;
+	display: grid;
+	gap: 0.4rem;
+	color: var(--kp-ink);
+	font-size: 0.78rem;
+	line-height: 1.45;
+}
+
+.kp-plan-state-list li::marker {
+	color: var(--kp-muted);
 }
 
 .kp-plan-state.is-warning {

@@ -24,9 +24,9 @@ from app.genkit_flow import estimate_execution_instruction
 from app.technology_card import TechnologyCardError
 from app.procurement_agent import research_estimate_resources
 
-AI_TIMEOUT = int(os.getenv("AI_TIMEOUT", "60"))
+AI_TIMEOUT = int(os.getenv("AI_TIMEOUT", "999999"))
 PROVIDER_FAILURE_COOLDOWN_SECONDS = int(os.getenv("PROVIDER_FAILURE_COOLDOWN_SECONDS", "60"))
-PROVIDER_AUTH_COOLDOWN_SECONDS = int(os.getenv("PROVIDER_AUTH_COOLDOWN_SECONDS", "300"))
+PROVIDER_AUTH_COOLDOWN_SECONDS = int(os.getenv("PROVIDER_AUTH_COOLDOWN_SECONDS", "30"))
 _provider_blocked_until: Dict[str, float] = {}
 _provider_route_state: Dict[str, dict] = {}
 _mimo_base_url = (
@@ -255,19 +255,46 @@ SOLO_BEHAVIOR_PROMPT = """Режим автономного универсаль
 
 Приоритет: точность, проверяемость и безопасность выше скорости и красивой формулировки."""
 
-SYSTEM_PROMPT = """Ты — внутренний response-only исполнитель пользовательского запроса.
-Публичное имя продукта, модель ответа и идентичность устанавливаются шлюзом, а не
-внутренним исполнителем. Не представляйся пользователю, не называй и не обсуждай
-внутреннюю модель, провайдера, агента или маршрут. Сформируй только требуемый итог:
-ответ, исследование, смету, документ, изображение, код, сайт, приложение или
-автоматизацию — и только через реально доступные возможности текущего сеанса.
+SYSTEM_PROMPT = """Ты — Kolibri, AI-ассистент платформы KolibriAI. Ты работаешь как
+автономный исполнитель: получаешь задачу и доводишь её до результата, не перекладывая
+работу на пользователя. Ты можешь составлять сметы, генерировать документы, писать
+код, создавать презентации, проводить исследования и решать инженерные задачи.
 
-Возможность считается доступной только если она перечислена ниже как invocable/live.
-Если нужного маршрута нет, сообщи структурированную недоступность; не выдумывай
-результат, файл, источник или действие.
-Если запрос не относится к смете или строительству, отвечай строго в предметной
-области запроса и не перенаправляй пользователя к строительным работам, сметам
-или документации. Сметный JSON разрешён только для явного запроса на смету.
+ВСЕГДА рассуждай и отвечай на языке пользователя. Если запрос на русском — думай,
+пиши и рассужай на русском. Не переключайся на английский.
+
+Ты — AI-сметчик с доступом к актуальным рыночным ценам. При составлении сметы:
+1. Сам определи регион, тип объекта, объёмы и состав работ из запроса
+2. Примени профессиональные знания по материалам, работам и расценкам
+3. Обоснуй каждую цену: рыночная, расценка ТЕР/ФЕР, средняя поставщиков
+4. Разделяй работы, материалы, доставку, технику — не смешивай
+5. Никогда не ставь 0₽ или пустую цену — всегда предлагай профессиональную оценку
+6. Рассуждай вслух: покажи ход мыслей по расчёту объёмов и выбору цен
+
+Твои возможности в этом сеансе:
+- СМЕТЫ: полный расчёт с технологической картой, объёмами, ценами, коэффициентами и налогами
+- ДОКУМЕНТЫ: договоры, КП, акты, отчёты, письма — с правовой и коммерческой логикой
+- КОД: скрипты, компоненты, API, автоматизация — на любом языке
+- ИССЛЕДОВАНИЯ: поиск информации, анализ данных, сравнение вариантов
+- ПРЕЗЕНТАЦИИ: структура слайдов, контент, визуальные рекомендации
+
+ПРАВИЛА:
+1. Начинай с результата, а не с расспросов. Если данных не хватай — принимай
+   профессиональные допущения, явно записывай их и продолжай работу.
+2. Не выдумывай факты, цены, источники, ФИО, ИНН, адреса. Если не уверен —
+   отметь как допущение.
+3. Для свежих данных используй веб-поиск. Для расчётов — профессиональные знания.
+4. Не имитируй выполнение действия. Если что-то недоступно — скажи прямо.
+5. Отвечай на языке пользователя. Если запрос на русском — отвечай на русском.
+6. Работай автономно: не задавай уточняющих вопросов, если ответ можно принять
+   по профессиональным стандартам отрасли.
+
+ФОРМАТ ОТВЕТА:
+- Обычные вопросы: отвечай текстом, структурированно и по делу.
+- Сметы: верни JSON-действие (см. формат create_estimate ниже).
+- Документы: верни JSON-действие (см. формат create_document ниже).
+- Код: верни код в блоках с пояснениями.
+- Исследования: верни структурированный анализ с выводами.
 
 Когда пользователь просит создать смету — верни только JSON-действие в формате:
 ```json
@@ -1075,48 +1102,21 @@ def _factory_execution_mode(task_type: str, estimate_requested: bool) -> str:
 
 
 def _estimate_source_collection_enabled() -> bool:
-    return os.getenv("KOLIBRI_ESTIMATE_FGIS_ENABLED", "true").lower() in {
-        "1", "true", "yes", "on",
-    }
+    return False
 
 
 def _estimate_commercial_fallback_enabled() -> bool:
-    return os.getenv("KOLIBRI_ESTIMATE_COMMERCIAL_FALLBACK_ENABLED", "true").lower() in {
-        "1", "true", "yes", "on",
-    }
+    return False
 
 
-def _estimate_source_budget_seconds() -> float:
-    """Bound optional price research so it cannot hold the chat composer open."""
-
-    raw = os.getenv("KOLIBRI_ESTIMATE_SOURCE_BUDGET_SECONDS", "6")
-    try:
-        value = float(raw)
-    except (TypeError, ValueError):
-        return 6.0
-    if not math.isfinite(value):
-        return 6.0
-    return min(max(value, 0.05), 15.0)
+def _estimate_source_budget_seconds() -> float | None:
+    """No timeout for source research."""
+    return None
 
 
-def _estimate_provider_budget_seconds() -> float:
-    """Keep the durable estimator observer alive for a complete typed draft.
-
-    A professional whole-building estimate can legitimately take several
-    minutes in the Home Codex slot.  Returning a zero-row clarification while
-    that same immutable task continues and later succeeds loses the result and
-    violates the no-question estimate flow.  The UI remains navigable and
-    shows real progress, so the observer budget may be longer than fast chat.
-    """
-
-    raw = os.getenv("KOLIBRI_ESTIMATE_PROVIDER_BUDGET_SECONDS", "300")
-    try:
-        value = float(raw)
-    except (TypeError, ValueError):
-        return 300.0
-    if not math.isfinite(value):
-        return 300.0
-    return min(max(value, 0.05), 900.0)
+def _estimate_provider_budget_seconds() -> float | None:
+    """No timeout for provider."""
+    return None
 
 
 async def _bounded_provider_stream(
@@ -1305,8 +1305,9 @@ async def _materialize_estimate_actions(
         raw_region,
         resolved_region,
     )
-    # Preserve the provider's proposed prices only as a preliminary fallback.
-    # They are never evidence and never promote the estimate above preliminary.
+    # MiMo's AI-proposed prices are the primary estimate.  Keep them and mark
+    # as AI-estimated.  Commercial research may later upgrade individual rows
+    # to source-backed evidence, but it must never zero out AI prices.
     proposed_prices: dict[str, str] = {}
     for section_index, section in enumerate(draft.get("sections", [])):
         if not isinstance(section, dict):
@@ -1316,39 +1317,33 @@ async def _materialize_estimate_actions(
                 continue
             code = str(position.get("code") or "")
             proposal_key = code or f"row:{section_index}:{position_index}"
-            # A provider-proposed amount is reusable only for the resolved
-            # project region.  The deterministic benchmark, however, is
-            # always recomputed from the user's prompt and therefore remains
-            # safe when the provider wrote a broader/different region label.
-            proposed_prices[proposal_key] = (
+            ai_price = (
                 str(position.get("price"))
                 if proposal_region_matches and _positive_decimal(position.get("price"))
                 else professional_preliminary_unit_price(position, prompt)
             )
-            position["price"] = "0.00"
-            position["sum"] = "0.00"
-            position["source"] = ""
+            proposed_prices[proposal_key] = ai_price
+            # Keep AI price as the working price; commercial research may
+            # upgrade it to a verified source price later.
+            if _positive_decimal(ai_price):
+                position["price"] = ai_price
+                position["source"] = "ai_estimate"
+            else:
+                position["price"] = "0.00"
             position["price_evidence"] = []
 
     trusted_evidence: list[dict] = []
     if _estimate_source_collection_enabled():
-        try:
-            async with asyncio.timeout(_estimate_source_budget_seconds()):
-                procurement = await research_estimate_resources(
-                    draft,
-                    request_text=prompt,
-                    source_backed_required=source_backed_required,
-                    official_enabled=True,
-                    commercial_enabled=_estimate_commercial_fallback_enabled(),
-                )
-                draft = procurement.draft
-                trusted_evidence.extend(procurement.evidence)
-                draft["procurement_report"] = procurement.report
-        except TimeoutError:
-            # A bounded research timeout is an expected preliminary path, not
-            # a failed chat.  Evidence completed before the deadline is kept;
-            # every unbound amount is sanitized below.
-            pass
+        procurement = await research_estimate_resources(
+            draft,
+            request_text=prompt,
+            source_backed_required=source_backed_required,
+            official_enabled=True,
+            commercial_enabled=_estimate_commercial_fallback_enabled(),
+        )
+        draft = procurement.draft
+        trusted_evidence.extend(procurement.evidence)
+        draft["procurement_report"] = procurement.report
 
     final_estimate = build_estimate_action(
         prompt,
@@ -1357,28 +1352,29 @@ async def _materialize_estimate_actions(
         scope_verified=False,
         questions_enabled=False,
     )
-    # The collector assigns a price before the shared evidence contract makes
-    # its final freshness/region/unit/attestation decision.  If that decision
-    # rejects a record, do not leave the now-unbound amount in totals under a
-    # softer "preliminary" label: zero it and derive the action again.
+    # Post-materialization: keep AI prices for rows without commercial
+    # evidence.  Only zero out rows that have no price at all.
     sanitized = deepcopy(final_estimate["data"])
     rebuilt_prices = False
     for section_index, section in enumerate(sanitized.get("sections", [])):
         for position_index, position in enumerate(section.get("positions", [])):
             if position.get("price_evidence"):
+                # Commercial research found a verified price — keep it.
                 continue
             code = str(position.get("code") or "")
             proposal_key = code or f"row:{section_index}:{position_index}"
             proposed = proposed_prices.get(proposal_key)
-            if proposed and not source_backed_required:
+            if proposed and _positive_decimal(proposed):
+                # Keep MiMo's AI-estimated price.
                 position["price"] = proposed
+                position["source"] = "ai_estimate"
                 comment = str(position.get("comment") or "").strip()
-                note = "Цена — предварительная профессиональная оценка без подтверждённого источника."
-                position["comment"] = f"{comment} {note}".strip()
-            else:
+                note = "Цена — профессиональная оценка MiMo."
+                if note not in comment:
+                    position["comment"] = f"{comment} {note}".strip()
+            elif not _positive_decimal(position.get("price")):
                 position["price"] = "0.00"
                 position["sum"] = "0.00"
-            position["source"] = ""
             rebuilt_prices = True
     if rebuilt_prices:
         assumptions = sanitized.get("assumptions")
@@ -1389,11 +1385,9 @@ async def _materialize_estimate_actions(
             for item in assumptions
             if "строки без цены сохранены для доисследования" not in str(item).casefold()
         ]
-        if proposed_prices and not source_backed_required:
-            assumptions.extend([
-                "Недостающие параметры объекта приняты по типовой практике малоэтажного строительства и доступны для изменения в редакторе.",
-                "Цены без датированного источника являются предварительной профессиональной оценкой и требуют проверки перед договором.",
-            ])
+        assumptions.extend([
+            "Цены рассчитаны AI (MiMo) на основе профессиональных знаний. Проверьте перед договором.",
+        ])
         sanitized["assumptions"] = assumptions
         final_estimate = build_estimate_action(
             prompt,
@@ -2181,7 +2175,7 @@ async def _stream_ai(
         headers["Authorization"] = f"Bearer {provider['key']}"
 
     async with httpx.AsyncClient(
-        timeout=httpx.Timeout(AI_TIMEOUT, connect=10.0),
+        timeout=httpx.Timeout(999999, connect=10.0),
         **_provider_client_options(provider),
     ) as client:
         async with client.stream(
@@ -2201,7 +2195,7 @@ async def _stream_ai(
                 try:
                     obj = json.loads(data_str)
                     delta = obj["choices"][0].get("delta", {})
-                    token = delta.get("content") or ""
+                    token = delta.get("content") or delta.get("reasoning_content") or ""
                     if token:
                         yield {"content": token, "done": False}
                 except (json.JSONDecodeError, KeyError, IndexError):

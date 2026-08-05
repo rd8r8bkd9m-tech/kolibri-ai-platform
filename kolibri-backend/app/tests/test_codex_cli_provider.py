@@ -60,13 +60,20 @@ def _settings(binary: Path, tmp_path: Path, **overrides) -> CodexCLISettings:
     return CodexCLISettings(**values)
 
 
-def _collect(provider: CodexCLIProvider, prompt: str, *, run_id: str = "run-test"):
+def _collect(
+    provider: CodexCLIProvider,
+    prompt: str,
+    *,
+    run_id: str = "run-test",
+    policy=None,
+):
     async def collect():
         return [
             event
             async for event in provider.stream(
                 [{"role": "user", "content": prompt}],
                 run_id=run_id,
+                policy=policy,
             )
         ]
 
@@ -117,6 +124,159 @@ def test_success_uses_stdin_fixed_argv_and_sanitized_agent_message(tmp_path):
     content = "".join(str(event.get("content") or "") for event in events)
     assert content == "Готово [REDACTED]"
     assert "private-thread" not in json.dumps(events)
+
+
+def test_product_text_only_argv_disables_effect_bearing_features(
+    tmp_path,
+):
+    binary = _fake_codex(tmp_path, "_ = sys.stdin.read()\n")
+    provider = CodexCLIProvider(
+        _settings(
+            binary,
+            tmp_path,
+            product_text_only=True,
+            web_search="live",
+        ),
+    )
+    argv = provider._argv(str(binary))
+
+    assert "--ignore-user-config" in argv
+    assert "--ignore-rules" in argv
+    assert "--strict-config" in argv
+    assert "mcp_servers={}" in argv
+    assert 'web_search="disabled"' in argv
+    assert 'web_search="live"' not in argv
+    disabled = {
+        argv[index + 1]
+        for index, value in enumerate(argv[:-1])
+        if value == "--disable"
+    }
+    assert {
+        "shell_tool",
+        "shell_snapshot",
+        "unified_exec",
+        "browser_use",
+        "browser_use_external",
+        "browser_use_full_cdp_access",
+        "computer_use",
+        "in_app_browser",
+        "apps",
+        "plugins",
+        "plugin_sharing",
+        "image_generation",
+        "hooks",
+        "multi_agent",
+        "code_mode",
+        "code_mode_only",
+        "auth_elicitation",
+        "request_permissions_tool",
+        "skill_mcp_dependency_install",
+        "tool_call_mcp_elicitation",
+        "workspace_dependencies",
+    } <= disabled
+
+
+def test_product_text_only_rejects_any_emitted_tool_item(tmp_path):
+    binary = _fake_codex(
+        tmp_path,
+        """
+        _ = sys.stdin.read()
+        print(json.dumps({'type':'thread.started','thread_id':'x'}), flush=True)
+        print(json.dumps({'type':'turn.started'}), flush=True)
+        print(json.dumps({'type':'item.started','item':{'id':'cmd','type':'command_execution','command':'pwd'}}), flush=True)
+        print(json.dumps({'type':'item.completed','item':{'id':'a','type':'agent_message','text':'Нельзя'}}), flush=True)
+        print(json.dumps({'type':'turn.completed'}), flush=True)
+        """,
+    )
+    provider = CodexCLIProvider(
+        _settings(binary, tmp_path, product_text_only=True),
+    )
+
+    with pytest.raises(CodexCLIError) as error:
+        _collect(
+            provider,
+            "Только текст",
+            policy={
+                "product_text_only": True,
+                "max_output_tokens": 2048,
+            },
+        )
+    assert str(error.value) == "codex_cli_product_tool_forbidden"
+
+
+def test_product_text_only_prompt_forbids_external_effects():
+    prompt = _normalise_messages(
+        [{"role": "user", "content": "Проверь статус"}],
+        policy={"product_text_only": True, "max_output_tokens": 2048},
+    )
+    assert "изолированный текстовый исполнитель Kolibri" in prompt
+    assert "Не вызывай shell, MCP, браузер" in prompt
+    assert prompt.endswith("[user]\nПроверь статус\n")
+
+
+@pytest.mark.parametrize(
+    "event_line",
+    (
+        "{'type':'item.started','item':None}",
+        "{'type':'item.started','item':{}}",
+        "{'type':'future.effect','payload':{}}",
+        "{}",
+    ),
+)
+def test_product_text_only_rejects_malformed_or_unknown_events(
+    tmp_path,
+    event_line,
+):
+    binary = _fake_codex(
+        tmp_path,
+        f"""
+        _ = sys.stdin.read()
+        print(json.dumps({{'type':'thread.started','thread_id':'x'}}), flush=True)
+        print(json.dumps({event_line}), flush=True)
+        """,
+    )
+    provider = CodexCLIProvider(
+        _settings(binary, tmp_path, product_text_only=True),
+    )
+    with pytest.raises(CodexCLIError) as error:
+        _collect(
+            provider,
+            "Только текст",
+            policy={
+                "product_text_only": True,
+                "max_output_tokens": 2048,
+            },
+        )
+    assert str(error.value) in {
+        "codex_cli_product_event_forbidden",
+        "codex_cli_product_tool_forbidden",
+    }
+
+
+def test_product_text_only_terminates_on_streamed_output_limit(tmp_path):
+    binary = _fake_codex(
+        tmp_path,
+        """
+        _ = sys.stdin.read()
+        print(json.dumps({'type':'thread.started','thread_id':'x'}), flush=True)
+        print(json.dumps({'type':'turn.started'}), flush=True)
+        print(json.dumps({'type':'item.updated','item':{'id':'a','type':'agent_message','text':'x' * 257}}), flush=True)
+        time.sleep(2)
+        """,
+    )
+    provider = CodexCLIProvider(
+        _settings(binary, tmp_path, product_text_only=True),
+    )
+    with pytest.raises(CodexCLIError) as error:
+        _collect(
+            provider,
+            "Только текст",
+            policy={
+                "product_text_only": True,
+                "max_output_tokens": 64,
+            },
+        )
+    assert str(error.value) == "codex_cli_product_output_limit"
 
 
 def test_streams_only_safe_agent_deltas_and_tool_lifecycle(tmp_path, capsys):
@@ -333,6 +493,29 @@ def test_home_defaults_and_legacy_model_oss_aliases(monkeypatch, tmp_path):
     assert argv[argv.index("--enable") + 1] == "respect_system_proxy"
 
 
+def test_reasoning_effort_is_explicitly_bounded_in_codex_argv(tmp_path):
+    binary = _fake_codex(tmp_path, "raise SystemExit(0)\n")
+    settings = _settings(
+        binary,
+        tmp_path,
+        reasoning_effort="high",
+    )
+    argv = CodexCLIProvider(settings)._argv(str(binary))
+
+    assert 'model_reasoning_effort="high"' in argv
+
+    invalid = _settings(
+        binary,
+        tmp_path,
+        reasoning_effort="not allowed!",
+    )
+    with pytest.raises(
+        codex_cli_provider.CodexCLIError,
+        match="codex_cli_reasoning_effort_invalid",
+    ):
+        CodexCLIProvider(invalid)._argv(str(binary))
+
+
 def test_production_pool_can_be_sized_to_one_hundred(monkeypatch, tmp_path):
     monkeypatch.setenv("CODEX_CLI_CWD", str(tmp_path))
     monkeypatch.setenv("CODEX_CLI_MAX_CONCURRENCY", "100")
@@ -351,6 +534,7 @@ def test_linux_home_default_prefers_existing_wrapper(monkeypatch, tmp_path):
     _fake_codex(path_dir, "raise SystemExit(2)\n").rename(path_dir / "codex")
     monkeypatch.delenv("CODEX_CLI_BINARY", raising=False)
     monkeypatch.delenv("KOLIBRI_CODEX_CLI_BINARY", raising=False)
+    monkeypatch.delenv("CODEX_CLI_ENABLED", raising=False)
     monkeypatch.setattr(codex_cli_provider.sys, "platform", "linux")
     monkeypatch.setattr(codex_cli_provider, "_LINUX_HOME_CODEX_WRAPPER", wrapper)
     monkeypatch.setenv("CODEX_CLI_CWD", str(tmp_path))
@@ -417,6 +601,7 @@ def test_non_linux_default_resolves_portably_from_process_path(monkeypatch, tmp_
     wrapper = _fake_codex(wrapper_dir, "raise SystemExit(2)\n")
     monkeypatch.delenv("CODEX_CLI_BINARY", raising=False)
     monkeypatch.delenv("KOLIBRI_CODEX_CLI_BINARY", raising=False)
+    monkeypatch.delenv("CODEX_CLI_ENABLED", raising=False)
     monkeypatch.setattr(codex_cli_provider.sys, "platform", "darwin")
     monkeypatch.setattr(codex_cli_provider, "_LINUX_HOME_CODEX_WRAPPER", wrapper)
     monkeypatch.setenv("CODEX_CLI_CWD", str(tmp_path))

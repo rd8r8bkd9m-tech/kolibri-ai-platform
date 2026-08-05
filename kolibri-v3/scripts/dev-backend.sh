@@ -8,13 +8,42 @@ backend_host="${KOLIBRI_V3_DEV_BACKEND_HOST:-127.0.0.1}"
 backend_port="${KOLIBRI_V3_DEV_BACKEND_PORT:-8002}"
 dev_owner_email="${KOLIBRI_V3_DEV_OWNER_EMAIL:-}"
 
+trim() {
+	local value=$1
+	value="${value#"${value%%[![:space:]]*}"}"
+	value="${value%"${value##*[![:space:]]}"}"
+	printf "%s" "$value"
+}
+
+if [[ -f "${v3_root}/.env.local" ]]; then
+	while IFS= read -r raw_line; do
+		line="${raw_line%$'\r'}"
+		line="$(trim "$line")"
+		[[ -z "$line" || "$line" == \#* ]] && continue
+		if [[ "$line" == "export "* ]]; then
+			line="${line#export }"
+		fi
+		if [[ "$line" == *"="* ]]; then
+			key="${line%%=*}"
+			value="${line#*=}"
+			case "$key" in
+				KOLIBRI_V3_*|KOLIBRI_PUBLIC_*|NEXT_PUBLIC_*)
+					key="$(trim "$key")"
+					value="$(trim "$value")"
+					export "$key=$value"
+					;;
+			esac
+		fi
+	done < "${v3_root}/.env.local"
+fi
+
 if [[ -z "${dev_owner_email}" && -f "${v3_root}/.env.local" ]]; then
-  while IFS='=' read -r key value; do
-    if [[ "${key}" == "KOLIBRI_V3_DEV_OWNER_EMAIL" ]]; then
-      dev_owner_email="${value}"
-      break
-    fi
-  done < "${v3_root}/.env.local"
+	while IFS='=' read -r key value; do
+		if [[ "${key}" == "KOLIBRI_V3_DEV_OWNER_EMAIL" ]]; then
+			dev_owner_email="${value}"
+			break
+		fi
+	done < "${v3_root}/.env.local"
 fi
 
 if [[ ! -x "${python_bin}" ]]; then

@@ -104,10 +104,13 @@ test("billing account UI follows the server-backed hosted checkout", () => {
 	assert.match(client, /returnSurface/);
 	assert.match(client, /paymentUrl/);
 	assert.match(state, /sessionStorage/);
-	assert.match(state, /window\.location\.assign\(nextPayment\.paymentUrl\)/);
+	assert.match(state, /return nextPayment\.paymentUrl/);
+	assert.match(section, /BillingCheckoutOverlay/);
 	assert.match(state, /returnSurface/);
 	assert.match(state, /getBillingPayment/);
-	assert.match(section, /Оплата пока не подключена/);
+	assert.match(section, /Тариф готовится к публикации/);
+	assert.match(section, /Серверный каталог тарифов временно недоступен/);
+	assert.match(section, /Цена не подставляется вручную/);
 	assert.match(section, /без автоматического продления/);
 	assert.match(section, /Данные карты не\s+передаются Kolibri/);
 	assert.match(profile, /<BillingAccountSection\s*\/>/);

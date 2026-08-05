@@ -1,40 +1,40 @@
-# KolibriAI Platform Agent Handoff
+# Repository operating boundary
 
-Owner directive date: 2026-07-05.
+## Canonical product
 
-This branch is the active FastAPI/React/Fabric/Superfactory product workspace. It must stay aligned with Calibri V1 policy while preserving current runtime contracts.
+The only active product source of truth is `kolibri-v3/`.
 
-## Active Workspace
+All product development must stay inside that directory:
 
-- Worktree: `/Users/kolibri/Documents/Codex/kolibri-ai-platform`
-- Branch: `p0/codex-sidebar-thread-bootstrap-20260704`
-- HEAD at initial capture: `e8f36fdc7`
-- Related Rust foundation worktree: `/Users/kolibri/.codex/worktrees/b56d/kolibri-ai-platform`
+- web/PWA desktop and browser UI: `kolibri-v3/app`, `kolibri-v3/components`;
+- native mobile client: `kolibri-v3/apps/kolibri-mobile`;
+- product backend and migrations: `kolibri-v3/backend`;
+- Rust kernels: `kolibri-v3/packages`;
+- deployment and operations: `kolibri-v3/deploy`;
+- product documentation and release evidence: `kolibri-v3/docs`,
+  `kolibri-v3/release`.
 
-## Read First
+Read `kolibri-v3/AGENTS.md` before changing or running V3.
 
-1. `.kolibri/AGENT_START_HERE.md`
-2. `.kolibri/LEAD_AGENT_ACCESS_POLICY.md`
-3. `docs/SOURCE_OF_TRUTH.md`
-4. `docs/PROJECT_MAP.md`
-5. `docs/CONTROL_PLANE_AGENT_MODEL.md`
-6. `docs/BOOTSTRAP_TRUTH.md`
-7. `README.md`
+## Legacy boundary
 
-## Current Verified Slice
+Parent-level `backend/`, `frontend/`, `kolibri-backend/`, `kolibri-v2/`,
+`apps/`, `ops/`, `sites/`, and `kolibri-v3-new/` are historical or separate
+contours. They are not V3 upstreams, fallbacks, deployment inputs, or places
+for new V3 work.
 
-Use `backend/venv/bin/python` for pytest in this branch.
+Do not copy code from them into V3 or run them for a V3 task unless the owner
+explicitly requests a reviewed migration. Do not delete legacy data merely
+because it is outside the canonical subtree.
+
+## Canonical commands
+
+Run from `kolibri-v3/`:
 
 ```bash
-backend/venv/bin/python -m pytest -q tests/test_factory_control_superfactory.py tests/test_telegram_superfactory_miniapp.py tests/test_telegram_superfactory_contracts.py
+npm run dev
+npm run verify
 ```
 
-At handoff time this Superfactory slice passed: `8 passed`.
-
-## Safety
-
-- Do not read or commit `ops/telegram.env`.
-- Do not log raw secrets.
-- Do not run production deploy, bootstrap, DNS, REG.RU, firewall, server reboot/reinstall, or destructive data operations without approval.
-- Do not discard untracked runtime artifacts without approval.
-- Worker agents must use API contracts, not SSH.
+The root `scripts/project-verify.sh` is only a compatibility wrapper that
+delegates to `kolibri-v3/scripts/verify.sh`.

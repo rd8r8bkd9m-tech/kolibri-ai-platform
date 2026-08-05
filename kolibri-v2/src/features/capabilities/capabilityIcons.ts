@@ -1,7 +1,7 @@
 import {
   AppWindow,
   Blocks,
-  Calculator,
+
   Code2,
   FileSearch,
   FileSpreadsheet,
@@ -23,7 +23,6 @@ import type { UiCapabilityKey } from './types'
  * silently diverge.
  */
 export const capabilityIcons: Record<UiCapabilityKey, LucideIcon> = {
-  'estimate.create': Calculator,
   'document.editor': FileText,
   'web.search': Globe2,
   'file.search': FileSearch,

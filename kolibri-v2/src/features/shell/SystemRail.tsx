@@ -1,4 +1,4 @@
-import { Building2, FileSignature, FileSpreadsheet, FolderOpen, PanelLeftClose, Settings, SquarePen, UserRound } from 'lucide-react'
+import { Building2, FileSignature, FolderOpen, PanelLeftClose, Settings, SquarePen, UserRound } from 'lucide-react'
 import type { Project } from '@/lib/api'
 import { useLocale } from '@/features/localization'
 import RecentProjectItem from './RecentProjectItem'
@@ -9,7 +9,6 @@ interface SystemRailProps {
   onCollapse: () => void
   onNew: () => void
   onSettings: () => void
-  onEstimates: () => void
   onContracts: () => void
   onFiles: () => void
   onObjects: () => void
@@ -27,7 +26,6 @@ export default function SystemRail({
   onCollapse,
   onNew,
   onSettings,
-  onEstimates,
   onContracts,
   onFiles,
   onObjects,
@@ -67,10 +65,6 @@ export default function SystemRail({
       </button>
 
       <nav className="shell-workspace-navigation" aria-label={t('drawer.mainNavigation')}>
-        <button type="button" className={activePath === '/estimates' ? 'is-active' : undefined} aria-current={activePath === '/estimates' ? 'page' : undefined} onClick={onEstimates}>
-          <FileSpreadsheet size={19} strokeWidth={1.8} />
-          <span>{t('shell.estimate')}</span>
-        </button>
         <button type="button" className={activePath === '/contracts' ? 'is-active' : undefined} aria-current={activePath === '/contracts' ? 'page' : undefined} onClick={onContracts}>
         <FileSignature size={19} strokeWidth={1.8} />
         <span>{t('shell.contracts')}</span>

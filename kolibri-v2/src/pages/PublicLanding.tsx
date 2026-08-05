@@ -6,8 +6,8 @@ import type { ComposerTool } from '@/features/conversation/composerTool'
 import PublicPortalFrame from '@/features/portal/PublicPortalFrame'
 
 const quickTasks = [
-  { key: 'estimate.create', icon: FileText, label: 'Смета по чертежам', prompt: 'Составь смету по чертежам проекта' },
-  { key: 'file.search', icon: SearchCheck, label: 'Проверить готовую смету', prompt: 'Проверь готовую смету и найди риски' },
+  { key: 'document.editor', icon: FileText, label: 'Создать документ', prompt: 'Создай документ по описанию' },
+  { key: 'file.search', icon: SearchCheck, label: 'Проверить документ', prompt: 'Проверь документ и найди риски' },
   { key: 'web.search', icon: Calculator, label: 'Сравнить цены', prompt: 'Сравни цены на работы и материалы' },
 ] as const
 
@@ -32,7 +32,7 @@ export default function PublicLanding() {
 
   function selectTool(key: ComposerTool['key']) {
     if (key === 'file.search') {
-      setPendingPrompt('Проверь готовую смету и найди риски')
+      setPendingPrompt('Проверь документ и найди риски')
       fileInputRef.current?.click()
       return
     }
@@ -62,21 +62,21 @@ export default function PublicLanding() {
       <section className="kp-cinematic-hero" aria-labelledby="kp-title">
         <div className="kp-cinematic-copy">
           <p className="kp-cinematic-kicker">Цифровой генподрядчик</p>
-          <h1 id="kp-title">Смета и документы — из одного сообщения</h1>
+          <h1 id="kp-title">От задачи к готовому результату</h1>
           <p className="kp-cinematic-lead">
-            Kolibri связывает объёмы, цены, источники и документы в одном проекте.
+            Kolibri превращает вашу задачу в проверенный результат: документ, расчёт или проект — в едином рабочем пространстве.
           </p>
           <div className="kp-cinematic-evidence" aria-label="Проверяемые данные проекта">
-            {['Объём', 'Цена', 'Источник'].map(item => (
+            {['Диалог', 'Документы', 'Результат'].map(item => (
               <span key={item}>{item}<CheckCircle2 aria-hidden="true" /></span>
             ))}
           </div>
           <button
             type="button"
             className="kp-cinematic-primary"
-            onClick={() => startEstimate('Помоги составить смету и пакет документов по проекту')}
+            onClick={() => startEstimate('Помоги решить задачу')}
           >
-            Создать смету
+            Начать диалог
             <ArrowRight aria-hidden="true" />
           </button>
         </div>
@@ -94,8 +94,8 @@ export default function PublicLanding() {
       <section id="workflow" className="kp-cinematic-workflow" aria-labelledby="kp-workflow-title">
         <div className="kp-cinematic-workflow-copy">
           <p>Начните с задачи</p>
-          <h2 id="kp-workflow-title">Что нужно посчитать?</h2>
-          <span>Опишите объект или приложите чертежи — Kolibri продолжит работу в приложении.</span>
+          <h2 id="kp-workflow-title">Что нужно сделать?</h2>
+          <span>Опишите задачу или приложите файлы — Kolibri продолжит работу в приложении.</span>
         </div>
         <div className="kp-cinematic-intake">
           <input
@@ -122,7 +122,7 @@ export default function PublicLanding() {
               const Icon = item.icon
               return (
                 <button type="button" key={item.label} onClick={() => {
-                  if (item.key === 'estimate.create' || item.key === 'file.search') {
+                  if (item.key === 'document.editor' || item.key === 'file.search') {
                     requestDocuments(item.prompt)
                     return
                   }

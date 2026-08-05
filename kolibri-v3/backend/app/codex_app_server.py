@@ -19,7 +19,6 @@ import time
 from typing import Any, Callable, Sequence
 
 from .constants import CODEX_MODEL_DEFAULT
-from .mcp_config import mcp_servers_json
 from .agent_runtime_session_cache import (
     AgentRuntimeSessionCacheError,
     AgentRuntimeSessionCacheProtocol,
@@ -149,8 +148,6 @@ class CodexAppServerRuntime:
         "--stdio",
         "-c",
         'web_search="live"',
-        "-c",
-        f"mcp_servers={mcp_servers_json()}",
     )
 
     def __init__(
@@ -433,9 +430,12 @@ class CodexAppServerRuntime:
                 )
             )
             seen.add(model_id)
-        bundled_models = self._list_bundled_models(
-            timeout=min(timeout, 10.0),
-        )
+        try:
+            bundled_models = self._list_bundled_models(
+                timeout=min(timeout, 10.0),
+            )
+        except Exception:
+            bundled_models = ()
         merged_by_id: dict[str, CodexModel] = {}
         for model in (
             *_AUTHENTICATED_PREVIEW_MODELS,

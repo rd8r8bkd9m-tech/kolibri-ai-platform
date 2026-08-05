@@ -14,7 +14,7 @@ export function PublicShell() {
   const activeProject = shell.projects.find((project) => project.id === shell.activeProjectId) || shell.projects[0];
 
   return (
-    <main className={`kolibri-workbench ${shell.immersive ? "is-immersive" : ""}`} ref={root}>
+    <main className={`kolibri-workbench ${shell.immersive ? "is-immersive" : ""}`} data-app-version="v4" ref={root}>
       <ShellHeader
         navigation={shell.navigation}
         onNewProject={shell.newProject}

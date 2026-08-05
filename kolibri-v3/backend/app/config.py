@@ -279,6 +279,12 @@ class Settings:
     provider_enrollment_reauth_seconds: int = 15 * 60
     direct_model_runtime_enabled: bool = False
     direct_model_timeout_seconds: float = 180.0
+    openai_api_key: str | None = None
+    openai_base_url: str = "https://api.openai.com/v1"
+    openai_model: str = "gpt-4o"
+    qwen_api_key: str | None = None
+    qwen_base_url: str = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
+    qwen_model: str = "qwen3.8-max"
     local_provider_vault_read_enabled: bool = False
     developer_agent_enabled: bool = False
     embedded_developer_runtime_enabled: bool = False
@@ -763,6 +769,29 @@ class Settings:
                 default=180.0,
                 name="KOLIBRI_V3_DIRECT_MODEL_TIMEOUT_SECONDS",
             ),
+            openai_api_key=_optional_text(
+                os.getenv("OPENAI_API_KEY")
+            ),
+            openai_base_url=os.getenv(
+                "KOLIBRI_V3_OPENAI_BASE_URL",
+                "https://api.openai.com/v1",
+            ).strip().rstrip("/"),
+            openai_model=os.getenv(
+                "KOLIBRI_V3_OPENAI_MODEL",
+                "gpt-4o",
+            ).strip(),
+            qwen_api_key=_optional_text(
+                os.getenv("KOLIBRI_V3_QWEN_API_KEY")
+                or os.getenv("QWEN_SECRET_KEY")
+            ),
+            qwen_base_url=os.getenv(
+                "KOLIBRI_V3_QWEN_BASE_URL",
+                "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+            ).strip().rstrip("/"),
+            qwen_model=os.getenv(
+                "KOLIBRI_V3_QWEN_MODEL",
+                "qwen3.8-max",
+            ).strip(),
             local_provider_vault_read_enabled=_parse_bool(
                 os.getenv("KOLIBRI_V3_LOCAL_PROVIDER_VAULT_READ_ENABLED"),
                 default=False,

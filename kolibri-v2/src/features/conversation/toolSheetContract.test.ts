@@ -38,9 +38,8 @@ describe('mobile tool sheet capability truth', () => {
     expect(composer).toContain('open={toolsOpen && isMobile && toolsAvailable}')
   })
 
-  it('keeps the three core App tools visible while capability discovery is empty', () => {
+  it('keeps core App tools visible while capability discovery is empty', () => {
     expect(chatPage).toContain('const fallbackComposerTools: ComposerTool[] = [')
-    expect(chatPage).toContain("key: 'estimate.create'")
     expect(chatPage).toContain("key: 'file.search'")
     expect(chatPage).toContain("key: 'web.search'")
     expect(chatPage).toContain('const composerTools: ComposerTool[] = capabilityMenu.length > 0')

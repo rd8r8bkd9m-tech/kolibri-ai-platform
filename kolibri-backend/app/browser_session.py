@@ -63,6 +63,7 @@ class ProjectPrincipal:
     kind: str
     public_id: str
     organization_id: str | None = None
+    user_id: str | None = None
 
 
 def issue_anonymous_session(*, sid: str | None = None, now: int | None = None) -> tuple[str, AnonymousSession]:
@@ -120,6 +121,7 @@ def resolve_optional_project_principal(
             kind="organization",
             public_id=organization.organization_id,
             organization_id=organization.organization_id,
+            user_id=organization.user_id,
         )
     anonymous = validate_anonymous_session(anonymous_cookie)
     if anonymous is not None:
@@ -127,6 +129,7 @@ def resolve_optional_project_principal(
             scope_id=anonymous.scope_id,
             kind="anonymous",
             public_id=anonymous.public_id,
+            user_id=None,
         )
     return None
 

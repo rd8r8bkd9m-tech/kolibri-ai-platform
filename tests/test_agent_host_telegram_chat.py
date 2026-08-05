@@ -37,6 +37,9 @@ def make_chat_task(task_id, message):
         "kind": "telegram_chat_response",
         "attempt": 1,
         "attempt_id": f"{task_id}-attempt-1",
+        "lease_id": f"{task_id}-lease-1",
+        "fencing_token": 1,
+        "lease_slot_id": "agent-host-primary",
         "envelope": {
             "kind": "telegram_chat_response",
             "message": message,
@@ -201,6 +204,92 @@ def test_api_runner_missing_auth_is_reported_without_prompt(tmp_path, monkeypatc
         assert "секретный текст владельца" not in message
     else:
         raise AssertionError("expected RuntimeError")
+
+
+def test_api_runner_uses_gpt_56_terra_responses_baseline(tmp_path, monkeypatch):
+    agent_host = load_agent_host()
+    monkeypatch.setenv("OPENAI_API_KEY", "configured-for-test")
+    monkeypatch.delenv("KOLIBRI_API_RUNNER_URL", raising=False)
+    monkeypatch.delenv("KOLIBRI_API_RUNNER_MODEL", raising=False)
+    captured = {}
+
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self):
+            return json.dumps({
+                "output": [{
+                    "type": "message",
+                    "content": [{"type": "output_text", "text": "Готово"}],
+                }],
+            }).encode("utf-8")
+
+    def fake_urlopen(request, timeout):
+        captured["url"] = request.full_url
+        captured["body"] = json.loads(request.data.decode("utf-8"))
+        captured["timeout"] = timeout
+        return FakeResponse()
+
+    monkeypatch.setattr(agent_host.urllib.request, "urlopen", fake_urlopen)
+
+    class Host(agent_host.AgentHost):
+        def post(self, path, body):
+            return body
+
+    result = Host(make_args(tmp_path)).run_api_text_runner("Проверь задачу")
+
+    assert result == "Готово"
+    assert captured["url"] == "https://api.openai.com/v1/responses"
+    assert captured["body"] == {
+        "model": "gpt-5.6-terra",
+        "input": "Проверь задачу",
+        "reasoning": {"effort": "none"},
+        "text": {"verbosity": "medium"},
+        "store": False,
+    }
+
+
+def test_api_runner_preserves_explicit_chat_completions_contract(tmp_path, monkeypatch):
+    agent_host = load_agent_host()
+    monkeypatch.setenv("OPENAI_API_KEY", "configured-for-test")
+    monkeypatch.setenv("KOLIBRI_API_RUNNER_URL", "https://compatible.example/v1/chat/completions")
+    monkeypatch.setenv("KOLIBRI_API_RUNNER_MODEL", "compatible-model")
+    captured = {}
+
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self):
+            return json.dumps({
+                "choices": [{"message": {"content": "Совместимый ответ"}}],
+            }).encode("utf-8")
+
+    def fake_urlopen(request, timeout):
+        captured["body"] = json.loads(request.data.decode("utf-8"))
+        return FakeResponse()
+
+    monkeypatch.setattr(agent_host.urllib.request, "urlopen", fake_urlopen)
+
+    class Host(agent_host.AgentHost):
+        def post(self, path, body):
+            return body
+
+    result = Host(make_args(tmp_path)).run_api_text_runner("Ответь")
+
+    assert result == "Совместимый ответ"
+    assert captured["body"] == {
+        "model": "compatible-model",
+        "messages": [{"role": "user", "content": "Ответь"}],
+        "temperature": 0.2,
+    }
 
 
 def test_local_llm_runner_missing_url_is_reported_without_prompt(tmp_path, monkeypatch):

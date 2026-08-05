@@ -91,6 +91,7 @@ class TBankSettings:
     receipt_mode: ReceiptMode = "disabled"
     taxation: str | None = None
     timeout_seconds: float = 10.0
+    verify_ssl: bool = True
     production_confirmed: bool = False
     runtime_environment: str = "development"
 
@@ -130,6 +131,9 @@ class TBankSettings:
                 raise ValueError("T-Bank production cannot use a DEMO terminal")
             if runtime_environment != "production" or not self.production_confirmed:
                 raise ValueError("T-Bank production real charges are not confirmed")
+
+        if runtime_environment == "production" and not self.verify_ssl:
+            raise ValueError("T-Bank production requires TLS verification")
 
         if self.notification_url is None or self.return_origin is None:
             raise ValueError("T-Bank callback URLs are required")
@@ -209,6 +213,7 @@ class TBankSettings:
             ).strip().lower(),  # type: ignore[arg-type]
             taxation=_optional(os.getenv("KOLIBRI_V3_TBANK_TAXATION")),
             timeout_seconds=timeout,
+            verify_ssl=_parse_bool(os.getenv("KOLIBRI_V3_TBANK_VERIFY_SSL"), default=True),
             production_confirmed=_parse_bool(
                 os.getenv("KOLIBRI_V3_TBANK_PRODUCTION_CONFIRMED")
             ),
@@ -221,18 +226,26 @@ class TBankSettings:
         *,
         terminal_key: str = "TestMerchantTerminal",
         password: str = "test-server-password",
+        mode: TBankMode = "test",
         receipt_mode: ReceiptMode = "disabled",
         taxation: str | None = None,
+        notification_url: str = "http://localhost/v1/billing/tbank/notifications",
+        return_origin: str = "http://localhost",
+        runtime_environment: Literal["development", "test", "production"] = "test",
+        production_confirmed: bool = False,
+        verify_ssl: bool = True,
     ) -> "TBankSettings":
         return cls(
             enabled=True,
-            mode="test",
+            mode=mode,
             terminal_key=terminal_key,
             password=password,
-            notification_url="http://localhost/v1/billing/tbank/notifications",
-            return_origin="http://localhost",
+            notification_url=notification_url,
+            return_origin=return_origin,
             receipt_mode=receipt_mode,
             taxation=taxation,
             timeout_seconds=5,
-            runtime_environment="test",
+            runtime_environment=runtime_environment,
+            production_confirmed=production_confirmed,
+            verify_ssl=verify_ssl,
         )

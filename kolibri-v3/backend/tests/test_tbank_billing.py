@@ -198,6 +198,20 @@ def test_tbank_configuration_fences_real_charges_and_redacts_secret() -> None:
             runtime_environment="production",
         )
 
+    with pytest.raises(ValueError, match="TLS verification"):
+        TBankSettings(
+            enabled=True,
+            mode="production",
+            terminal_key="RealTerminal",
+            password="server-secret",
+            notification_url="https://kolibriai.ru/api/v3/billing/tbank/notifications",
+            return_origin="https://kolibriai.ru",
+            timeout_seconds=5,
+            verify_ssl=False,
+            runtime_environment="production",
+            production_confirmed=True,
+        )
+
     with pytest.raises(ValueError, match="must use HTTPS"):
         TBankSettings(
             enabled=True,
@@ -221,6 +235,101 @@ def test_tbank_configuration_fences_real_charges_and_redacts_secret() -> None:
             runtime_environment="production",
             production_confirmed=True,
         )
+
+
+@pytest.mark.parametrize(
+    (
+        "mode",
+        "terminal_key",
+        "runtime_environment",
+        "production_confirmed",
+        "notification_url",
+        "return_origin",
+        "expected_host",
+    ),
+    [
+        (
+            "test",
+            "TestMerchantTerminal",
+            "test",
+            False,
+            "http://localhost/v1/billing/tbank/notifications",
+            "http://localhost",
+            "rest-api-test.tinkoff.ru",
+        ),
+        (
+            "demo",
+            "DemoMerchantDEMO",
+            "test",
+            False,
+            "http://localhost/v1/billing/tbank/notifications",
+            "http://localhost",
+            "securepay.tinkoff.ru",
+        ),
+        (
+            "production",
+            "ProdMerchantTerminal",
+            "production",
+            True,
+            "https://kolibriai.ru/api/v3/billing/tbank/notifications",
+            "https://kolibriai.ru",
+            "securepay.tinkoff.ru",
+        ),
+    ],
+)
+def test_init_payment_url_is_issued_for_supported_tbank_modes(
+    mode: str,
+    terminal_key: str,
+    runtime_environment: str,
+    production_confirmed: bool,
+    notification_url: str,
+    return_origin: str,
+    expected_host: str,
+) -> None:
+    settings = TBankSettings.for_testing(
+        mode=mode,  # type: ignore[arg-type]
+        terminal_key=terminal_key,
+        runtime_environment=runtime_environment,  # type: ignore[arg-type]
+        production_confirmed=production_confirmed,
+        notification_url=notification_url,
+        return_origin=return_origin,
+    )
+    requested_urls: list[str] = []
+
+    def provider(request: httpx.Request) -> httpx.Response:
+        requested_urls.append(str(request.url))
+        request_body = json.loads(request.content)
+        assert request_body["TerminalKey"] == terminal_key
+        assert request_body["Amount"] == 19900
+        return httpx.Response(
+            200,
+            json={
+                "Success": True,
+                "ErrorCode": "0",
+                "TerminalKey": terminal_key,
+                "Status": "NEW",
+                "PaymentId": "1234567890",
+                "OrderId": request_body["OrderId"],
+                "Amount": request_body["Amount"],
+                "PaymentURL": "https://securepayments.tinkoff.ru/session/mode-smoke",
+            },
+        )
+
+    gateway = TBankGateway(
+        settings,
+        transport=httpx.MockTransport(provider),
+    )
+    result = gateway.init_payment(
+        {
+            "TerminalKey": terminal_key,
+            "Amount": 19900,
+            "OrderId": "tv3-payment-url-smoke",
+        }
+    )
+    assert result.success is True
+    assert result.payment_url == "https://securepayments.tinkoff.ru/session/mode-smoke"
+    assert requested_urls == [f"{settings.base_url}/Init"]
+    assert expected_host in requested_urls[0]
 
 
 def test_required_receipt_uses_approved_minor_units_and_fiscal_fields() -> None:
