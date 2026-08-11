@@ -32,6 +32,14 @@ yarn-error.log*
 # local env files
 .env*.local
 
+# local editor / third-party skill tooling (not product source)
+/.claude/
+/.agents/skills/gemini-interactions-api/
+/skills-lock.json
+
+# generated API schema snapshot (served live by the backend in dev)
+/openapi.json
+
 # vercel
 .vercel
 
