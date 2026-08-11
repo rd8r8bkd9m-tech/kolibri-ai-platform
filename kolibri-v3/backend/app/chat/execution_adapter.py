@@ -335,8 +335,7 @@ def _selection(
     runtime_profile: str,
 ) -> tuple[str | None, str | None, str | None]:
     owns_selection = (
-        runtime_profile != AgentProfile.AUTO.value
-        and identity.preferred_model_profile is not None
+        identity.preferred_model_profile is not None
         and identity.preferred_model_profile.value == runtime_profile
     )
     if not owns_selection:
@@ -435,12 +434,12 @@ def prepare_chat_execution(
         raise _error(exc.status_code, exc.code, exc.message) from exc
 
     if execution_mode == "developer":
-        if runtime_profile == AgentProfile.AUTO.value:
+        if runtime_profile == AgentProfile.AUTO.value and model_id is None:
             raise _error(
                 status.HTTP_422_UNPROCESSABLE_ENTITY,
                 "developer_model_selection_required",
                 (
-                    "Для developer-режима выберите конкретный runtime."
+                    "Для developer-режима выберите конкретный runtime или модель."
                 ),
             )
 

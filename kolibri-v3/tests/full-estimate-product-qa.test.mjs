@@ -29,7 +29,10 @@ test("full-estimate QA labels fixture coverage and reserves semantics for the li
 	assert.match(journey, /expected_rows = transport\.section_count \* transport\.rows_per_section/);
 	assert.match(journey, /csv_text\.count\("ресурсная позиция"\) == expected_rows/);
 	assert.match(liveSpec, /MINIMUM_FULL_ESTIMATE_ROWS = 1_000/);
-	assert.match(liveSpec, /\["codex-cli", "mimo-code"\]/);
+	assert.match(liveSpec, /GENERATION_CAPABLE_PROFILES/);
+	assert.match(liveSpec, /"codex-cli"/);
+	assert.match(liveSpec, /"mimo-code"/);
+	assert.match(liveSpec, /"openai"/);
 	assert.doesNotMatch(liveSpec, /fixture|server-house-estimate|server-construction-estimate/);
 	assert.match(liveSpec, /analyzeEstimateQuality/);
 	assert.match(liveSpec, /MAXIMUM_PRESENT_ARGUMENT_BYTES/);

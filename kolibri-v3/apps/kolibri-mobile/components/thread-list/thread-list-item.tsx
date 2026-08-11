@@ -3,12 +3,13 @@ import {
 	useAui,
 	useAuiState,
 } from "@assistant-ui/react-native";
-import { Alert, Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { Icon } from "@/components/ui/icon";
 import { Radius } from "@/constants/theme";
 import { useTheme } from "@/hooks/use-theme";
 import { haptics } from "@/lib/haptics";
+import { actionSheetAsync } from "@/lib/dialogs";
 
 export function ThreadListItem({ onSelect }: { onSelect: () => void }) {
 	const aui = useAui();
@@ -23,7 +24,7 @@ export function ThreadListItem({ onSelect }: { onSelect: () => void }) {
 	const menu = () => {
 		if (draft) return;
 		haptics.light();
-		Alert.alert(item.title || "Задача", undefined, [
+		void actionSheetAsync(item.title || "Задача", [
 			{
 				text: pinned ? "Открепить" : "Закрепить",
 				onPress: () =>

@@ -94,6 +94,7 @@ class TBankSettings:
     verify_ssl: bool = True
     production_confirmed: bool = False
     runtime_environment: str = "development"
+    recurring_enabled: bool = True
 
     def __post_init__(self) -> None:
         runtime_environment = self.runtime_environment.strip().lower()
@@ -217,6 +218,10 @@ class TBankSettings:
             production_confirmed=_parse_bool(
                 os.getenv("KOLIBRI_V3_TBANK_PRODUCTION_CONFIRMED")
             ),
+            recurring_enabled=_parse_bool(
+                os.getenv("KOLIBRI_V3_TBANK_RECURRING_ENABLED"),
+                default=True,
+            ),
             runtime_environment=runtime_environment,
         )
 
@@ -234,6 +239,7 @@ class TBankSettings:
         runtime_environment: Literal["development", "test", "production"] = "test",
         production_confirmed: bool = False,
         verify_ssl: bool = True,
+        recurring_enabled: bool = True,
     ) -> "TBankSettings":
         return cls(
             enabled=True,
@@ -248,4 +254,5 @@ class TBankSettings:
             runtime_environment=runtime_environment,
             production_confirmed=production_confirmed,
             verify_ssl=verify_ssl,
+            recurring_enabled=recurring_enabled,
         )

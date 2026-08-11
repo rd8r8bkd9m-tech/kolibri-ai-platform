@@ -27,7 +27,8 @@ if [[ -f "${v3_root}/.env.local" ]]; then
 			key="${line%%=*}"
 			value="${line#*=}"
 			case "$key" in
-				KOLIBRI_V3_*|KOLIBRI_PUBLIC_*|NEXT_PUBLIC_*)
+				KOLIBRI_V3_*|KOLIBRI_PUBLIC_*|NEXT_PUBLIC_*|\
+				OPENAI_API_KEY|GEMINI_API_KEY|MIMO_API_KEY|QWEN_SECRET_KEY|DEEPSEEK_API_KEY)
 					key="$(trim "$key")"
 					value="$(trim "$value")"
 					export "$key=$value"

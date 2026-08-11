@@ -7,6 +7,18 @@ import {
 } from "../estimate-semantic-quality.mjs";
 
 const LIVE_QA_ENABLED = process.env.KOLIBRI_E2E_LIVE_ESTIMATE === "1";
+// Every runtime that can execute the durable estimate pipeline. The
+// key-backed direct runtimes (openai/deepseek/qwen/gemini) are first-class
+// generation providers since the direct runtime refactor, so a live QA
+// account may legitimately generate through any of them.
+const GENERATION_CAPABLE_PROFILES = [
+	"codex-cli",
+	"mimo-code",
+	"openai",
+	"deepseek",
+	"qwen",
+	"gemini",
+] as const;
 const MINIMUM_FULL_ESTIMATE_ROWS = 1_000;
 const MAXIMUM_ESTIMATE_PAGE_ROWS = 100;
 const MAXIMUM_PRESENT_ARGUMENT_BYTES = 32 * 1_024;
@@ -138,11 +150,13 @@ test("live GPT or MiMo builds and exports a full nine-storey estimate", async ({
 	const liveProfiles = (catalog.profiles ?? []).filter(
 		(profile) =>
 			profile.available === true &&
-			(profile.id === "codex-cli" || profile.id === "mimo-code"),
+			GENERATION_CAPABLE_PROFILES.includes(
+				profile.id as (typeof GENERATION_CAPABLE_PROFILES)[number],
+			),
 	);
 	expect(
 		liveProfiles.length,
-		"QA account must have a real GPT or MiMo runtime connection",
+		"QA account must have a real generation-capable runtime connection",
 	).toBeGreaterThan(0);
 
 	const suffix = randomUUID().replaceAll("-", "");
@@ -223,7 +237,7 @@ test("live GPT or MiMo builds and exports a full nine-storey estimate", async ({
 	expect(rows.length).toBeGreaterThanOrEqual(MINIMUM_FULL_ESTIMATE_ROWS);
 	expect(estimate.pricing?.totalRows).toBe(rows.length);
 	expect(estimate.assumptions?.length ?? 0).toBeGreaterThan(0);
-	expect(["codex-cli", "mimo-code"]).toContain(
+	expect(GENERATION_CAPABLE_PROFILES).toContain(
 		estimate.generation?.providerProfile,
 	);
 	expect(estimate.generation?.runId).toMatch(

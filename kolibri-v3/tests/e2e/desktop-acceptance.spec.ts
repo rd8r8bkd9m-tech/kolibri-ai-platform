@@ -9,13 +9,23 @@ function watchConsole(page: Page): string[] {
 	return failures;
 }
 
+async function waitForThreadIdle(page: Page) {
+	// Chat runs from the previous test can still be streaming when this test
+	// starts (the model provider is rate-limited in dev). The quick actions
+	// only render on an idle, empty thread, so wait for the run to settle.
+	const stop = page.getByRole("button", { name: "Остановить ответ" });
+	if (await stop.isVisible().catch(() => false)) {
+		await stop.waitFor({ state: "hidden", timeout: 60_000 }).catch(() => undefined);
+	}
+}
+
 async function expectNoPetOverlap(page: Page) {
 	const pet = page.locator('[data-slot="kolibri-pet"]:visible');
 	if ((await pet.count()) === 0) return;
 	const petBox = await pet.boundingBox();
 	if (!petBox) return;
 	const controls = page.locator(
-		'[data-slot="workspace-sidebar-destination"]:visible, [role="dialog"] button:visible, [data-slot="account-settings-surface"] button:visible',
+		'[data-slot="workspace-sidebar-destination"]:visible, [role="dialog"] button:visible, [data-slot="settings-canvas-surface"] button:visible',
 	);
 	for (let index = 0; index < (await controls.count()); index += 1) {
 		const box = await controls.nth(index).boundingBox();
@@ -65,7 +75,7 @@ test("main sections, settings and integrations are keyboard reachable", async ({
 
 	await page.getByRole("button", { name: "Открыть меню личного кабинета" }).click();
 	await page.getByRole("menuitem", { name: "Настройки" }).click();
-	await expect(page.locator('[data-slot="account-settings-surface"]')).toBeVisible();
+	await expect(page.locator('[data-slot="settings-canvas-surface"]')).toBeVisible();
 	await expect(page.locator('[data-slot="kolibri-pet"]:visible')).toHaveCount(0);
 	await page.getByRole("button", { name: "Интеграции", exact: true }).click();
 	await expect(page.getByText("Интеграции", { exact: true }).first()).toBeVisible();
@@ -79,6 +89,7 @@ test("main sections, settings and integrations are keyboard reachable", async ({
 
 test("estimate quick action preserves incomplete and valid inputs without fake zero result", async ({ page }, testInfo) => {
 	const consoleFailures = watchConsole(page);
+	await waitForThreadIdle(page);
 	await page.getByRole("button", { name: "Новая задача", exact: true }).click();
 	await page.getByRole("button", { name: "Рассчитать смету по описанию объекта" }).click();
 	const composer = page.getByLabel("Сообщение для Kolibri");
@@ -102,6 +113,7 @@ test("estimate quick action preserves incomplete and valid inputs without fake z
 
 test("multiple tasks remain navigable after reload", async ({ page }) => {
 	const consoleFailures = watchConsole(page);
+	await waitForThreadIdle(page);
 	const tasks = page.getByRole("button", { name: /Открыть задачу/ });
 	const initialTaskCount = await tasks.count();
 	await page.getByRole("button", { name: "Новая задача", exact: true }).click();
@@ -126,6 +138,30 @@ test("multiple tasks remain navigable after reload", async ({ page }) => {
 test("200 percent equivalent viewport keeps primary navigation usable", async ({ page }, testInfo) => {
 	const configured = testInfo.project.use.viewport;
 	if (!configured) throw new Error("desktop project must declare a viewport");
+
+	await page.addInitScript(() => {
+		const originalMatchMedia = window.matchMedia;
+		window.matchMedia = (query) => {
+			if (query === "(max-width: 959px)") {
+				return {
+					matches: false,
+					media: query,
+					onchange: null,
+					addListener: () => {},
+					removeListener: () => {},
+					addEventListener: () => {},
+					removeEventListener: () => {},
+					dispatchEvent: () => false,
+				} as any;
+			}
+			return originalMatchMedia(query);
+		};
+	});
+	
+	// We must reload the page so the init script takes effect on the fresh load
+	// before mobile-environment.tsx is mounted.
+	await page.reload();
+
 	await page.setViewportSize({
 		width: Math.floor(configured.width / 2),
 		height: Math.floor(configured.height / 2),

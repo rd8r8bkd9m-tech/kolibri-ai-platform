@@ -153,6 +153,16 @@ The installer also creates two independent systemd timer lanes:
   monitor, and stale or invalid backup evidence remains an alert until a fresh
   verified snapshot exists.
 
+When T-Bank recurring billing is enabled
+(`KOLIBRI_V3_TBANK_RECURRING_ENABLED=true` in the backend env), subscription
+renewals are executed by `python -m app.billing.renewals` (from the release
+`backend` directory with the same backend env): it durably charges every due
+RebillId once, retries nothing automatically, and stops auto-renew after five
+rejections. An operator timer is expected to run it hourly
+(`OnCalendar=hourly`); overlapping runs are safe because each renewal period
+has a stable idempotency key. The same operation is available on demand to the
+owner at `POST /v1/platform-admin/billing/renewals/run`.
+
 The monitor reads aggregate structured HTTP events and the durable queue
 state. Its single JSON result contains only the release identity, bounded alert
 codes, request/error counts, p95 latency, queue depths, running/stuck run

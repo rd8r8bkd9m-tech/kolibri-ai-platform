@@ -20,6 +20,7 @@ import {
 import { type ComponentType, useContext, useEffect, useState } from "react";
 import { AgentProfileSelector } from "@/components/assistant-ui/agent-profile-selector";
 import { ComposerAttachments } from "@/components/assistant-ui/attachment";
+import { KolibriComposerTriggers } from "@/components/assistant-ui/composer/kolibri-composer-triggers";
 import { TooltipIconButton } from "@/components/assistant-ui/tooltip-icon-button";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -197,60 +198,63 @@ export const Composer: ComponentType = () => {
 	const attachmentsDisabled = !authenticated || !attachmentsSupported;
 
 	return (
-		<ComposerPrimitive.Root className={uiClassTokens.threadComposerRoot}>
-			<ComposerPrimitive.AttachmentDropzone
-				asChild
-				disabled={attachmentsDisabled}
-				>
-				<div
-					data-slot="aui_composer-shell"
-					className={uiClassTokens.threadComposerShell}
-				>
-					<ComposerAttachments />
-					<AttachmentErrorNotice />
-					<ComposerPrimitive.Quote className="border-border bg-muted/35 mx-3 mt-2 flex items-center gap-2 rounded-md border px-2 py-1 text-xs">
-						<ComposerPrimitive.QuoteText className="min-w-0 flex-1 truncate" />
-						<ComposerPrimitive.QuoteDismiss
-							asChild
-							aria-label="Убрать цитату"
-						>
-							<button type="button" className="rounded px-1 hover:bg-muted">×</button>
-						</ComposerPrimitive.QuoteDismiss>
-					</ComposerPrimitive.Quote>
-					<div className="mx-3 mt-2 space-y-1" aria-label="Очередь сообщений">
-						<ComposerPrimitive.Queue>
-							{({ queueItem }) => (
-								<div key={queueItem.id} className="border-border bg-muted/25 flex items-center gap-2 rounded-md border px-2 py-1 text-xs">
-									<QueueItemPrimitive.Text className="min-w-0 flex-1 truncate" />
-									<QueueItemPrimitive.Steer asChild>
-										<button type="button" className="rounded px-1.5 py-0.5 hover:bg-muted">Сейчас</button>
-									</QueueItemPrimitive.Steer>
-									<QueueItemPrimitive.Remove asChild>
-										<button type="button" className="rounded px-1.5 py-0.5 text-muted-foreground hover:bg-muted">Убрать</button>
-									</QueueItemPrimitive.Remove>
-								</div>
-							)}
-						</ComposerPrimitive.Queue>
+		<ComposerPrimitive.Unstable_TriggerPopoverRoot>
+			<ComposerPrimitive.Root className={uiClassTokens.threadComposerRoot}>
+				<ComposerPrimitive.AttachmentDropzone
+					asChild
+					disabled={attachmentsDisabled}
+					>
+					<div
+						data-slot="aui_composer-shell"
+						className={uiClassTokens.threadComposerShell}
+					>
+						<ComposerAttachments />
+						<AttachmentErrorNotice />
+						<ComposerPrimitive.Quote className="border-border bg-muted/35 mx-3 mt-2 flex items-center gap-2 rounded-md border px-2 py-1 text-xs">
+							<ComposerPrimitive.QuoteText className="min-w-0 flex-1 truncate" />
+							<ComposerPrimitive.QuoteDismiss
+								asChild
+								aria-label="Убрать цитату"
+							>
+								<button type="button" className="rounded px-1 hover:bg-muted">×</button>
+							</ComposerPrimitive.QuoteDismiss>
+						</ComposerPrimitive.Quote>
+						<div className="mx-3 mt-2 space-y-1" aria-label="Очередь сообщений">
+							<ComposerPrimitive.Queue>
+								{({ queueItem }) => (
+									<div key={queueItem.id} className="border-border bg-muted/25 flex items-center gap-2 rounded-md border px-2 py-1 text-xs">
+										<QueueItemPrimitive.Text className="min-w-0 flex-1 truncate" />
+										<QueueItemPrimitive.Steer asChild>
+											<button type="button" className="rounded px-1.5 py-0.5 hover:bg-muted">Сейчас</button>
+										</QueueItemPrimitive.Steer>
+										<QueueItemPrimitive.Remove asChild>
+											<button type="button" className="rounded px-1.5 py-0.5 text-muted-foreground hover:bg-muted">Убрать</button>
+										</QueueItemPrimitive.Remove>
+									</div>
+								)}
+							</ComposerPrimitive.Queue>
+						</div>
+						<ComposerPrimitive.Input
+										placeholder={
+											authenticated
+												? compact
+													? THREAD_UI_TEXT.TOOLTIP_MOBILE_HINT
+													: THREAD_UI_TEXT.DRAFT_AUTH
+												: THREAD_UI_TEXT.THREAD_VIEWPORT_LOGIN_REQUIRED
+												}
+							disabled={composerDisabled}
+							className={uiClassTokens.threadComposerInput}
+							rows={1}
+							autoFocus={!compact}
+							enterKeyHint="send"
+							aria-label={THREAD_UI_TEXT.THREAD_INPUT_ARIA_LABEL}
+						/>
+						<KolibriComposerTriggers />
+						<ComposerAction />
 					</div>
-					<ComposerPrimitive.Input
-									placeholder={
-										authenticated
-											? compact
-												? THREAD_UI_TEXT.TOOLTIP_MOBILE_HINT
-												: THREAD_UI_TEXT.DRAFT_AUTH
-										: THREAD_UI_TEXT.THREAD_VIEWPORT_LOGIN_REQUIRED
-										}
-						disabled={composerDisabled}
-						className={uiClassTokens.threadComposerInput}
-						rows={1}
-						autoFocus={!compact}
-						enterKeyHint="send"
-						aria-label={THREAD_UI_TEXT.THREAD_INPUT_ARIA_LABEL}
-					/>
-					<ComposerAction />
-				</div>
-			</ComposerPrimitive.AttachmentDropzone>
-		</ComposerPrimitive.Root>
+				</ComposerPrimitive.AttachmentDropzone>
+			</ComposerPrimitive.Root>
+		</ComposerPrimitive.Unstable_TriggerPopoverRoot>
 	);
 };
 
@@ -407,7 +411,7 @@ export const ComposerAction: ComponentType = () => {
 								<MicIcon className={uiClassTokens.threadDictateIcon} />
 							</TooltipIconButton>
 						) : null}
-						<AuiIf condition={(s) => !s.thread.isRunning}>
+						<AuiIf condition={(s) => !s.thread.isRunning && !s.composer.isEmpty}>
 							<ComposerPrimitive.Send asChild>
 								<TooltipIconButton
 									tooltip={THREAD_UI_TEXT.LABEL_COMPOSE_SEND}
@@ -416,21 +420,13 @@ export const ComposerAction: ComponentType = () => {
 									variant="default"
 									size="icon"
 									disabled={
-										composerEmpty ||
 										identity.agentProfileSaving ||
 										identity.modelSettingsSaving
 									}
 									className={cn(
 										uiClassTokens.threadComposerSend,
-										compact &&
-											composerEmpty &&
-											uiClassTokens.threadComposerSendEmpty,
 									)}
-									aria-label={
-										composerEmpty
-													? THREAD_UI_TEXT.LABEL_COMPOSE_EMPTY
-													: THREAD_UI_TEXT.LABEL_COMPOSE_SEND
-									}
+									aria-label={THREAD_UI_TEXT.LABEL_COMPOSE_SEND}
 								>
 									<ArrowUpIcon className={uiClassTokens.threadDictateIcon} />
 								</TooltipIconButton>

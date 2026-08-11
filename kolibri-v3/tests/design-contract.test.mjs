@@ -184,7 +184,10 @@ test("the compact shell matches the mobile chat contract and persists theme choi
   assert.match(css, /-webkit-touch-callout:\s*none/);
   assert.match(css, /touch-action:\s*pan-y/);
   assert.doesNotMatch(thread, /aui-composer-voice-submit-icon/);
-  assert.match(thread, /composerEmpty\s*\|\|/);
+  assert.match(
+    thread,
+    /!s\.thread\.isRunning && !s\.composer\.isEmpty/,
+  );
   assert.match(thread, /Голосовой ввод недоступен/);
   assert.match(
     runtimeProvider,

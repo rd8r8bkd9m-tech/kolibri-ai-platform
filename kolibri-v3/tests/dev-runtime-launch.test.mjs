@@ -180,7 +180,8 @@ test("dev stack restarts only the canonical backend launcher", () => {
     stackSupervisor,
     /healthy &&[\s\S]*backend\.exitCode === null[\s\S]*startWeb\(\)/,
   );
-  assert.match(stackSupervisor, /healthFailureThreshold = 5/);
+  assert.match(stackSupervisor, /healthFailureThreshold = 8/);
+  assert.match(stackSupervisor, /healthProbeTimeoutMs = 2_000/);
   assert.match(
     stackSupervisor,
     /backend health failed repeatedly; fencing and restarting/,

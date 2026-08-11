@@ -42,7 +42,7 @@ export type ModelCatalog = {
 	profiles: CatalogProfile[];
 };
 
-const SAFE_MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,119}$/;
+const SAFE_MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$/;
 const SAFE_EFFORT = /^[a-z0-9][a-z0-9_-]{0,31}$/;
 const SAFE_SERVICE_TIER = /^[a-z0-9][a-z0-9_-]{0,31}$/;
 

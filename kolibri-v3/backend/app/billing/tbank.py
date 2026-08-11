@@ -165,6 +165,7 @@ class TBankInitResult:
     status: str | None
     payment_id: str | None
     payment_url: str | None
+    rebill_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -294,6 +295,7 @@ class TBankGateway:
         assert error_code is not None
         status = _provider_string(response.get("Status"), maximum=48)
         payment_id = _provider_string(response.get("PaymentId"), maximum=20)
+        rebill_id = _provider_string(response.get("RebillId"), maximum=64)
         terminal_key = _provider_string(response.get("TerminalKey"), maximum=64)
         order_id = _provider_string(response.get("OrderId"), maximum=50)
         amount_minor = _minor_amount(response.get("Amount"))
@@ -316,6 +318,7 @@ class TBankGateway:
                 status=status.upper() if status else None,
                 payment_id=payment_id,
                 payment_url=None,
+                rebill_id=rebill_id,
             )
         if (
             error_code != "0"
@@ -332,6 +335,7 @@ class TBankGateway:
             status=status.upper() if status else "NEW",
             payment_id=payment_id,
             payment_url=payment_url,
+            rebill_id=rebill_id,
         )
 
     def get_state(self, payment_id: str) -> TBankStateResult:

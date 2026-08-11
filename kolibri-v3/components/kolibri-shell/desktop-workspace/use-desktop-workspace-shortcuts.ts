@@ -3,6 +3,8 @@
 import { useEffect } from "react";
 import type { ContextPanelMode } from "@/components/kolibri-workspace/context-panel";
 
+export const KOLIBRI_GLOBAL_SAVE_EVENT = "kolibri:global-save";
+
 export function useDesktopWorkspaceShortcuts({
 	onOpenTool,
 	onToggleCommandPalette,
@@ -15,6 +17,20 @@ export function useDesktopWorkspaceShortcuts({
 	useEffect(() => {
 		const handleShortcut = (event: KeyboardEvent) => {
 			const target = event.target;
+			// IME/synthetic events can carry an undefined `key`; treat them as
+			// non-shortcuts instead of crashing the workspace.
+			if (typeof event.key !== "string") {
+				return;
+			}
+			const key = event.key.toLocaleLowerCase("en-US");
+			const command = event.metaKey || event.ctrlKey;
+			
+			if (command && key === "s" && !event.altKey && !event.shiftKey) {
+				event.preventDefault();
+				window.dispatchEvent(new CustomEvent(KOLIBRI_GLOBAL_SAVE_EVENT));
+				return;
+			}
+			
 			if (
 				target instanceof HTMLElement &&
 				(target.isContentEditable ||
@@ -23,8 +39,6 @@ export function useDesktopWorkspaceShortcuts({
 				return;
 			}
 
-			const key = event.key.toLocaleLowerCase("en-US");
-			const command = event.metaKey || event.ctrlKey;
 			if (command && key === "k" && !event.altKey && !event.shiftKey) {
 				event.preventDefault();
 				onToggleCommandPalette();

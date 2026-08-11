@@ -1,6 +1,7 @@
 import {
 	ErrorPrimitive,
 	MessagePrimitive,
+	ThreadPrimitive,
 	useAuiState,
 	type TextMessagePartComponent,
 } from "@assistant-ui/react-native";
@@ -11,6 +12,7 @@ import { MessageActionBar } from "@/components/assistant-ui/message-action-bar";
 import { MessageBranchPicker } from "@/components/assistant-ui/message-branch-picker";
 import { Radius } from "@/constants/theme";
 import { useTheme } from "@/hooks/use-theme";
+import { haptics } from "@/lib/haptics";
 
 const UserText: TextMessagePartComponent = ({ text }) => {
 	const { colors } = useTheme();
@@ -90,6 +92,7 @@ function UserMessage() {
 
 function AssistantMessage() {
 	const { colors } = useTheme();
+	const suggestions = useAuiState((state) => state.thread.suggestions);
 	return (
 		<MessagePrimitive.Root style={styles.assistantRoot}>
 			<View style={styles.assistantContent}>
@@ -115,6 +118,38 @@ function AssistantMessage() {
 					<MessageBranchPicker />
 					<MessageActionBar />
 				</View>
+				{suggestions.length > 0 ? (
+					<View
+						accessibilityLabel="Варианты продолжения"
+						style={styles.suggestions}
+					>
+						{suggestions.map((suggestion, index) => (
+							<ThreadPrimitive.Suggestion
+								key={index}
+								accessibilityRole="button"
+								onPressIn={haptics.selection}
+								prompt={suggestion.prompt}
+								send
+								clearComposer
+								style={({ pressed }: { pressed: boolean }) => [
+									styles.suggestion,
+									{
+										backgroundColor: colors.surface,
+										borderColor: colors.border,
+									},
+									pressed && styles.pressed,
+								]}
+							>
+								<Text
+									numberOfLines={2}
+									style={[styles.suggestionText, { color: colors.foreground }]}
+								>
+									{suggestion.prompt}
+								</Text>
+							</ThreadPrimitive.Suggestion>
+						))}
+					</View>
+				) : null}
 			</MessagePrimitive.If>
 		</MessagePrimitive.Root>
 	);
@@ -158,5 +193,20 @@ const styles = StyleSheet.create({
 		paddingHorizontal: 12,
 		paddingVertical: 10,
 	},
+	suggestions: {
+		flexDirection: "row",
+		flexWrap: "wrap",
+		gap: 8,
+		marginTop: 10,
+	},
+	suggestion: {
+		borderRadius: 999,
+		borderWidth: StyleSheet.hairlineWidth,
+		maxWidth: "92%",
+		paddingHorizontal: 13,
+		paddingVertical: 8,
+	},
+	suggestionText: { fontSize: 13, fontWeight: "600", lineHeight: 17 },
+	pressed: { opacity: 0.6 },
 	errorText: { fontSize: 14, lineHeight: 20 },
 });

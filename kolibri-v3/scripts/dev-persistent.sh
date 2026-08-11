@@ -10,6 +10,53 @@ backend_url="http://127.0.0.1:8002/v1/health"
 app_url="http://127.0.0.1:3103/app"
 runtime_log="${v3_root}/var/dev-runtime/screen.log"
 screen_entry="${v3_root}/scripts/dev-screen-entry.sh"
+dev_stack_pid_file="${v3_root}/var/dev-runtime/dev-stack.pid"
+
+pid_is_alive() {
+  local pid="$1"
+  [[ "${pid}" =~ ^[0-9]+$ ]] || return 1
+  kill -0 "${pid}" >/dev/null 2>&1
+}
+
+dev_stack_pid() {
+  [[ -f "${dev_stack_pid_file}" ]] || return 1
+  local pid
+  pid="$(tr -d '[:space:]' < "${dev_stack_pid_file}" 2>/dev/null || true)"
+  [[ "${pid}" =~ ^[0-9]+$ ]] || return 1
+  if pid_is_alive "${pid}"; then
+    printf '%s\n' "${pid}"
+    return 0
+  fi
+  return 1
+}
+
+dev_stack_listener_pid() {
+  # Fallback for stacks started before the pid-file guard: any process that
+  # owns the V3 backend port and belongs to this repository.
+  local listener_pid
+  listener_pid="$(lsof -nP -iTCP:8002 -sTCP:LISTEN -t 2>/dev/null | head -n 1 || true)"
+  if [[ "${listener_pid}" =~ ^[0-9]+$ ]] &&
+    ps -o command= -p "${listener_pid}" 2>/dev/null | grep -q "kolibri-v3"; then
+    printf '%s\n' "${listener_pid}"
+    return 0
+  fi
+  return 1
+}
+
+ports_busy_by_dev_stack() {
+  if dev_stack_pid >/dev/null 2>&1; then
+    return 0
+  fi
+  dev_stack_listener_pid >/dev/null 2>&1
+}
+
+dev_stack_process_group() {
+  local pid="$1"
+  local pgid
+  pgid="$(ps -o pgid= -p "${pid}" 2>/dev/null | tr -d '[:space:]' || true)"
+  [[ "${pgid}" =~ ^[0-9]+$ ]] || return 1
+  printf '%s\n' "${pgid}"
+}
 
 session_exists() {
   local listing
@@ -65,9 +112,9 @@ start_runtime() {
       printf '%s\n' "Kolibri V3 persistent development runtime is ready."
       return
     fi
-    printf '%s\n' \
-      "Kolibri V3 screen session exists but its runtime is not ready." >&2
-    exit 1
+    # A session that exists but cannot pass readiness is broken; tear it down
+    # and start fresh instead of leaving the runtime wedged forever.
+    stop_runtime
   fi
 
   if lsof -nP -iTCP:8002 -sTCP:LISTEN >/dev/null 2>&1 ||
@@ -95,6 +142,16 @@ start_runtime() {
 
   cd -- "${v3_root}"
   mkdir -p -- "$(dirname -- "${runtime_log}")"
+
+  # A live stack that lost its screen session must be reaped first, otherwise
+  # the fresh session would fight it for ports (the "server keeps falling"
+  # symptom: backend bind errors and UI 502 flapping).
+  if ports_busy_by_dev_stack; then
+    printf '%s\n' \
+      "Kolibri V3 runtime is alive outside its screen session; stopping it." >&2
+    stop_runtime
+  fi
+
   "${screen_bin}" -dmS "${session_name}" \
     /usr/bin/env \
     PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" \
@@ -118,6 +175,26 @@ start_runtime() {
 stop_runtime() {
   local process_group=""
   if ! session_exists; then
+    if ports_busy_by_dev_stack; then
+      local stack_pid stack_pgid
+      stack_pid="$(dev_stack_pid || dev_stack_listener_pid)"
+      stack_pgid="$(dev_stack_process_group "${stack_pid}" || true)"
+      if [[ "${stack_pgid}" =~ ^[0-9]+$ ]]; then
+        kill -TERM -- "-${stack_pgid}" >/dev/null 2>&1 || true
+      else
+        kill -TERM "${stack_pid}" >/dev/null 2>&1 || true
+      fi
+      for _attempt in {1..100}; do
+        if runtime_ports_free; then
+          printf '%s\n' "Kolibri V3 persistent development runtime stopped."
+          return
+        fi
+        sleep 0.1
+      done
+      printf '%s\n' \
+        "Kolibri V3 orphaned dev stack did not release its ports." >&2
+      exit 1
+    fi
     if ! runtime_ports_free; then
       printf '%s\n' \
         "Kolibri V3 session is absent but its ports are still occupied." >&2
@@ -156,6 +233,15 @@ stop_runtime() {
 
 show_status() {
   if ! session_exists; then
+    if ports_busy_by_dev_stack; then
+      printf '%s\n' "screen_session=orphaned"
+      if runtime_ready; then
+        printf '%s\n' "runtime=ready"
+        return
+      fi
+      printf '%s\n' "runtime=not_ready"
+      exit 1
+    fi
     printf '%s\n' "screen_session=stopped"
     exit 1
   fi

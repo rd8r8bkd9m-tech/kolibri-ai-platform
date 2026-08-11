@@ -14,6 +14,7 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 import "react-native-reanimated";
 
 import { DrawerContent } from "@/components/thread-list/drawer-content";
+import { DialogsHost } from "@/lib/dialogs";
 import { Layout } from "@/constants/theme";
 import { useTheme } from "@/hooks/use-theme";
 import { KolibriThemeProvider } from "@/hooks/theme-provider";
@@ -93,6 +94,14 @@ function Navigation() {
 						borderTopRightRadius: 28,
 						overflow: "hidden",
 						width: Math.min(width * Layout.drawerFraction, 340),
+						// On react-native-web the scrim overlay is appended after
+						// the drawer panel in the DOM, so without an explicit
+						// z-index taps on drawer items land on the full-screen
+						// "Close drawer" button instead. Lift the panel above it.
+						...Platform.select({
+							web: { zIndex: 10 } as never,
+							default: { elevation: 10 },
+						}),
 					},
 					drawerType: "front",
 					headerShown: false,
@@ -141,6 +150,7 @@ export default function RootLayout() {
 				<MobileSessionProvider>
 					<ProductRuntimeProvider>
 						<Navigation />
+						<DialogsHost />
 					</ProductRuntimeProvider>
 				</MobileSessionProvider>
 			</KolibriThemeProvider>

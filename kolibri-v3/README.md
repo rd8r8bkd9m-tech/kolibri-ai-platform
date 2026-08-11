@@ -239,6 +239,8 @@ from .constants import MIMO_BASE_URL_DEFAULT, TIMEOUT_FGIS, PDF_COLOR_TEAL
 | `KOLIBRI_V3_CODEX_EFFORT` | Уровень reasoning Codex | `low` |
 | `KOLIBRI_V3_DATABASE_URL` | URL SQLite базы | `sqlite:///./var/kolibri-v3.db` |
 | `KOLIBRI_V3_ALLOWED_ORIGINS` | CORS origins | `http://127.0.0.1:3103,http://localhost:3103` |
+| `KOLIBRI_V3_DEEPSEEK_API_KEY` | API ключ DeepSeek (или `DEEPSEEK_API_KEY`) | (опционально) |
+| `KOLIBRI_V3_DEEPSEEK_MODEL` | Модель DeepSeek | `deepseek-chat` |
 | `MIMO_API_KEY` | API ключ MiMo | (обязательный) |
 | `OPENAI_API_KEY` | API ключ OpenAI | (обязательный для Codex) |
 

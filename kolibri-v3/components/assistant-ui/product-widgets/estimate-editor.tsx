@@ -264,6 +264,445 @@ function EstimateRowEvidence({
 }
 
 
+type EstimateRowPresenterProps = {
+	row: EditableEstimateRow;
+	index: number;
+	dirty: boolean;
+	offerRowId: string | null;
+	onToggleOffer: (rowId: string) => void;
+	onDelete: (rowId: string) => void;
+	onUpdate: (
+		id: string,
+		field: "description" | "unit" | "quantity" | "unitPrice",
+		value: string,
+	) => void;
+	applyPricedEstimate: (next: EstimateWidgetProps, message: string) => void;
+	projectId: string;
+	version: number;
+};
+
+function PriceStatusChip({ row }: { row: EditableEstimateRow }) {
+	const statusLabel = row.priceEvidence
+		? priceSourceLabel(row.priceEvidence)
+		: row.enginePriceProvenance
+			? enginePriceSourceLabel(row.enginePriceProvenance)
+			: "Источник не указан";
+	const isWarning =
+		row.priceEvidence?.status === "stale" ||
+		(!row.priceEvidence && !row.enginePriceProvenance?.verified);
+
+	return (
+		<span
+			className={cn(
+				"inline-flex rounded-full px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.16em]",
+				isWarning
+					? "bg-amber-100 text-amber-900 dark:bg-amber-950/40 dark:text-amber-200"
+					: "bg-emerald-100 text-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200",
+			)}
+		>
+			{statusLabel}
+		</span>
+	);
+}
+
+function EstimateRowCardMobile({
+	row,
+	index,
+	dirty,
+	offerRowId,
+	onToggleOffer,
+	onDelete,
+	onUpdate,
+	applyPricedEstimate,
+	projectId,
+	version,
+}: EstimateRowPresenterProps) {
+	return (
+		<article
+			key={row.id}
+			className="overflow-hidden rounded-3xl border border-border bg-background p-4 shadow-sm"
+			aria-labelledby={`estimate-mobile-row-${row.id}`}
+		>
+			<div className="flex min-w-0 items-start gap-2">
+				<span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-muted text-sm font-semibold tabular-nums">
+					{index + 1}
+				</span>
+				<div className="min-w-0 flex-1 pt-0.5">
+					<p
+						id={`estimate-mobile-row-${row.id}`}
+						className="truncate text-xs font-semibold tracking-wide text-muted-foreground uppercase"
+					>
+						{row.section} · {estimateKindLabel(row.kind)}
+					</p>
+					<div className="mt-1 flex flex-wrap items-center gap-2">
+						<PriceStatusChip row={row} />
+					</div>
+				</div>
+				<Button
+					type="button"
+					variant="ghost"
+					size="icon"
+					className="h-11 w-11 shrink-0 rounded-full"
+					aria-label={`Удалить позицию ${index + 1}`}
+					onClick={() => onDelete(row.id)}
+				>
+					<Trash2Icon aria-hidden="true" className="h-5 w-5" />
+				</Button>
+			</div>
+
+			<label className="mt-3 block text-xs font-medium text-muted-foreground">
+				Работа или материал
+				<input
+					aria-label={`Наименование позиции ${index + 1}`}
+					className="mt-1 min-h-12 w-full rounded-2xl border border-input bg-background px-3 py-2 text-base outline-none focus:ring-2 focus:ring-ring"
+					placeholder="Введите наименование"
+					value={row.description}
+					maxLength={300}
+					enterKeyHint="next"
+					onChange={(event) => onUpdate(row.id, "description", event.target.value)}
+				/>
+			</label>
+
+			<div className="mt-3 grid grid-cols-2 gap-2.5">
+				<label className="text-xs font-medium text-muted-foreground">
+					Единица
+					<input
+						aria-label={`Единица позиции ${index + 1}`}
+						className="mt-1 min-h-12 w-full rounded-2xl border border-input bg-background px-3 py-2 text-base outline-none focus:ring-2 focus:ring-ring"
+						value={row.unit}
+						maxLength={32}
+						onChange={(event) => onUpdate(row.id, "unit", event.target.value)}
+					/>
+				</label>
+				<label className="text-xs font-medium text-muted-foreground">
+					Количество
+					<input
+						aria-label={`Количество позиции ${index + 1}`}
+						inputMode="decimal"
+						enterKeyHint="next"
+						className="mt-1 min-h-12 w-full rounded-2xl border border-input bg-background px-3 py-2 text-right text-base text-foreground tabular-nums outline-none focus:ring-2 focus:ring-ring"
+						value={row.quantity}
+						onChange={(event) => onUpdate(row.id, "quantity", event.target.value)}
+					/>
+				</label>
+				<label className="text-xs font-medium text-muted-foreground">
+					Цена
+					<input
+						aria-label={`Цена позиции ${index + 1}`}
+						inputMode="decimal"
+						enterKeyHint="done"
+						className="mt-1 min-h-12 w-full rounded-2xl border border-input bg-background px-3 py-2 text-right text-base text-foreground tabular-nums outline-none focus:ring-2 focus:ring-ring"
+						value={row.unitPrice}
+						onChange={(event) => onUpdate(row.id, "unitPrice", event.target.value)}
+					/>
+				</label>
+				<div className="text-xs font-medium text-muted-foreground">
+					Сумма
+					<output className="mt-1 flex min-h-12 items-center justify-end rounded-2xl bg-muted px-3 py-2 text-base font-semibold text-foreground tabular-nums">
+						{formatMoney(toAmount(row.quantity, row.unitPrice))}
+					</output>
+				</div>
+			</div>
+
+			<EstimateRowEvidence row={row} className="mt-2 border-t border-border text-xs" />
+
+			<div className="mt-4 flex flex-col gap-2">
+				<Button
+					type="button"
+					variant="outline"
+					className="min-h-11 w-full rounded-2xl"
+					disabled={dirty}
+					onClick={() => onToggleOffer(row.id)}
+				>
+					{offerRowId === row.id ? "Скрыть предложение" : "Цена поставщика"}
+				</Button>
+				{offerRowId === row.id ? (
+					<SupplierOfferForm
+						projectId={projectId}
+						row={row}
+						version={version}
+						onApplied={applyPricedEstimate}
+					/>
+				) : null}
+			</div>
+		</article>
+	);
+}
+
+function EstimateRowTableRow({
+	row,
+	index,
+	dirty,
+	offerRowId,
+	onToggleOffer,
+	onDelete,
+	onUpdate,
+	applyPricedEstimate,
+	projectId,
+	version,
+}: EstimateRowPresenterProps) {
+	return (
+		<Fragment key={row.id}>
+			<tr className="border-b border-border last:border-0" data-row-id={row.id}>
+				<td className="px-2 py-1.5 text-center text-xs text-muted-foreground">
+					{index + 1}
+				</td>
+				<td className="px-2 py-1.5">
+					<div className="mb-0.5 flex flex-wrap items-center gap-2 px-2 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+						<span>{row.section}</span>
+						<span aria-hidden="true">·</span>
+						<span>{estimateKindLabel(row.kind)}</span>
+						<PriceStatusChip row={row} />
+					</div>
+					<input
+						name="description"
+						aria-label={`Наименование позиции ${index + 1}`}
+						className="w-full rounded-md border border-transparent bg-transparent px-2 py-1.5 outline-none hover:border-border focus:border-border focus:ring-2 focus:ring-ring"
+						placeholder="Введите наименование"
+						value={row.description}
+						maxLength={300}
+						onChange={(event) => onUpdate(row.id, "description", event.target.value)}
+					/>
+					<details className="px-2 pt-0.5 text-[10px] text-muted-foreground">
+						<summary className="cursor-pointer select-none">
+							Основание количества и цены
+						</summary>
+						<p className="mt-1">Количество: {row.quantityBasis}</p>
+						<p>Цена: {row.priceBasis}</p>
+						{row.priceEvidence ? (
+							<div className="mt-1 space-y-0.5">
+								<p>
+									Регион: {row.priceEvidence.region}
+									{row.priceEvidence.period ? ` · ${row.priceEvidence.period}` : ""}
+								</p>
+								<p>
+									{row.priceEvidence.freshnessBasis === "supplier_valid_until" ? "Действует до" : "Проверить актуальность после"}{" "}
+									{row.priceEvidence.freshUntil} · {row.priceEvidence.taxStatus === "included" ? "НДС включён" : row.priceEvidence.taxStatus === "excluded" ? "без НДС" : "НДС не указан"}
+								</p>
+								{row.priceEvidence.landedCostStatus === "not_calculated" ? (
+									<p>Справочная цена · доставка и складирование не рассчитаны</p>
+								) : (
+									<p>Цена с доставкой: {formatMoney(row.priceEvidence.landedUnitPrice)}</p>
+								)}
+								<a
+									className="inline-flex text-foreground underline underline-offset-2"
+									href={row.priceEvidence.sourceUrl}
+									target="_blank"
+									rel="noreferrer"
+								>
+									Источник · {row.priceEvidence.sourceReference}
+								</a>
+								<p title={row.priceEvidence.snapshotHash}>
+									Снимок: {row.priceEvidence.snapshotHash.slice(0, 18)}…
+								</p>
+							</div>
+						) : row.enginePriceProvenance ? (
+							<div className="mt-1 space-y-0.5">
+								<p className={row.enginePriceProvenance.verified ? "text-emerald-700" : "text-amber-700"}>
+									{enginePriceSourceLabel(row.enginePriceProvenance)}
+								</p>
+								<p>
+									{row.enginePriceProvenance.label} · {row.enginePriceProvenance.reference}
+								</p>
+								<p>
+									Регион: {row.enginePriceProvenance.region} · на {row.enginePriceProvenance.observedAt.slice(0, 10)}
+								</p>
+								<p>
+									{engineVatLabel(row.enginePriceProvenance.vatMode)} · уверенность {Math.round(Number(row.enginePriceProvenance.confidence) * 100)}%
+								</p>
+								{row.enginePriceProvenance.validUntil ? (
+									<p>Действует до {row.enginePriceProvenance.validUntil.slice(0, 10)}</p>
+								) : null}
+								{row.enginePriceProvenance.sourceUrl.startsWith("https://") ? (
+									<a
+										className="inline-flex text-foreground underline underline-offset-2"
+										href={row.enginePriceProvenance.sourceUrl}
+										target="_blank"
+										rel="noreferrer"
+									>
+										Открыть источник
+									</a>
+								) : (
+									<p>Источник сохранён в текущем расчёте</p>
+								)}
+							</div>
+						) : (
+							<p className="mt-1 text-amber-700">Цена введена без подтверждённого источника.</p>
+						)}
+					</details>
+					<div className="px-2 pt-1">
+						<Button
+							type="button"
+							variant="ghost"
+							size="xs"
+							disabled={dirty}
+							onClick={() => onToggleOffer(row.id)}
+						>
+							{offerRowId === row.id ? "Скрыть предложение" : "Цена поставщика"}
+						</Button>
+					</div>
+				</td>
+				<td className="px-2 py-1.5">
+					<input
+						name="unit"
+						aria-label={`Единица позиции ${index + 1}`}
+						className="w-full rounded-md border border-transparent bg-transparent px-2 py-1.5 outline-none hover:border-border focus:border-border focus:ring-2 focus:ring-ring"
+						value={row.unit}
+						maxLength={32}
+						onChange={(event) => onUpdate(row.id, "unit", event.target.value)}
+					/>
+				</td>
+				<td className="px-2 py-1.5">
+					<input
+						name="quantity"
+						aria-label={`Количество позиции ${index + 1}`}
+						inputMode="decimal"
+						className="w-full rounded-md border border-transparent bg-transparent px-2 py-1.5 text-right tabular-nums outline-none hover:border-border focus:border-border focus:ring-2 focus:ring-ring"
+						value={row.quantity}
+						onChange={(event) => onUpdate(row.id, "quantity", event.target.value)}
+					/>
+				</td>
+				<td className="px-2 py-1.5">
+					<input
+						name="unitPrice"
+						aria-label={`Цена позиции ${index + 1}`}
+						inputMode="decimal"
+						className="w-full rounded-md border border-transparent bg-transparent px-2 py-1.5 text-right tabular-nums outline-none hover:border-border focus:border-border focus:ring-2 focus:ring-ring"
+						value={row.unitPrice}
+						onChange={(event) => onUpdate(row.id, "unitPrice", event.target.value)}
+					/>
+				</td>
+				<td className="px-2 py-1.5 text-right font-medium tabular-nums">
+					{formatMoney(toAmount(row.quantity, row.unitPrice))}
+				</td>
+				<td className="px-1 py-1.5">
+					<Button
+						type="button"
+						variant="ghost"
+						size="icon-sm"
+						aria-label={`Удалить позицию ${index + 1}`}
+						onClick={() => onDelete(row.id)}
+					>
+						<Trash2Icon aria-hidden="true" className="size-4" />
+					</Button>
+				</td>
+			</tr>
+			{offerRowId === row.id ? (
+				<tr className="border-b border-border bg-muted/10">
+					<td colSpan={7} className="px-4 py-3">
+						<SupplierOfferForm
+							projectId={projectId}
+							row={row}
+							version={version}
+							onApplied={applyPricedEstimate}
+						/>
+					</td>
+				</tr>
+			) : null}
+		</Fragment>
+	);
+}
+
+function EstimateRowList({
+	pagedRows,
+	dirty,
+	offerRowId,
+	onToggleOffer,
+	onDelete,
+	onUpdate,
+	applyPricedEstimate,
+	projectId,
+	version,
+}: {
+	pagedRows: Array<{ row: EditableEstimateRow; index: number }>;
+	dirty: boolean;
+	offerRowId: string | null;
+	onToggleOffer: (rowId: string) => void;
+	onDelete: (rowId: string) => void;
+	onUpdate: (
+		id: string,
+		field: "description" | "unit" | "quantity" | "unitPrice",
+		value: string,
+	) => void;
+	applyPricedEstimate: (next: EstimateWidgetProps, message: string) => void;
+	projectId: string;
+	version: number;
+}) {
+	return (
+		<>
+			<div
+				data-slot="estimate-mobile-list"
+				className="space-y-3 bg-muted/10 p-3 pb-28 min-[960px]:hidden"
+			>
+				{pagedRows.length === 0 ? (
+					<div className="rounded-3xl border border-dashed border-border bg-background px-5 py-10 text-center text-sm text-muted-foreground">
+						Позиций пока нет. Добавьте первую строку — расчёт появится автоматически.
+					</div>
+				) : (
+					pagedRows.map(({ row, index }) => (
+						<EstimateRowCardMobile
+							key={row.id}
+							row={row}
+							index={index}
+							dirty={dirty}
+							offerRowId={offerRowId}
+							onToggleOffer={onToggleOffer}
+							onDelete={onDelete}
+							onUpdate={onUpdate}
+							applyPricedEstimate={applyPricedEstimate}
+							projectId={projectId}
+							version={version}
+						/>
+					))
+				)}
+			</div>
+			<div className="hidden overflow-x-auto min-[960px]:block">
+				<table className="w-full min-w-[700px] border-collapse text-sm">
+					<caption className="sr-only">Редактируемые позиции сметы</caption>
+					<thead>
+						<tr className="border-b border-border bg-muted/30 text-left text-[11px] font-medium text-muted-foreground">
+							<th className="w-10 px-2 py-2 text-center">№</th>
+							<th className="min-w-64 px-2 py-2">Работа или материал</th>
+							<th className="w-24 px-2 py-2">Ед.</th>
+							<th className="w-28 px-2 py-2 text-right">Кол-во</th>
+							<th className="w-36 px-2 py-2 text-right">Цена</th>
+							<th className="w-36 px-2 py-2 text-right">Сумма</th>
+							<th className="w-10 px-1 py-2">
+								<span className="sr-only">Действия</span>
+							</th>
+						</tr>
+					</thead>
+					<tbody>
+						{pagedRows.length === 0 ? (
+							<tr>
+								<td colSpan={7} className="px-4 py-8 text-center text-sm text-muted-foreground">
+									Позиций пока нет. Добавьте первую строку — расчёт появится автоматически.
+								</td>
+							</tr>
+						) : (
+							pagedRows.map(({ row, index }) => (
+								<EstimateRowTableRow
+									key={row.id}
+									row={row}
+									index={index}
+									dirty={dirty}
+									offerRowId={offerRowId}
+									onToggleOffer={onToggleOffer}
+									onDelete={onDelete}
+									onUpdate={onUpdate}
+									applyPricedEstimate={applyPricedEstimate}
+									projectId={projectId}
+									version={version}
+								/>
+							))
+						)}
+					</tbody>
+				</table>
+			</div>
+		</>
+	);
+}
+
 function SupplierOfferForm({
 	projectId,
 	row,
@@ -1468,174 +1907,115 @@ export function EstimateEditorWidget({
 				</nav>
 			) : null}
 
-			<div
-				data-slot="estimate-mobile-list"
-				className="space-y-3 bg-muted/10 p-3 pb-28 min-[960px]:hidden"
-			>
-				{pageLoading ? (
-					<div className="flex min-h-40 items-center justify-center gap-2 text-sm text-muted-foreground">
-						<LoaderCircleIcon aria-hidden="true" className="size-4 animate-spin" />
-						Загружаю позиции…
-					</div>
-				) : rows.length === 0 && totalRows === 0 ? (
-					<div className="rounded-3xl border border-dashed border-border bg-background px-5 py-10 text-center text-sm text-muted-foreground">
-						Позиций пока нет. Добавьте первую строку — расчёт появится
-						автоматически.
-					</div>
-				) : (
-					pagedRows.map(({ row, index }) => (
-						<article
-							key={row.id}
-							className="overflow-hidden rounded-3xl border border-border bg-background p-4 shadow-sm"
-							aria-labelledby={`estimate-mobile-row-${row.id}`}
-						>
-							<div className="flex min-w-0 items-start gap-2">
-								<span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-muted text-sm font-semibold tabular-nums">
-									{index + 1}
-								</span>
-								<div className="min-w-0 flex-1 pt-0.5">
-									<p
-										id={`estimate-mobile-row-${row.id}`}
-										className="truncate text-xs font-semibold tracking-wide text-muted-foreground uppercase"
-									>
-										{row.section} · {estimateKindLabel(row.kind)}
-									</p>
-									<p
-										className={cn(
-											"mt-1 truncate text-xs",
-											row.priceEvidence?.status === "stale" ||
-												(!row.priceEvidence &&
-													!row.enginePriceProvenance?.verified)
-												? "text-amber-700 dark:text-amber-400"
-												: "text-emerald-700 dark:text-emerald-400",
-										)}
-									>
-										{row.priceEvidence
-											? priceSourceLabel(row.priceEvidence)
-											: row.enginePriceProvenance
-												? enginePriceSourceLabel(row.enginePriceProvenance)
-												: "Источник не указан"}
-									</p>
-								</div>
-								<Button
-									type="button"
-									variant="ghost"
-									size="icon"
-									className="size-11 shrink-0 rounded-full"
-									aria-label={`Удалить позицию ${index + 1}`}
-									onClick={() => {
-										hasLocalEdits.current = true;
-										setRows((current) =>
-											current.filter((item) => item.id !== row.id),
-										);
-										setSaveState((current) =>
-											current === "conflict" ? current : "idle",
-										);
-									}}
-								>
-									<Trash2Icon aria-hidden="true" className="size-5" />
-								</Button>
-							</div>
-
-							<label className="mt-3 block text-xs font-medium text-muted-foreground">
-								Работа или материал
-								<input
-									aria-label={`Наименование позиции ${index + 1}`}
-									className="mt-1 min-h-12 w-full rounded-2xl border border-input bg-background px-3 py-2 text-base outline-none focus:ring-2 focus:ring-ring"
-									placeholder="Введите наименование"
-									value={row.description}
-									maxLength={300}
-									enterKeyHint="next"
-									onChange={(event) =>
-										updateRow(row.id, "description", event.target.value)
-									}
-								/>
-							</label>
-
-							<div className="mt-3 grid grid-cols-2 gap-2.5">
-								<label className="text-xs font-medium text-muted-foreground">
-									Единица
-									<input
-										aria-label={`Единица позиции ${index + 1}`}
-										className="mt-1 min-h-12 w-full rounded-2xl border border-input bg-background px-3 py-2 text-base text-foreground outline-none focus:ring-2 focus:ring-ring"
-										value={row.unit}
-										maxLength={32}
-										enterKeyHint="next"
-										onChange={(event) =>
-											updateRow(row.id, "unit", event.target.value)
-										}
-									/>
-								</label>
-								<label className="text-xs font-medium text-muted-foreground">
-									Количество
-									<input
-										aria-label={`Количество позиции ${index + 1}`}
-										inputMode="decimal"
-										enterKeyHint="next"
-										className="mt-1 min-h-12 w-full rounded-2xl border border-input bg-background px-3 py-2 text-right text-base text-foreground tabular-nums outline-none focus:ring-2 focus:ring-ring"
-										value={row.quantity}
-										onChange={(event) =>
-											updateRow(row.id, "quantity", event.target.value)
-										}
-									/>
-								</label>
-								<label className="text-xs font-medium text-muted-foreground">
-									Цена
-									<input
-										aria-label={`Цена позиции ${index + 1}`}
-										inputMode="decimal"
-										enterKeyHint="done"
-										className="mt-1 min-h-12 w-full rounded-2xl border border-input bg-background px-3 py-2 text-right text-base text-foreground tabular-nums outline-none focus:ring-2 focus:ring-ring"
-										value={row.unitPrice}
-										onChange={(event) =>
-											updateRow(row.id, "unitPrice", event.target.value)
-										}
-									/>
-								</label>
-								<div className="text-xs font-medium text-muted-foreground">
-									Сумма
-									<output className="mt-1 flex min-h-12 items-center justify-end rounded-2xl bg-muted px-3 py-2 text-base font-semibold text-foreground tabular-nums">
-										{formatMoney(toAmount(row.quantity, row.unitPrice))}
-									</output>
-								</div>
-							</div>
-
-							<EstimateRowEvidence
-								row={row}
-								className="mt-2 border-t border-border text-xs"
-							/>
-
-							<Button
-								type="button"
-								variant="outline"
-								className="min-h-11 w-full rounded-2xl"
-								disabled={dirty}
-								onClick={() =>
-									setOfferRowId((current) =>
-										current === row.id ? null : row.id,
-									)
-								}
-							>
-								{offerRowId === row.id
-									? "Скрыть предложение"
-									: "Цена поставщика"}
-							</Button>
-
-							{offerRowId === row.id ? (
-								<SupplierOfferForm
-									projectId={initial.projectId}
-									row={row}
-									version={version}
-									onApplied={applyPricedEstimate}
-								/>
-							) : null}
-						</article>
-					))
-				)}
-			</div>
+			<EstimateRowList
+				pagedRows={pagedRows}
+				dirty={dirty}
+				offerRowId={offerRowId}
+				onToggleOffer={(rowId) =>
+					setOfferRowId((current) => (current === rowId ? null : rowId))
+				}
+				onDelete={(rowId) => {
+					hasLocalEdits.current = true;
+					setRows((current) => current.filter((item) => item.id !== rowId));
+					setSaveState((current) => (current === "conflict" ? current : "idle"));
+				}}
+				onUpdate={updateRow}
+				applyPricedEstimate={applyPricedEstimate}
+				projectId={initial.projectId}
+				version={version}
+			/>
 
 			<div className="hidden overflow-x-auto min-[960px]:block">
-				<table className="w-full min-w-[700px] border-collapse text-sm">
+				<table 
+					className="w-full min-w-[700px] border-collapse text-sm"
+					onKeyDown={(event) => {
+						if (event.key === "ArrowUp" || event.key === "ArrowDown") {
+							const target = event.target as HTMLElement;
+							if (target.tagName !== "INPUT" && target.tagName !== "SELECT") return;
+
+							const td = target.closest("td");
+							const tr = td?.closest("tr");
+							const tbody = tr?.closest("tbody");
+							if (!td || !tr || !tbody) return;
+
+							const colIndex = Array.from(tr.children).indexOf(td);
+							const rowIndex = Array.from(tbody.children).indexOf(tr);
+
+							let nextRowIndex = rowIndex;
+							if (event.key === "ArrowUp") nextRowIndex = Math.max(0, rowIndex - 1);
+							if (event.key === "ArrowDown") nextRowIndex = Math.min(tbody.children.length - 1, rowIndex + 1);
+
+							if (nextRowIndex !== rowIndex) {
+								event.preventDefault();
+								const nextRow = tbody.children[nextRowIndex];
+								const nextTd = nextRow?.children[colIndex];
+								const nextInput = nextTd?.querySelector("input:not([type='hidden']), select") as HTMLElement;
+								if (nextInput) {
+									nextInput.focus();
+									if (nextInput instanceof HTMLInputElement) nextInput.select();
+								}
+							}
+						}
+					}}
+					onPaste={(event) => {
+						const target = event.target as HTMLElement;
+						if (target.tagName !== "INPUT") return;
+						
+						const clipboardData = event.clipboardData;
+						const pastedText = clipboardData.getData("text");
+						if (!pastedText || (!pastedText.includes("\t") && !pastedText.includes("\n"))) return;
+						
+						event.preventDefault();
+						
+						const tr = target.closest("tr");
+						if (!tr) return;
+						
+						const startRowId = tr.getAttribute("data-row-id");
+						if (!startRowId) return;
+
+						const startColName = target.getAttribute("name");
+						if (!startColName) return;
+
+						const pastedRows = pastedText.split(/\r?\n/).filter(r => r.trim() !== "");
+						if (pastedRows.length === 0) return;
+
+						hasLocalEdits.current = true;
+						setRows(current => {
+							const newRows = [...current];
+							const startIndex = newRows.findIndex(r => r.id === startRowId);
+							if (startIndex === -1) return current;
+
+							const columns = ["name", "unit", "quantity", "unitPrice"];
+							const startColIndex = columns.indexOf(startColName);
+							if (startColIndex === -1) return current;
+
+							for (let i = 0; i < pastedRows.length; i++) {
+								const rowIndex = startIndex + i;
+								if (rowIndex >= newRows.length) break;
+								
+								const pastedCells = pastedRows[i].split("\t");
+								const rowToEdit = { ...newRows[rowIndex] };
+								
+								for (let j = 0; j < pastedCells.length; j++) {
+									const colIndex = startColIndex + j;
+									if (colIndex >= columns.length) break;
+									
+									const colName = columns[colIndex];
+									let value: string | number = pastedCells[j].trim();
+									
+									if (colName === "quantity" || colName === "unitPrice") {
+										value = parseFloat((value as string).replace(/,/g, ".").replace(/[^0-9.-]/g, ""));
+										if (isNaN(value)) continue;
+									}
+									
+									(rowToEdit as any)[colName] = value;
+								}
+								newRows[rowIndex] = rowToEdit;
+							}
+							return newRows;
+						});
+					}}
+				>
 					<caption className="sr-only">Редактируемые позиции сметы</caption>
 					<thead>
 						<tr className="border-b border-border bg-muted/30 text-left text-[11px] font-medium text-muted-foreground">
@@ -1670,7 +2050,7 @@ export function EstimateEditorWidget({
 						) : (
 							pagedRows.map(({ row, index }) => (
 								<Fragment key={row.id}>
-									<tr className="border-b border-border last:border-0">
+									<tr className="border-b border-border last:border-0" data-row-id={row.id}>
 										<td className="px-2 py-1.5 text-center text-xs text-muted-foreground">
 											{index + 1}
 										</td>
@@ -1719,6 +2099,7 @@ export function EstimateEditorWidget({
 												)}
 											</div>
 											<input
+												name="description"
 												aria-label={`Наименование позиции ${index + 1}`}
 												className="w-full rounded-md border border-transparent bg-transparent px-2 py-1.5 outline-none hover:border-border focus:border-border focus:ring-2 focus:ring-ring"
 												placeholder="Введите наименование"
@@ -1864,6 +2245,7 @@ export function EstimateEditorWidget({
 										</td>
 										<td className="px-2 py-1.5">
 											<input
+												name="unit"
 												aria-label={`Единица позиции ${index + 1}`}
 												className="w-full rounded-md border border-transparent bg-transparent px-2 py-1.5 outline-none hover:border-border focus:border-border focus:ring-2 focus:ring-ring"
 												value={row.unit}
@@ -1875,6 +2257,7 @@ export function EstimateEditorWidget({
 										</td>
 										<td className="px-2 py-1.5">
 											<input
+												name="quantity"
 												aria-label={`Количество позиции ${index + 1}`}
 												inputMode="decimal"
 												className="w-full rounded-md border border-transparent bg-transparent px-2 py-1.5 text-right tabular-nums outline-none hover:border-border focus:border-border focus:ring-2 focus:ring-ring"
@@ -1886,6 +2269,7 @@ export function EstimateEditorWidget({
 										</td>
 										<td className="px-2 py-1.5">
 											<input
+												name="unitPrice"
 												aria-label={`Цена позиции ${index + 1}`}
 												inputMode="decimal"
 												className="w-full rounded-md border border-transparent bg-transparent px-2 py-1.5 text-right tabular-nums outline-none hover:border-border focus:border-border focus:ring-2 focus:ring-ring"

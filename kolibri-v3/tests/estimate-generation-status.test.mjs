@@ -194,6 +194,16 @@ test("exact brick-house request has a durable live-status and editor handoff reg
 	assert.match(provider, /setAcceptedRun\(\{ acceptedAt: Date\.now\(\), runId, threadId \}\)/);
 	assert.match(status, /loadLatestEstimateGeneration/);
 	assert.match(status, /selectEstimateGenerationRun/);
+	assert.match(
+		status,
+		/construction\.estimates\.workspace/,
+		"generation polling must be gated on the estimate workspace capability",
+	);
+	assert.match(
+		status,
+		/status === 403 \|\| status === 404/,
+		"generation polling must stop silently on access/project loss",
+	);
 	assert.match(status, /data-slot="estimate-generation-activity"/);
 	assert.match(status, /item\.actor/);
 	assert.match(status, /item\.section/);

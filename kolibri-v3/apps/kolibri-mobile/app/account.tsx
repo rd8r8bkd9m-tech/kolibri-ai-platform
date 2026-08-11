@@ -3,7 +3,6 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { useState } from "react";
 import {
 	ActivityIndicator,
-	Alert,
 	KeyboardAvoidingView,
 	Platform,
 	ScrollView,
@@ -20,11 +19,13 @@ import { ProfileNameEditor } from "@/components/settings/profile-name-editor";
 import { SettingsGroup } from "@/components/settings/settings-group";
 import { SettingsRow } from "@/components/settings/settings-row";
 import { WebBillingSettings } from "@/components/settings/web-billing-settings";
+import { NativeBillingSettings } from "@/components/settings/native-billing-settings";
 import { Icon } from "@/components/ui/icon";
 import { Layout } from "@/constants/theme";
 import { useTheme } from "@/hooks/use-theme";
 import type { ThemePreference } from "@/hooks/use-theme";
 import { haptics } from "@/lib/haptics";
+import { confirmAsync } from "@/lib/dialogs";
 import { useMobileSession } from "@/src/auth/mobile-session";
 import { constructionEstimateAccess } from "@/src/verticals/construction-estimates/access";
 
@@ -177,10 +178,13 @@ export default function AccountScreen() {
 			goBack();
 			return;
 		}
-		Alert.alert("Не сохранены изменения", "Выйти без сохранения имени?", [
-			{ text: "Остаться", style: "cancel" },
-			{ text: "Не сохранять", style: "destructive", onPress: goBack },
-		]);
+		void confirmAsync(
+			"Не сохранены изменения",
+			"Выйти без сохранения имени?",
+			{ acceptLabel: "Не сохранять", cancelLabel: "Остаться", destructive: true },
+		).then((confirmed) => {
+			if (confirmed) goBack();
+		});
 	};
 	const save = async () => {
 		if (!canSave) return;
@@ -202,22 +206,16 @@ export default function AccountScreen() {
 		}
 	};
 	const requestLogout = () => {
-		Alert.alert(
+		void confirmAsync(
 			"Выйти из аккаунта?",
 			"Для следующего входа понадобятся почта и пароль.",
-			[
-				{ text: "Отмена", style: "cancel" },
-				{
-					text: "Выйти",
-					style: "destructive",
-					onPress: () => {
-						setLoggingOut(true);
-						haptics.selection();
-						void session.logout();
-					},
-				},
-			],
-		);
+			{ acceptLabel: "Выйти", destructive: true },
+		).then((confirmed) => {
+			if (!confirmed) return;
+			setLoggingOut(true);
+			haptics.selection();
+			void session.logout();
+		});
 	};
 
 	return (
@@ -315,7 +313,9 @@ export default function AccountScreen() {
 							refreshProfile={session.refreshProfile}
 							returnedIntent={returnedPaymentIntent}
 						/>
-					) : null}
+					) : (
+						<NativeBillingSettings />
+					)}
 
 					<SettingsGroup title="Безопасность и доступ">
 						<SettingsRow

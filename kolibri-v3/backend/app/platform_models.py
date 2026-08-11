@@ -8,12 +8,15 @@ using the same master key infrastructure as provider vault.
 from __future__ import annotations
 
 import json as _json
+import ipaddress
 import os
 import re
 import sqlite3
+import time
 import uuid
 from datetime import datetime, timezone
 from typing import Annotated, Any
+from urllib.parse import urlparse
 
 import httpx
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -48,6 +51,12 @@ _SAFE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._~-]{0,159}$")
 _PROVIDER_DEFAULTS: dict[str, dict[str, str]] = {
     "openai": {
         "base_url": "https://api.openai.com/v1",
+        "models_endpoint": "/models",
+        "auth_header": "Authorization",
+        "auth_prefix": "Bearer ",
+    },
+    "deepseek": {
+        "base_url": "https://api.deepseek.com",
         "models_endpoint": "/models",
         "auth_header": "Authorization",
         "auth_prefix": "Bearer ",
@@ -156,6 +165,24 @@ def _validate_display_name(name: str) -> str:
     return name.strip()
 
 
+def _is_safe_url(url: str) -> bool:
+    try:
+        parsed = urlparse(url)
+        hostname = parsed.hostname
+        if not hostname:
+            return False
+        if hostname in ("localhost", "127.0.0.1", "::1", "0.0.0.0"):
+            return False
+        try:
+            ip = ipaddress.ip_address(hostname)
+            if ip.is_private or ip.is_loopback:
+                return False
+        except ValueError:
+            pass
+        return True
+    except Exception:
+        return False
+
 def _validate_base_url(url: str | None, provider_type: str) -> str:
     if provider_type == "custom":
         if not url or not _BASE_URL_RE.fullmatch(url):
@@ -163,6 +190,12 @@ def _validate_base_url(url: str | None, provider_type: str) -> str:
                 status.HTTP_400_BAD_REQUEST,
                 "platform_model_base_url_invalid",
                 "Для custom провайдера требуется корректный base URL (http/https).",
+            )
+        if not _is_safe_url(url):
+            raise _error(
+                status.HTTP_400_BAD_REQUEST,
+                "platform_model_base_url_ssrf",
+                "Использование локальных или приватных адресов запрещено.",
             )
         return url.rstrip("/")
     return _PROVIDER_DEFAULTS.get(provider_type, {}).get("base_url", "")
@@ -222,6 +255,7 @@ async def _test_provider_connection(
     else:
         test_url = f"{base_url}{defaults.get('models_endpoint', '/models')}"
 
+    start_time = time.monotonic()
     try:
         async with httpx.AsyncClient(
             timeout=httpx.Timeout(timeout, connect=5),
@@ -229,6 +263,7 @@ async def _test_provider_connection(
             trust_env=False,
         ) as client:
             response = await client.get(test_url, headers=headers)
+            elapsed_ms = int((time.monotonic() - start_time) * 1000)
     except httpx.ConnectError:
         return {
             "status": "failed",
@@ -252,19 +287,22 @@ async def _test_provider_connection(
         return {
             "status": "failed",
             "error": "auth_failed",
-            "message": "API-ключ отклонён провайдером. Проверьте ключ.",
+            "message": f"API-ключ отклонён провайдером. Проверьте ключ. (Задержка: {elapsed_ms}ms)",
         }
     if response.status_code == 404:
-        return await _test_chat_completion(
+        res = await _test_chat_completion(
             provider_type, api_key, base_url, model_id, timeout
         )
+        if "message" in res and elapsed_ms:
+            res["message"] += f" (Задержка: {elapsed_ms}ms)"
+        return res
     if response.status_code != 200:
         return {
             "status": "failed",
             "error": "provider_error",
-            "message": f"Провайдер вернул HTTP {response.status_code}.",
+            "message": f"Провайдер вернул HTTP {response.status_code}. (Задержка: {elapsed_ms}ms)",
         }
-    return {"status": "connected", "message": "Подключение успешно."}
+    return {"status": "connected", "message": f"Подключение успешно. (Задержка: {elapsed_ms}ms)"}
 
 
 async def _test_chat_completion(

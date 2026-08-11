@@ -1,0 +1,7 @@
+interface:
+  display_name: "Kolibri V3 Development"
+  short_description: "Guardrails for Kolibri V3 web, mobile, chat and billing work."
+  default_prompt: "Use $kolibri-v3-development to work on Kolibri V3 without repeating known regressions."
+
+policy:
+  allow_implicit_invocation: true

@@ -194,7 +194,7 @@ export function ModelProfileSelectorControl({
 			() =>
 				identity.setModelSettings({
 					profile: model.profile,
-					model: model.profile === "auto" ? null : model.id,
+					model: model.id === "auto" ? null : model.id,
 					reasoningEffort: nextEffort,
 					serviceTier: nextServiceTier,
 				}),

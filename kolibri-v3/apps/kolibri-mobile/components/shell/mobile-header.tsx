@@ -5,6 +5,7 @@ import { StyleSheet, Text, View } from "react-native";
 
 import { CircleButton } from "@/components/shell/circle-button";
 import { HamburgerMark } from "@/components/shell/hamburger-mark";
+import { ModelSelector } from "@/components/assistant-ui/model-selector";
 import { Icon } from "@/components/ui/icon";
 import { Layout } from "@/constants/theme";
 import { useTheme } from "@/hooks/use-theme";
@@ -33,10 +34,7 @@ export function MobileHeader() {
 
 			<View accessibilityRole="header" style={styles.titleWrap}>
 				<Text style={[styles.title, { color: colors.foreground }]}>Chat</Text>
-				<View
-					accessibilityElementsHidden
-					style={[styles.underline, { backgroundColor: colors.foreground }]}
-				/>
+				<ModelSelector />
 			</View>
 
 			<CircleButton
@@ -61,7 +59,6 @@ const styles = StyleSheet.create({
 		justifyContent: "space-between",
 		paddingHorizontal: Layout.edgeInset,
 	},
-	titleWrap: { alignItems: "center", justifyContent: "center" },
+	titleWrap: { alignItems: "center", gap: 5, justifyContent: "center" },
 	title: { fontSize: 22, fontWeight: "700", letterSpacing: -0.5 },
-	underline: { borderRadius: 2, height: 2, marginTop: 1, width: 44 },
 });

@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 import { type ComponentType, useMemo, useState } from "react";
 import { UserMessageAttachments } from "@/components/assistant-ui/attachment";
+import { DirectiveText } from "@/components/assistant-ui/directive-text";
 import { MessageTiming } from "@/components/assistant-ui/message-timing";
 import {
 	prepareEstimateShareFiles,
@@ -136,7 +137,7 @@ export const UserMessage: ComponentType = () => {
 
 			<div className={uiClassTokens.threadUserMessageContentWrapper}>
 				<div className={uiClassTokens.threadUserMessageContent}>
-					<MessagePrimitive.Parts />
+					<MessagePrimitive.Parts components={{ Text: DirectiveText }} />
 				</div>
 			</div>
 

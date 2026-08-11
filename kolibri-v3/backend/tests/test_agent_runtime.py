@@ -523,3 +523,54 @@ def test_codex_auth_and_configuration_failures_are_not_retryable(
     assert auth_error.value.category == "authentication"
     assert config_error.value.category == "configuration"
     assert all(error.retryable is False for error in errors)
+
+
+@pytest.mark.parametrize(
+    ("adapter_name", "response_name", "error_code", "retryable"),
+    [
+        ("_openai_runtime_adapter", "_openai_response", "openai_rate_limited", True),
+        ("_openai_runtime_adapter", "_openai_response", "openai_request_failed", True),
+        ("_openai_runtime_adapter", "_openai_response", "openai_api_key_rejected", False),
+        ("_qwen_runtime_adapter", "_qwen_response", "qwen_rate_limited", True),
+        ("_qwen_runtime_adapter", "_qwen_response", "qwen_request_failed", True),
+        ("_deepseek_runtime_adapter", "_deepseek_response", "deepseek_rate_limited", True),
+        (
+            "_deepseek_runtime_adapter",
+            "_deepseek_response",
+            "custom_model_rate_limited",
+            True,
+        ),
+        ("_gemini_runtime_adapter", "_gemini_response", "gemini_rate_limited", True),
+        ("_gemini_runtime_adapter", "_gemini_response", "gemini_api_key_rejected", False),
+    ],
+)
+def test_key_backed_provider_errors_follow_neutral_retry_contract(
+    adapter_name: str,
+    response_name: str,
+    error_code: str,
+    retryable: bool,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """HTTP 429 rate limits and transient transport failures are retryable."""
+
+    def fail_request(*_args: Any, **_kwargs: Any) -> None:
+        raise direct_model_runtime_module.DirectModelError(
+            error_code,
+            "Проверяемая ошибка провайдера.",
+        )
+
+    monkeypatch.setattr(direct_model_runtime_module, response_name, fail_request)
+    adapter = getattr(
+        direct_model_runtime_module,
+        adapter_name,
+    )(
+        Settings.for_testing(database_url=tmp_path / "runtime.db"),
+        client_transport=object(),
+    )
+
+    with pytest.raises(AgentRuntimeError) as error:
+        adapter.execute(_chat_request(run_id=f"run_{error_code}"))
+
+    assert error.value.code == error_code
+    assert error.value.retryable is retryable

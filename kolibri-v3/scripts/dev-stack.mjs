@@ -2,6 +2,13 @@
 
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import {
+	existsSync,
+	mkdirSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import http from "node:http";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -16,6 +23,8 @@ const mobileBridgeLauncher = path.join(
 	"dev-mobile-private-bridge.mjs",
 );
 const gatewayLauncher = path.join(v3Root, "scripts", "dev-ui-gateway.mjs");
+const runtimeDir = path.join(v3Root, "var", "dev-runtime");
+const devStackPidFile = path.join(runtimeDir, "dev-stack.pid");
 const desktopInternalPort = Number(
 	process.env.KOLIBRI_V3_DESKTOP_INTERNAL_PORT || "3104",
 );
@@ -24,19 +33,69 @@ const mobileUpstreamPort = Number(
 );
 const mobileSocket = path.join(v3Root, "var", "mobile-web.sock");
 const uiGatewayPort = Number(process.env.KOLIBRI_V3_UI_PORT || "3103");
+const legacyUiPort = Number(process.env.KOLIBRI_V3_LEGACY_UI_PORT || "3000");
 const restartDelayMs = 1_000;
 const readinessPollMs = 150;
 const healthPollMs = 1_000;
-const healthFailureThreshold = 5;
+const healthProbeTimeoutMs = 2_000;
+const healthFailureThreshold = 8;
 const backendTerminationGraceMs = 3_000;
 const devInstanceId = randomUUID();
 const agentRuntimeContract = "kolibri.agent-runtime@1.1";
+
+function isProcessAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return Boolean(error && error.code === "EPERM");
+  }
+}
+
+// Refuse to run a second dev stack: two supervisors restarting the same
+// children fight over ports 8002/3103/3104/4104, which shows up as the
+// backend repeatedly failing to bind and the UI flapping between ready and
+// 502. The pid file is advisory only; the liveness check prevents a stale
+// file from blocking a legitimate start after a crash.
+function acquireSingleInstance() {
+  if (existsSync(devStackPidFile)) {
+    const raw = readFileSync(devStackPidFile, "utf8").trim();
+    const pid = Number(raw);
+    if (
+      Number.isInteger(pid) &&
+      pid > 0 &&
+      pid !== process.pid &&
+      isProcessAlive(pid)
+    ) {
+      console.error(
+        `[dev:stack] another dev stack is already running (pid ${pid}); ` +
+          "refusing to start a duplicate. Use `npm run dev:persistent:restart` " +
+          "if you intended to restart it.",
+      );
+      process.exit(1);
+    }
+  }
+  mkdirSync(runtimeDir, { recursive: true });
+  writeFileSync(devStackPidFile, String(process.pid));
+  const releasePidFile = () => {
+    try {
+      const current = readFileSync(devStackPidFile, "utf8").trim();
+      if (current === String(process.pid)) {
+        rmSync(devStackPidFile, { force: true });
+      }
+    } catch {
+      // pid file is best-effort bookkeeping only
+    }
+  };
+  process.on("exit", releasePidFile);
+}
 
 let backend = null;
 let web = null;
 let mobile = null;
 let mobileBridge = null;
 let gateway = null;
+let legacyRedirect = null;
 let backendReady = false;
 let backendHealthFailures = 0;
 let stopping = false;
@@ -69,6 +128,8 @@ function stopUiChildren() {
 	mobile?.kill("SIGTERM");
 	mobileBridge?.kill("SIGTERM");
 	gateway?.kill("SIGTERM");
+	legacyRedirect?.close();
+	legacyRedirect = null;
 }
 
 function fenceUnhealthyBackend() {
@@ -134,7 +195,7 @@ function probeBackendReadiness() {
       hostname: "127.0.0.1",
       port: 8002,
       path: "/v1/health",
-      timeout: 500,
+      timeout: healthProbeTimeoutMs,
     },
     (response) => {
       let body = "";
@@ -300,6 +361,27 @@ function startGateway() {
 	});
 }
 
+// The pre-V3 development URL was http://localhost:3000. Keep that address
+// working by redirecting it to the unified gateway, so muscle-memory
+// bookmarks and installed dev PWAs do not land on a dead port.
+function startLegacyRedirect() {
+  if (legacyRedirect) {
+    return;
+  }
+  legacyRedirect = http.createServer((request, response) => {
+    const url = request.url || "/";
+    response.writeHead(302, {
+      Location: `http://127.0.0.1:${uiGatewayPort}${url}`,
+    });
+    response.end();
+  });
+  legacyRedirect.on("error", () => {
+    legacyRedirect = null;
+  });
+  legacyRedirect.listen(legacyUiPort, "127.0.0.1");
+  console.log(`[dev:stack] legacy UI redirect http://localhost:${legacyUiPort} -> ${uiGatewayPort}`);
+}
+
 function shutdown(signal) {
   if (stopping) {
     return;
@@ -337,4 +419,6 @@ process.on("SIGTERM", () => shutdown("SIGTERM"));
 console.log(
   `[dev:stack] Kolibri V3 source=${v3Root} database=var/kolibri-v3.db`,
 );
+acquireSingleInstance();
+startLegacyRedirect();
 startBackend();

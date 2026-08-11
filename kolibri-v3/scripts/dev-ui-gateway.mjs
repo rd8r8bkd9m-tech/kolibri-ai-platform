@@ -16,6 +16,7 @@ const listenPort = Number(process.env.KOLIBRI_V3_UI_PORT || "3103");
 const desktopPort = Number(process.env.KOLIBRI_V3_DESKTOP_INTERNAL_PORT || "3104");
 const mobileSocket = process.env.KOLIBRI_V3_MOBILE_INTERNAL_SOCKET || "";
 const mobilePort = Number(process.env.KOLIBRI_V3_MOBILE_INTERNAL_PORT || "4104");
+const backendPort = Number(process.env.KOLIBRI_V3_BACKEND_INTERNAL_PORT || "8002");
 const mobileUserAgent = /(Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini|Mobile)/i;
 
 function requestUrl(request) {
@@ -64,6 +65,20 @@ function upstreamPath(url, mobile) {
 }
 
 function targetFor(request, url = requestUrl(request)) {
+  // Product API calls are UI-agnostic and must resolve on the caller's own
+  // host (localhost in dev, the LAN address on a phone), otherwise the mobile
+  // PWA's baked 127.0.0.1 API base points at the device itself. Only /v1/*
+  // belongs to the backend: /api/* are the desktop Next.js BFF routes and
+  // must keep going to the desktop upstream.
+  if (url.pathname.startsWith("/v1/")) {
+    return {
+      mobile: false,
+      host: "127.0.0.1",
+      port: backendPort,
+      socketPath: undefined,
+      path: `${url.pathname}${url.search}`,
+    };
+  }
   const mobile = isMobileRequest(request, url);
   return { mobile, host: "127.0.0.1", port: mobile ? mobilePort : desktopPort, socketPath: mobile ? mobileSocket || undefined : undefined, path: upstreamPath(url, mobile) };
 }

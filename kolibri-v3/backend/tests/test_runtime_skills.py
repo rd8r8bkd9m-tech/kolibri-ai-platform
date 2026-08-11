@@ -832,7 +832,10 @@ def test_codex_and_mimo_receive_the_same_reviewed_runtime_guidance(
     monkeypatch.setattr(
         direct_model_runtime,
         "_connected_profile",
-        lambda _database, _accepted, requested: (requested, _accepted.tenant_id),
+        lambda _database, _accepted, requested, _settings: (
+            requested,
+            _accepted.tenant_id,
+        ),
     )
     monkeypatch.setattr(
         direct_model_runtime,

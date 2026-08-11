@@ -1308,7 +1308,24 @@ def _connected_profile(
     database: sqlite3.Connection,
     accepted: AcceptedRunLike,
     requested: str,
+    settings: Settings,
 ) -> tuple[str, str]:
+    key_backed_profiles = ("deepseek", "openai", "gemini", "qwen")
+    if requested == "auto":
+        # Standard chat must never silently land on the developer runtime:
+        # codex-cli requires an interactive Codex login and would fail every
+        # regular user with codex_login_required. Server-configured LLM keys
+        # win over database connections; the developer runtime is the last
+        # resort only when no other agent is connected.
+        for profile_id in key_backed_profiles:
+            api_key = getattr(settings, f"{profile_id}_api_key", None)
+            if api_key:
+                return profile_id, accepted.tenant_id
+    elif requested in key_backed_profiles:
+        api_key = getattr(settings, f"{requested}_api_key", None)
+        if api_key:
+            return requested, accepted.tenant_id
+
     requested_filter = "AND connection.provider_id = ?" if requested != "auto" else ""
     parameters: list[str] = [accepted.tenant_id]
     if requested_filter:
@@ -1345,6 +1362,11 @@ def _connected_profile(
                 else "Суперадминистратор ещё не подключил ни одного агента."
             ),
         )
+    if requested == "auto":
+        for row in rows:
+            if str(row["provider_id"]) != "codex-cli":
+                return str(row["provider_id"]), str(row["tenant_id"])
+        return str(rows[0]["provider_id"]), str(rows[0]["tenant_id"])
     return str(rows[0]["provider_id"]), str(rows[0]["tenant_id"])
 
 
@@ -2988,6 +3010,30 @@ def _runtime_error(
     )
 
 
+_TRANSIENT_DIRECT_ERROR_SUFFIXES = ("_rate_limited", "_request_failed")
+
+
+def _runtime_error_from_direct_error(
+    error: DirectModelError,
+    *,
+    category: str = "execution",
+) -> AgentRuntimeError:
+    """Map provider errors to the neutral retry contract.
+
+    HTTP 429 rate limits and transient transport/5xx failures are recoverable
+    and must never fail a durable estimate run on the first attempt. Key
+    rejection, invalid configuration and provider policy errors stay terminal.
+    """
+
+    retryable = error.code.endswith(_TRANSIENT_DIRECT_ERROR_SUFFIXES)
+    return AgentRuntimeError(
+        error.code,
+        error.message,
+        category=category,
+        retryable=retryable,
+    )
+
+
 def _retryable_unavailable_runtime_error(
     code: str,
     message: str,
@@ -3076,7 +3122,7 @@ def _codex_runtime_adapter(
                     service_tier=service_tier,
                 )
             except DirectModelError as exc:
-                raise _runtime_error(exc) from None
+                raise _runtime_error_from_direct_error(exc) from None
             return AgentRuntimeResult(
                 text=intake.model_dump_json(by_alias=True),
             )
@@ -3398,7 +3444,7 @@ def _mimo_runtime_adapter(
                     exc.code,
                     exc.message,
                 ) from None
-            raise _runtime_error(exc) from None
+            raise _runtime_error_from_direct_error(exc) from None
         if turn.tool_call is not None:
             return AgentRuntimeResult(
                 tool_call=AgentToolCall(
@@ -3473,9 +3519,17 @@ def _openai_response(
     if response.status_code != 200:
         status_code = response.status_code
         response.close()
+        if status_code == 429:
+            raise DirectModelError(
+                "openai_rate_limited",
+                (
+                    "Превышен лимит запросов OpenAI. "
+                    "Подождите немного и повторите."
+                ),
+            )
         raise DirectModelError(
             "openai_request_failed",
-            f"OpenAI API вернул HTTP {status_code}.",
+            f"OpenAI API недоступен (HTTP {status_code}). Повторите запрос.",
         )
 
     text_parts: list[str] = []
@@ -3559,7 +3613,7 @@ def _openai_runtime_adapter(
                 cancellation_signal=request.cancellation_signal,
             )
         except DirectModelError as exc:
-            raise _runtime_error(exc) from None
+            raise _runtime_error_from_direct_error(exc) from None
         return AgentRuntimeResult(text=(turn.text or "").strip()[:200_000])
 
     def start() -> None:
@@ -3623,9 +3677,17 @@ def _qwen_response(
     if response.status_code != 200:
         status_code = response.status_code
         response.close()
+        if status_code == 429:
+            raise DirectModelError(
+                "qwen_rate_limited",
+                (
+                    "Превышен лимит запросов Qwen. "
+                    "Подождите немного и повторите."
+                ),
+            )
         raise DirectModelError(
             "qwen_request_failed",
-            f"Qwen API вернул HTTP {status_code}.",
+            f"Qwen API недоступен (HTTP {status_code}). Повторите запрос.",
         )
 
     text_parts: list[str] = []
@@ -3709,7 +3771,508 @@ def _qwen_runtime_adapter(
                 cancellation_signal=request.cancellation_signal,
             )
         except DirectModelError as exc:
-            raise _runtime_error(exc) from None
+            raise _runtime_error_from_direct_error(exc) from None
+        return AgentRuntimeResult(text=(turn.text or "").strip()[:200_000])
+
+    def start() -> None:
+        client_transport.start()
+
+    def close() -> None:
+        client_transport.close()
+
+    return DelegatingAgentRuntime(
+        descriptor=descriptor,
+        execute=execute,
+        start=start,
+        close=close,
+    )
+
+
+def _custom_model_credentials(
+    database: sqlite3.Connection,
+    settings: Settings,
+    model_id: str,
+    *,
+    tenant_id: str,
+    user_id: str,
+) -> tuple[str, str, str, str] | None:
+    """Resolve selectable platform/user models to live OpenAI-compatible creds.
+
+    These catalog entries are ``platform:<id8>:<model>`` / ``user:<id8>:<model>``
+    and carry an encrypted API key. Executing them is the responsibility of the
+    direct runtime, not of the catalog projection.
+    """
+
+    if model_id.startswith("platform:"):
+        parts = model_id.split(":", 2)
+        if len(parts) != 3:
+            return None
+        id_prefix = parts[1]
+        from .platform_models import _decrypt_api_key as _decrypt_platform_key
+
+        row = database.execute(
+            """
+            SELECT id, model_id, display_name, base_url, api_key_encrypted
+            FROM platform_models
+            WHERE id LIKE ? AND is_enabled = 1
+            LIMIT 1
+            """,
+            (f"{id_prefix}%",),
+        ).fetchone()
+        if row is None:
+            return None
+        api_key = _decrypt_platform_key(
+            settings,
+            bytes(row["api_key_encrypted"]),
+            model_id=str(row["model_id"]),
+        )
+        base_url = str(row["base_url"] or "https://api.openai.com/v1").rstrip("/")
+        return (
+            api_key,
+            base_url,
+            str(row["model_id"]),
+            str(row["display_name"] or row["model_id"]),
+        )
+
+    if model_id.startswith("user:"):
+        parts = model_id.split(":", 2)
+        if len(parts) != 3:
+            return None
+        id_prefix = parts[1]
+        from .user_models import _decrypt_api_key as _decrypt_user_key
+
+        row = database.execute(
+            """
+            SELECT id, model_id, display_name, base_url, api_key_encrypted
+            FROM user_models
+            WHERE tenant_id = ? AND user_id = ? AND id LIKE ? AND is_enabled = 1
+            LIMIT 1
+            """,
+            (tenant_id, user_id, f"{id_prefix}%"),
+        ).fetchone()
+        if row is None:
+            return None
+        api_key = _decrypt_user_key(
+            settings,
+            bytes(row["api_key_encrypted"]),
+            tenant_id=tenant_id,
+            user_id=user_id,
+            model_id=str(row["model_id"]),
+        )
+        base_url = str(row["base_url"] or "https://api.openai.com/v1").rstrip("/")
+        return (
+            api_key,
+            base_url,
+            str(row["model_id"]),
+            str(row["display_name"] or row["model_id"]),
+        )
+
+    return None
+
+
+def _custom_model_response(
+    settings: Settings,
+    *,
+    api_key: str,
+    base_url: str,
+    api_model: str,
+    messages: list[dict[str, str]],
+    instructions: str,
+    on_delta: Callable[[str], None],
+    cancellation_signal: threading.Event | None = None,
+) -> ModelTurn:
+    """Stream an OpenAI-compatible chat completion for a custom model."""
+
+    runtime = MimoClientRuntime(
+        timeout_seconds=settings.direct_model_timeout_seconds
+    )
+    request_payload: dict[str, Any] = {
+        "model": api_model,
+        "messages": [
+            {"role": "system", "content": instructions},
+            *messages,
+        ],
+        "stream": True,
+    }
+    try:
+        response = runtime.stream(
+            f"{base_url}/chat/completions",
+            api_key=api_key,
+            payload=request_payload,
+        )
+    except httpx.HTTPError:
+        raise DirectModelError(
+            "custom_model_request_failed",
+            "Провайдер модели сейчас недоступен. Повторите запрос.",
+        ) from None
+    if response.status_code == 401:
+        response.close()
+        raise DirectModelError(
+            "custom_model_api_key_rejected",
+            "API-ключ модели отклонён провайдером. Проверьте ключ в настройках.",
+        )
+    if response.status_code != 200:
+        status_code = response.status_code
+        response.close()
+        if status_code == 429:
+            raise DirectModelError(
+                "custom_model_rate_limited",
+                "Превышен лимит запросов провайдера. Подождите и повторите.",
+            )
+        raise DirectModelError(
+            "custom_model_request_failed",
+            f"Провайдер модели недоступен (HTTP {status_code}). Повторите запрос.",
+        )
+
+    text_parts: list[str] = []
+    try:
+        for line in response.iter_lines():
+            if cancellation_signal is not None and cancellation_signal.is_set():
+                raise DirectModelError(
+                    "run_cancelled",
+                    "Задача остановлена пользователем.",
+                )
+            if not line.startswith("data: "):
+                continue
+            data = line[6:].strip()
+            if data == "[DONE]":
+                break
+            try:
+                chunk = json.loads(data)
+            except json.JSONDecodeError:
+                continue
+            choices = chunk.get("choices") or []
+            if not choices:
+                continue
+            delta = choices[0].get("delta") or {}
+            content = delta.get("content")
+            if content:
+                text_parts.append(content)
+                on_delta(content)
+    finally:
+        response.close()
+
+    return ModelTurn(text="".join(text_parts))
+
+
+def _deepseek_response(
+    settings: Settings,
+    *,
+    messages: list[dict[str, str]],
+    instructions: str,
+    runtime: MimoClientRuntime,
+    on_delta: Callable[[str], None],
+    cancellation_signal: threading.Event | None = None,
+) -> ModelTurn:
+    api_key = settings.deepseek_api_key
+    if not api_key:
+        raise DirectModelError(
+            "deepseek_api_key_missing",
+            "DeepSeek API ключ не настроен. Добавьте DEEPSEEK_API_KEY в .env.local.",
+        )
+    base_url = settings.deepseek_base_url
+    chat_model = settings.deepseek_model
+    try:
+        request_payload: dict[str, Any] = {
+            "model": chat_model,
+            "messages": [
+                {"role": "system", "content": instructions},
+                *messages,
+            ],
+            "stream": True,
+        }
+        response = runtime.stream(
+            f"{base_url}/chat/completions",
+            api_key=api_key,
+            payload=request_payload,
+        )
+    except httpx.HTTPError:
+        raise DirectModelError(
+            "deepseek_request_failed",
+            "DeepSeek API сейчас недоступен. Повторите запрос.",
+        ) from None
+    if response.status_code == 401:
+        response.close()
+        raise DirectModelError(
+            "deepseek_api_key_rejected",
+            "DeepSeek отклонил ключ. Проверьте DEEPSEEK_API_KEY.",
+        )
+    if response.status_code != 200:
+        status_code = response.status_code
+        response.close()
+        if status_code == 429:
+            raise DirectModelError(
+                "deepseek_rate_limited",
+                (
+                    "Превышен лимит запросов DeepSeek. "
+                    "Подождите немного и повторите."
+                ),
+            )
+        raise DirectModelError(
+            "deepseek_request_failed",
+            f"DeepSeek API недоступен (HTTP {status_code}). Повторите запрос.",
+        )
+
+    text_parts: list[str] = []
+    try:
+        for line in response.iter_lines():
+            if cancellation_signal is not None and cancellation_signal.is_set():
+                raise DirectModelError(
+                    "run_cancelled",
+                    "Задача остановлена пользователем.",
+                )
+            if not line.startswith("data: "):
+                continue
+            data = line[6:].strip()
+            if data == "[DONE]":
+                break
+            try:
+                chunk = json.loads(data)
+            except json.JSONDecodeError:
+                continue
+            choices = chunk.get("choices") or []
+            if not choices:
+                continue
+            delta = choices[0].get("delta") or {}
+            content = delta.get("content")
+            if content:
+                text_parts.append(content)
+                on_delta(content)
+    finally:
+        response.close()
+
+    return ModelTurn(text="".join(text_parts))
+
+
+def _deepseek_runtime_adapter(
+    settings: Settings,
+    *,
+    client_transport: MimoClientRuntime,
+) -> DelegatingAgentRuntime:
+    descriptor = AgentRuntimeDescriptor(
+        profile_id="deepseek",
+        runtime_id="deepseek-runtime",
+        display_name="DeepSeek",
+        auto_priority=15,
+        capabilities=AgentRuntimeCapabilities(
+            modes=frozenset({"chat", "structured"}),
+            streaming=True,
+            structured_output=True,
+            activity_events=False,
+            persistent_sessions=False,
+            model_catalog=False,
+        ),
+    )
+
+    def execute(request: AgentRuntimeRequest) -> AgentRuntimeResult:
+        selection = request.configuration.selection
+        if any(
+            value is not None
+            for value in (
+                selection.reasoning_effort,
+                selection.service_tier,
+            )
+        ):
+            raise AgentRuntimeError(
+                "agent_model_selection_not_supported",
+                "DeepSeek не поддерживает эти настройки.",
+                category="configuration",
+            )
+        if request.mode == "developer":
+            raise AgentRuntimeError(
+                "developer_agent_unavailable",
+                "DeepSeek не поддерживает режим разработчика.",
+                category="unavailable",
+            )
+        try:
+            turn = _deepseek_response(
+                settings,
+                messages=_runtime_messages(request),
+                instructions=request.instructions,
+                runtime=client_transport,
+                on_delta=request.on_delta or (lambda _delta: None),
+                cancellation_signal=request.cancellation_signal,
+            )
+        except DirectModelError as exc:
+            raise _runtime_error_from_direct_error(exc) from None
+        return AgentRuntimeResult(text=(turn.text or "").strip()[:200_000])
+
+    def start() -> None:
+        client_transport.start()
+
+    def close() -> None:
+        client_transport.close()
+
+    return DelegatingAgentRuntime(
+        descriptor=descriptor,
+        execute=execute,
+        start=start,
+        close=close,
+    )
+
+
+def _gemini_input(
+    instructions: str,
+    messages: list[dict[str, str]],
+) -> str:
+    parts: list[str] = []
+    if instructions.strip():
+        parts.append(f"System: {instructions.strip()}")
+    for message in messages:
+        role = message.get("role")
+        content = str(message.get("content", "")).strip()
+        if not content:
+            continue
+        if role == "assistant":
+            parts.append(f"Assistant: {content}")
+        elif role == "system":
+            parts.append(f"System: {content}")
+        else:
+            parts.append(f"User: {content}")
+    parts.append("Assistant:")
+    return "\n".join(parts)
+
+
+def _gemini_output_text(response_json: object) -> str | None:
+    if not isinstance(response_json, dict):
+        return None
+    output = response_json.get("output_text")
+    if isinstance(output, str) and output.strip():
+        return output
+    response = response_json.get("response")
+    if isinstance(response, dict):
+        extracted = response.get("output_text")
+        if isinstance(extracted, str) and extracted.strip():
+            return extracted
+        output = response.get("output")
+        if isinstance(output, str) and output.strip():
+            return output
+    candidates = response_json.get("candidates")
+    if isinstance(candidates, list) and candidates:
+        first = candidates[0]
+        if isinstance(first, dict):
+            content = first.get("content")
+            if isinstance(content, str) and content.strip():
+                return content
+    output = response_json.get("output")
+    if isinstance(output, str) and output.strip():
+        return output
+    return None
+
+
+def _gemini_response(
+    settings: Settings,
+    *,
+    messages: list[dict[str, str]],
+    instructions: str,
+    runtime: MimoClientRuntime,
+    on_delta: Callable[[str], None],
+    cancellation_signal: threading.Event | None = None,
+) -> ModelTurn:
+    api_key = settings.gemini_api_key
+    if not api_key:
+        raise DirectModelError(
+            "gemini_api_key_missing",
+            "Gemini API ключ не настроен. Добавьте KOLIBRI_V3_GEMINI_API_KEY в .env.local.",
+        )
+    base_url = settings.gemini_base_url
+    chat_model = settings.gemini_model
+    request_payload: dict[str, Any] = {
+        "model": chat_model,
+        "input": _gemini_input(instructions, messages),
+    }
+    try:
+        response = runtime.post(
+            f"{base_url}/interactions",
+            api_key=api_key,
+            payload=request_payload,
+        )
+    except httpx.HTTPError:
+        raise DirectModelError(
+            "gemini_request_failed",
+            "Gemini API сейчас недоступен. Повторите запрос.",
+        ) from None
+    if response.status_code == 401:
+        response.close()
+        raise DirectModelError(
+            "gemini_api_key_rejected",
+            "Gemini отклонил ключ. Проверьте KOLIBRI_V3_GEMINI_API_KEY.",
+        )
+    if response.status_code != 200:
+        status_code = response.status_code
+        response.close()
+        raise DirectModelError(
+            "gemini_request_failed",
+            f"Gemini API вернул HTTP {status_code}.",
+        )
+    try:
+        payload = response.json()
+    except ValueError:
+        response.close()
+        raise DirectModelError(
+            "gemini_invalid_response",
+            "Gemini API вернула некорректный ответ.",
+        )
+    text = _gemini_output_text(payload)
+    if text is None:
+        raise DirectModelError(
+            "gemini_response_invalid",
+            "Gemini API вернула неожиданный ответ. Повторите запрос.",
+        )
+    return ModelTurn(text=text.strip())
+
+
+def _gemini_runtime_adapter(
+    settings: Settings,
+    *,
+    client_transport: MimoClientRuntime,
+) -> DelegatingAgentRuntime:
+    descriptor = AgentRuntimeDescriptor(
+        profile_id="gemini",
+        runtime_id="gemini-runtime",
+        display_name="Google Gemini",
+        auto_priority=25,
+        capabilities=AgentRuntimeCapabilities(
+            modes=frozenset({"chat", "structured"}),
+            streaming=False,
+            structured_output=True,
+            activity_events=False,
+            persistent_sessions=False,
+            model_catalog=False,
+        ),
+    )
+
+    def execute(request: AgentRuntimeRequest) -> AgentRuntimeResult:
+        selection = request.configuration.selection
+        if any(
+            value is not None
+            for value in (
+                selection.reasoning_effort,
+                selection.service_tier,
+            )
+        ):
+            raise AgentRuntimeError(
+                "agent_model_selection_not_supported",
+                "Gemini не поддерживает эти настройки.",
+                category="configuration",
+            )
+        if request.mode == "developer":
+            raise AgentRuntimeError(
+                "developer_agent_unavailable",
+                "Gemini не поддерживает режим разработчика.",
+                category="unavailable",
+            )
+        try:
+            turn = _gemini_response(
+                settings,
+                messages=_runtime_messages(request),
+                instructions=request.instructions,
+                runtime=client_transport,
+                on_delta=request.on_delta or (lambda _delta: None),
+                cancellation_signal=request.cancellation_signal,
+            )
+        except DirectModelError as exc:
+            raise _runtime_error_from_direct_error(exc) from None
         return AgentRuntimeResult(text=(turn.text or "").strip()[:200_000])
 
     def start() -> None:
@@ -3764,6 +4327,16 @@ def build_agent_runtime_registry(
                 client_transport=openai_client,
             )
         )
+    if settings.deepseek_api_key:
+        deepseek_client = MimoClientRuntime(
+            timeout_seconds=settings.direct_model_timeout_seconds,
+        )
+        registry.register(
+            _deepseek_runtime_adapter(
+                settings,
+                client_transport=deepseek_client,
+            )
+        )
     if settings.qwen_api_key:
         qwen_client = MimoClientRuntime(
             timeout_seconds=settings.direct_model_timeout_seconds,
@@ -3772,6 +4345,16 @@ def build_agent_runtime_registry(
             _qwen_runtime_adapter(
                 settings,
                 client_transport=qwen_client,
+            )
+        )
+    if settings.gemini_api_key:
+        gemini_client = MimoClientRuntime(
+            timeout_seconds=settings.direct_model_timeout_seconds,
+        )
+        registry.register(
+            _gemini_runtime_adapter(
+                settings,
+                client_transport=gemini_client,
             )
         )
     return registry
@@ -4085,6 +4668,8 @@ _ESTIMATE_DURABLE_ROLES = (
 )
 _ESTIMATE_TASK_BATCH_SIZE = 8
 _ESTIMATE_PLAN_MAX_ATTEMPTS = 3
+_ESTIMATE_PLAN_RETRY_BACKOFF_SECONDS = 3
+_ESTIMATE_TASK_RETRY_BACKOFF_SECONDS = 5
 _ESTIMATE_TASK_MAX_ATTEMPTS = 3
 _NUMBERED_ESTIMATE_SECTION = re.compile(
     r"^\s*(?P<code>\d+(?:\.\d+)*)\.\s+(?P<title>\S.*)$"
@@ -4680,6 +5265,10 @@ def _drain_estimate_tasks(
         ]
         if terminal_failures:
             raise terminal_failures[0]
+        if failures:
+            # Transient provider limits need a real pause before the next
+            # claim wave; an immediate reclaim would burn attempt budgets.
+            time.sleep(_ESTIMATE_TASK_RETRY_BACKOFF_SECONDS)
 
 
 def _task_section(task: Mapping[str, Any]) -> tuple[str, str, str]:
@@ -5388,6 +5977,7 @@ def _generate_full_estimate_proposal(
                     plan_retry_feedback = (
                         f"{exc.code}: {exc.message}"[:2_000]
                     )
+                    time.sleep(_ESTIMATE_PLAN_RETRY_BACKOFF_SECONDS)
                     continue
                 failure_exception: Exception = exc
                 failure_code = exc.code
@@ -6392,6 +6982,7 @@ def execute_estimate_generation_continuation(
             database,
             claim,
             str(run["selected_profile"]),
+            settings,
         )
         selection = AgentModelSelection(
             model_id=str(run["model_id"]) if run["model_id"] is not None else None,
@@ -6972,10 +7563,54 @@ def execute_direct_run(
                 return
         database = connect_database(settings.database_url)
         try:
+            custom_credentials = (
+                _custom_model_credentials(
+                    database,
+                    settings,
+                    frozen_model,
+                    tenant_id=accepted.tenant_id,
+                    user_id=requested_by_user_id,
+                )
+                if frozen_model is not None
+                and (
+                    frozen_model.startswith("platform:")
+                    or frozen_model.startswith("user:")
+                )
+                else None
+            )
+        finally:
+            database.close()
+        if custom_credentials is not None and estimate_requested:
+            local_result = _run_local_house_estimate(
+                settings,
+                accepted,
+                messages=messages,
+                user_id=requested_by_user_id,
+            )
+            if local_result is None:
+                raise DirectModelError(
+                    "estimate_generation_unavailable",
+                    "Сметный режим недоступен для выбранной модели.",
+                )
+            widget, generation_run_id = local_result
+            _finish_success(
+                settings,
+                accepted,
+                (
+                    "Смета подготовлена и прошла независимую проверку. "
+                    "Открыта в редакторе."
+                ),
+                widget=widget,
+                continuation_generation_run_id=generation_run_id,
+            )
+            return
+        database = connect_database(settings.database_url)
+        try:
             profile, credential_tenant_id = _connected_profile(
                 database,
                 accepted,
                 selected_profile,
+                settings,
             )
         finally:
             database.close()
@@ -7149,7 +7784,11 @@ def execute_direct_run(
         text_stream = _TextRunStream(
             settings,
             accepted,
-            provider=runtime.descriptor.profile_id,
+            provider=(
+                custom_credentials[3]
+                if custom_credentials is not None
+                else runtime.descriptor.profile_id
+            ),
         )
         conversation = "\n\n".join(
             f"{'Пользователь' if item['role'] == 'user' else 'Kolibri'}:"
@@ -7189,21 +7828,34 @@ def execute_direct_run(
             ),
             cancellation_signal=cancellation_signal,
         )
-        try:
-            result = runtime.execute(request)
-        except AgentRuntimeError as exc:
-            raise DirectModelError(exc.code, exc.message) from None
-        turn = ModelTurn(
-            text=result.text,
-            tool_call=(
-                None
-                if result.tool_call is None
-                else ModelToolCall(
-                    name=result.tool_call.name,
-                    arguments=dict(result.tool_call.arguments),
-                )
-            ),
-        )
+        if custom_credentials is not None:
+            api_key, base_url, api_model, _provider_label = custom_credentials
+            turn = _custom_model_response(
+                settings,
+                api_key=api_key,
+                base_url=base_url,
+                api_model=api_model,
+                messages=messages,
+                instructions=AGENT_CHAT_INSTRUCTIONS + workspace_guidance,
+                on_delta=text_stream.append,
+                cancellation_signal=cancellation_signal,
+            )
+        else:
+            try:
+                result = runtime.execute(request)
+            except AgentRuntimeError as exc:
+                raise DirectModelError(exc.code, exc.message) from None
+            turn = ModelTurn(
+                text=result.text,
+                tool_call=(
+                    None
+                    if result.tool_call is None
+                    else ModelToolCall(
+                        name=result.tool_call.name,
+                        arguments=dict(result.tool_call.arguments),
+                    )
+                ),
+            )
     except DirectModelError as exc:
         _finish_error(settings, accepted, exc)
         return

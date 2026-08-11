@@ -375,7 +375,9 @@ def _load_snapshot(
     runtime_settings = getattr(request.app.state, "settings", None)
     key_backed_availability = {
         "openai": bool(getattr(runtime_settings, "openai_api_key", None)),
+        "deepseek": bool(getattr(runtime_settings, "deepseek_api_key", None)),
         "qwen": bool(getattr(runtime_settings, "qwen_api_key", None)),
+        "gemini": bool(getattr(runtime_settings, "gemini_api_key", None)),
     }
     for descriptor in registry.descriptors():
         if descriptor.profile_id in key_backed_availability:
@@ -535,6 +537,19 @@ def validate_profile_selection(
     snapshot = _load_snapshot(request, database, tenant_id=tenant_id)
     selected = snapshot.profile(profile_id)
     if selected is None:
+        if profile_id == "deepseek":
+            settings = request.app.state.settings
+            if not getattr(settings, "deepseek_api_key", None):
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail={
+                        "code": "deepseek_key_not_configured",
+                        "message": (
+                            "DeepSeek не настроен. Добавьте DEEPSEEK_API_KEY "
+                            "в .env.local и перезапустите dev-стек."
+                        ),
+                    },
+                )
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail={
@@ -585,6 +600,19 @@ def validate_model_selection(
         else snapshot.profile(profile_id)
     )
     if profile_catalog is None and profile_id != AgentProfile.AUTO.value:
+        if profile_id == "deepseek":
+            settings = request.app.state.settings
+            if not getattr(settings, "deepseek_api_key", None):
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail={
+                        "code": "deepseek_key_not_configured",
+                        "message": (
+                            "DeepSeek не настроен. Добавьте DEEPSEEK_API_KEY "
+                            "в .env.local и перезапустите dev-стек."
+                        ),
+                    },
+                )
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail={

@@ -1,6 +1,6 @@
 # Kolibri V3 R1 — release control board
 
-Updated: 2026-08-02 03:42 MSK
+Updated: 2026-08-12 01:10 MSK
 Target: 2026-08-06 18:00 MSK  
 Production: `https://kolibriai.ru/app`  
 Decision authority: product owner
@@ -63,6 +63,38 @@ mobile tests `18 passed`, and Expo lint.
 This remains a local candidate only. Production is **BLOCKED** until the
 changes are committed into one immutable candidate and the portable release,
 rollback, canary, and owner GO gates are complete.
+
+## 2026-08-12 release readiness checkpoint
+
+Verdict: **code ready; live provider gate BLOCKED externally**.
+
+- Full gates are green on the working tree: backend `435 passed`, web
+  `194 passed`, mobile `21 passed`, production build, mobile typecheck/lint,
+  Rust fmt/clippy/tests, desktop E2E `20 passed / 0 failed` (the previously
+  flaky composer-stop test now passes without retries).
+- Real defects fixed:
+  - the chat screen polled `estimate/generation` for users without the
+    `construction.estimates.workspace` capability, producing 403 console
+    noise and retry loops; polling is now capability-gated and stops
+    silently on 403/404;
+  - direct provider errors (`*_rate_limited`, `*_request_failed`) were
+    marked terminal, so a durable estimate run died on the first 429;
+    they are now retryable with backoff (verified live: attemptCount 1→3);
+  - QA provisioning now supports a verified `codex-cli`/`mimo-code`
+    connection for disposable tenants, and the live estimate spec accepts
+    every generation-capable runtime (codex-cli/mimo-code/openai/deepseek/
+    qwen/gemini).
+- Live journey evidence: a real natural-language estimate request reached
+  the durable orchestrator (`present` → `run_estimate_generation_*`,
+  ProjectCase persisted, fail-closed on provider limits, no fake rows).
+  The end-to-end generation/export/edit gate remains blocked by external
+  provider availability: OpenAI `credit_balance_exhausted`, MiMo
+  `quota exhausted` (429), and the local Codex CLI ChatGPT session was
+  logged out. A full live run is repeatable via
+  `npm run test:qa:estimate:live` once one provider is usable.
+- Next gate: restore one working provider (codex login, OpenAI credits, or
+  MiMo quota), run `npm run test:qa:estimate:live`, then run the portable
+  release rehearsal and request owner GO.
 
 ## Status vocabulary
 

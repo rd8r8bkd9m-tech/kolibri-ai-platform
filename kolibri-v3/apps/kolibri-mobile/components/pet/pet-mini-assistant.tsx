@@ -236,7 +236,16 @@ export function PetMiniAssistant() {
 	}));
 	return (
 		<View
-			style={[StyleSheet.absoluteFill, { pointerEvents: "box-none" }]}
+			style={[
+				StyleSheet.absoluteFill,
+				// react-native-web 0.21.x emits `pointer-events: box-none`,
+				// which is invalid CSS and is dropped by the browser, so the
+				// full-screen wrapper silently becomes `auto` and swallows
+				// every wheel/touch event aimed at the message list below it.
+				// On web we use `none`; interactive children (trigger, panel)
+				// keep their default `auto` and remain clickable.
+				Platform.OS === "web" ? { pointerEvents: "none" } : { pointerEvents: "box-none" },
+			]}
 		>
 			<Pressable
 				accessibilityHint="Нажмите для чата; удерживайте для быстрого выбора питомца"

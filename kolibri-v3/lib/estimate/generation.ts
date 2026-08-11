@@ -212,7 +212,11 @@ export async function loadLatestEstimateGeneration(
 		},
 	);
 	if (!response.ok) {
-		throw new Error("Не удалось обновить статус формирования сметы.");
+		const error = new Error(
+			"Не удалось обновить статус формирования сметы.",
+		) as Error & { status?: number };
+		error.status = response.status;
+		throw error;
 	}
 	return parseEstimateGenerationSummary(await response.json(), projectId);
 }

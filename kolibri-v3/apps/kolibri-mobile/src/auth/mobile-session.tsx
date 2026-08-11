@@ -17,7 +17,6 @@ const REFRESH_TOKEN_KEY = "kolibri.mobile.refresh-token.v1";
 const REFRESH_TOKEN_LOCK = "kolibri.mobile.refresh-token-rotation.v1";
 const rawApiBase =
 	process.env.EXPO_PUBLIC_API_BASE_URL ?? "https://kolibriai.ru";
-const parsedApiBase = new URL(rawApiBase);
 
 // Expo Web normally reports `Platform.OS === "web"`. Keep the browser
 // runtime check as a second guard because a stale/native-compatible bundle can
@@ -26,6 +25,22 @@ const parsedApiBase = new URL(rawApiBase);
 // native platforms continue to use the OS keychain below.
 const isWebRuntime =
 	Platform.OS === "web" || typeof globalThis.window !== "undefined";
+
+// The unified V3 gateway serves the mobile PWA and proxies /v1 and /api to
+// the product backend on the same origin. On web, using the page origin keeps
+// auth working from any host (localhost, LAN IP on a phone, production), where
+// a baked 127.0.0.1 base URL would point at the device itself.
+const servedThroughGateway =
+	isWebRuntime &&
+	typeof globalThis.window !== "undefined" &&
+	/(?:^|;\s*)kolibri_ui_client=(?:mobile|desktop)(?:;|$)/.test(
+		globalThis.window.document.cookie,
+	);
+const sameOriginApiBase = servedThroughGateway
+	? globalThis.window.location.origin
+	: null;
+const resolvedApiBase = sameOriginApiBase ?? rawApiBase;
+const parsedApiBaseFinal = new URL(resolvedApiBase);
 
 const isLoopbackHost = (hostname: string) => {
 	const normalized = hostname.toLowerCase().replace(/^\[(.*)\]$/, "$1");
@@ -40,18 +55,18 @@ const isLoopbackHost = (hostname: string) => {
 const localWebDevelopment =
 	isWebRuntime &&
 	process.env.NODE_ENV !== "production" &&
-	isLoopbackHost(parsedApiBase.hostname);
+	isLoopbackHost(parsedApiBaseFinal.hostname);
 
 if (
-	parsedApiBase.protocol !== "https:" &&
-	!(parsedApiBase.protocol === "http:" && localWebDevelopment)
+	parsedApiBaseFinal.protocol !== "https:" &&
+	!(parsedApiBaseFinal.protocol === "http:" && localWebDevelopment)
 ) {
 	throw new Error(
 		"EXPO_PUBLIC_API_BASE_URL must be HTTPS (HTTP is allowed only for local Expo web development).",
 	);
 }
 
-export const API_BASE_URL = parsedApiBase.toString().replace(/\/$/, "");
+export const API_BASE_URL = parsedApiBaseFinal.toString().replace(/\/$/, "");
 const nativeFetch = expoFetch as unknown as typeof globalThis.fetch;
 
 const browserRefreshTokenStorage = {
@@ -222,7 +237,11 @@ const readError = async (response: Response) => {
 };
 
 const PROFILE_ID = /^[a-z0-9][a-z0-9._-]{1,95}$/;
-const MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,119}$/;
+// Platform/user model ids are `platform:<id8>:<model>` / `user:<id8>:<model>`;
+// the backend ModelId contract allows the colon. The mobile parser must match
+// it, otherwise any account with such a model selected fails login with
+// "Сервер вернул несовместимый профиль".
+const MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$/;
 const REASONING_EFFORT = /^[a-z0-9][a-z0-9_-]{0,31}$/;
 const SERVICE_TIER = /^[a-z0-9][a-z0-9_-]{0,31}$/;
 const CLAIM_ID = /^[a-z][a-z0-9._-]{1,95}$/;

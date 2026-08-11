@@ -282,9 +282,15 @@ class Settings:
     openai_api_key: str | None = None
     openai_base_url: str = "https://api.openai.com/v1"
     openai_model: str = "gpt-4o"
+    deepseek_api_key: str | None = None
+    deepseek_base_url: str = "https://api.deepseek.com"
+    deepseek_model: str = "deepseek-chat"
     qwen_api_key: str | None = None
     qwen_base_url: str = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
-    qwen_model: str = "qwen3.8-max"
+    qwen_model: str = "qwen-plus"
+    gemini_api_key: str | None = None
+    gemini_base_url: str = "https://generativeai.googleapis.com/v1beta"
+    gemini_model: str = "gemini-3.6-flash"
     local_provider_vault_read_enabled: bool = False
     developer_agent_enabled: bool = False
     embedded_developer_runtime_enabled: bool = False
@@ -770,7 +776,8 @@ class Settings:
                 name="KOLIBRI_V3_DIRECT_MODEL_TIMEOUT_SECONDS",
             ),
             openai_api_key=_optional_text(
-                os.getenv("OPENAI_API_KEY")
+                os.getenv("KOLIBRI_V3_OPENAI_API_KEY")
+                or os.getenv("OPENAI_API_KEY")
             ),
             openai_base_url=os.getenv(
                 "KOLIBRI_V3_OPENAI_BASE_URL",
@@ -779,6 +786,18 @@ class Settings:
             openai_model=os.getenv(
                 "KOLIBRI_V3_OPENAI_MODEL",
                 "gpt-4o",
+            ).strip(),
+            deepseek_api_key=_optional_text(
+                os.getenv("KOLIBRI_V3_DEEPSEEK_API_KEY")
+                or os.getenv("DEEPSEEK_API_KEY")
+            ),
+            deepseek_base_url=os.getenv(
+                "KOLIBRI_V3_DEEPSEEK_BASE_URL",
+                "https://api.deepseek.com",
+            ).strip().rstrip("/"),
+            deepseek_model=os.getenv(
+                "KOLIBRI_V3_DEEPSEEK_MODEL",
+                "deepseek-chat",
             ).strip(),
             qwen_api_key=_optional_text(
                 os.getenv("KOLIBRI_V3_QWEN_API_KEY")
@@ -790,7 +809,19 @@ class Settings:
             ).strip().rstrip("/"),
             qwen_model=os.getenv(
                 "KOLIBRI_V3_QWEN_MODEL",
-                "qwen3.8-max",
+                "qwen-plus",
+            ).strip(),
+            gemini_api_key=_optional_text(
+                os.getenv("KOLIBRI_V3_GEMINI_API_KEY")
+                or os.getenv("GEMINI_API_KEY")
+            ),
+            gemini_base_url=os.getenv(
+                "KOLIBRI_V3_GEMINI_BASE_URL",
+                "https://generativeai.googleapis.com/v1beta",
+            ).strip().rstrip("/"),
+            gemini_model=os.getenv(
+                "KOLIBRI_V3_GEMINI_MODEL",
+                "gemini-3.6-flash",
             ).strip(),
             local_provider_vault_read_enabled=_parse_bool(
                 os.getenv("KOLIBRI_V3_LOCAL_PROVIDER_VAULT_READ_ENABLED"),

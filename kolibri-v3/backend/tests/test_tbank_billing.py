@@ -9,7 +9,11 @@ from urllib.parse import parse_qs, urlsplit
 import httpx
 import pytest
 from app.billing.config import TBankSettings
-from app.billing.service import _provider_payload, _target_status
+from app.billing.service import (
+    _provider_payload,
+    _target_status,
+    run_due_renewals,
+)
 from app.billing.tbank import (
     TBankGateway,
     TBankProtocolError,
@@ -463,7 +467,7 @@ def test_hosted_payment_webhook_replay_refund_and_admin_contracts(
         )
 
     gateway = TBankGateway(
-        TBankSettings.for_testing(),
+        TBankSettings.for_testing(recurring_enabled=False),
         transport=httpx.MockTransport(provider),
     )
     app = create_app(settings)
@@ -853,3 +857,368 @@ def test_failed_or_uncertain_init_is_durable_and_never_auto_retried(
         ).fetchone()[0] == 1
     finally:
         database.close()
+
+
+def test_recurring_rebill_extends_subscription(tmp_path: Path) -> None:
+    database_path = tmp_path / "recurring-cycle.db"
+    settings = Settings.for_testing(database_url=database_path)
+    provider_requests: list[dict[str, object]] = []
+
+    def provider(request: httpx.Request) -> httpx.Response:
+        assert request.url == "https://rest-api-test.tinkoff.ru/v2/Init"
+        body = json.loads(request.content)
+        provider_requests.append(body)
+        response: dict[str, object] = {
+            "Success": True,
+            "ErrorCode": "0",
+            "TerminalKey": "TestMerchantTerminal",
+            "Status": "NEW",
+            "PaymentId": f"payment-{len(provider_requests)}",
+            "OrderId": body["OrderId"],
+            "Amount": body["Amount"],
+            "PaymentURL": "https://securepayments.tinkoff.ru/session/recurring-test",
+        }
+        if body.get("Recurrent") == "Y":
+            response["RebillId"] = "test-rebill-0001"
+        return httpx.Response(200, json=response)
+
+    gateway = TBankGateway(
+        TBankSettings.for_testing(recurring_enabled=True),
+        transport=httpx.MockTransport(provider),
+    )
+    app = create_app(settings)
+    app.state.tbank_gateway = gateway
+    with TestClient(app) as client:
+        _seed_plans(database_path)
+        _register(client, email="recurring@example.com", name="Recurring")
+        initialized = client.post(
+            "/v1/billing/payment-intents",
+            headers=_mutation_headers(client, key=f"{IDEMPOTENCY_KEY}-recurring"),
+            json={"planCode": "kolibri.pro.monthly"},
+        )
+        assert initialized.status_code == 201, initialized.text
+        initial = initialized.json()
+        assert provider_requests[0]["Recurrent"] == "Y"
+        assert str(provider_requests[0]["CustomerKey"]).startswith("kv3-")
+        order_id = str(provider_requests[0]["OrderId"])
+        confirmed = client.post(
+            "/v1/billing/tbank/notifications",
+            json=_signed_notification(
+                gateway,
+                order_id=order_id,
+                status="CONFIRMED",
+                payment_id="payment-1",
+            ),
+        )
+        assert confirmed.status_code == 200
+        subscriptions = client.get("/v1/billing/subscriptions").json()["items"]
+        assert len(subscriptions) == 1
+        subscription = subscriptions[0]
+        assert subscription["status"] == "active"
+        assert subscription["autoRenew"] is True
+        assert subscription["rebillConfigured"] is True
+        assert subscription["renewalAttempts"] == 0
+
+        database = connect_database(database_path)
+        try:
+            database.execute(
+                """
+                UPDATE billing_subscriptions
+                SET current_period_start = unixepoch() - 7200,
+                    current_period_end = unixepoch() - 1
+                """
+            )
+            summary = run_due_renewals(database, gateway=gateway)
+            assert summary.scanned == 1
+            assert summary.created == 1
+            assert summary.failed == 0
+            recurrent = database.execute(
+                "SELECT * FROM billing_payment_intents WHERE kind = 'recurrent'"
+            ).fetchone()
+            assert recurrent is not None
+            assert recurrent["recurrent_parent_id"] == initial["id"]
+            assert recurrent["rebill_id"] == "test-rebill-0001"
+            assert provider_requests[1]["Recurrent"] == "Y"
+            assert provider_requests[1]["RebillId"] == "test-rebill-0001"
+            recurrent_order = str(recurrent["order_id"])
+            recurrent_id = str(recurrent["id"])
+            subscription_id = str(
+                database.execute(
+                    "SELECT id FROM billing_subscriptions"
+                ).fetchone()[0]
+            )
+            before_end = int(
+                database.execute(
+                    "SELECT current_period_end FROM billing_subscriptions"
+                ).fetchone()[0]
+            )
+        finally:
+            database.close()
+
+        renewed = client.post(
+            "/v1/billing/tbank/notifications",
+            json=_signed_notification(
+                gateway,
+                order_id=recurrent_order,
+                status="CONFIRMED",
+                payment_id="payment-2",
+            ),
+        )
+        assert renewed.status_code == 200
+        subscriptions_response = client.get("/v1/billing/subscriptions")
+        assert subscriptions_response.status_code == 200, subscriptions_response.text
+        subscriptions = subscriptions_response.json()["items"]
+        assert [item["id"] for item in subscriptions] == [subscription_id]
+        assert subscriptions[0]["status"] == "active"
+        assert subscriptions[0]["renewalAttempts"] == 0
+        assert client.get("/v1/session").json()["user"]["entitlements"] == [
+            "construction.estimates.use"
+        ]
+
+    database = connect_database(database_path)
+    try:
+        row = database.execute(
+            "SELECT * FROM billing_subscriptions WHERE id = ?",
+            (subscription_id,),
+        ).fetchone()
+        # The renewal extends from max(now, old period end). Under a loaded
+        # test runner several wall-clock seconds may elapse between the
+        # snapshot and the CONFIRMED notification, so assert the full renewal
+        # window rather than an exact second.
+        assert (
+            before_end + 30 * 24 * 60 * 60
+            <= row["current_period_end"]
+            <= before_end + 30 * 24 * 60 * 60 + 5
+        )
+        assert row["last_renewal_intent_id"] == recurrent_id
+        assert row["provider_payment_id"] == "payment-2"
+        assert database.execute(
+            "SELECT COUNT(*) FROM billing_subscriptions"
+        ).fetchone()[0] == 1
+        assert database.execute(
+            "SELECT COUNT(*) FROM billing_audit_events "
+            "WHERE action = 'subscription.renewed'"
+        ).fetchone()[0] == 1
+    finally:
+        database.close()
+
+
+def test_renewal_rejections_disable_auto_renew_after_max_attempts(
+    tmp_path: Path,
+) -> None:
+    database_path = tmp_path / "recurring-reject.db"
+    settings = Settings.for_testing(database_url=database_path)
+    accepted_requests = 0
+    rejected_requests = 0
+
+    def accepted_provider(request: httpx.Request) -> httpx.Response:
+        nonlocal accepted_requests
+        accepted_requests += 1
+        body = json.loads(request.content)
+        response: dict[str, object] = {
+            "Success": True,
+            "ErrorCode": "0",
+            "TerminalKey": "TestMerchantTerminal",
+            "Status": "NEW",
+            "PaymentId": "payment-1",
+            "OrderId": body["OrderId"],
+            "Amount": body["Amount"],
+            "PaymentURL": "https://securepayments.tinkoff.ru/session/recurring-test",
+        }
+        if body.get("Recurrent") == "Y":
+            response["RebillId"] = "test-rebill-reject"
+        return httpx.Response(200, json=response)
+
+    accepted_gateway = TBankGateway(
+        TBankSettings.for_testing(recurring_enabled=True),
+        transport=httpx.MockTransport(accepted_provider),
+    )
+    app = create_app(settings)
+    app.state.tbank_gateway = accepted_gateway
+    with TestClient(app) as client:
+        _seed_plans(database_path)
+        _register(client, email="reject@example.com", name="Reject")
+        initialized = client.post(
+            "/v1/billing/payment-intents",
+            headers=_mutation_headers(client, key=f"{IDEMPOTENCY_KEY}-reject"),
+            json={"planCode": "kolibri.pro.monthly"},
+        )
+        assert initialized.status_code == 201, initialized.text
+
+    # The initial order id is not directly exposed by the client response, so
+    # re-read it from the durable intent row instead of guessing.
+    database = connect_database(database_path)
+    try:
+        initial = database.execute(
+            "SELECT * FROM billing_payment_intents "
+            "WHERE kind = 'initial'"
+        ).fetchone()
+        assert initial is not None
+        order_id = str(initial["order_id"])
+    finally:
+        database.close()
+
+    with TestClient(app) as client:
+        confirmed = client.post(
+            "/v1/billing/tbank/notifications",
+            json=_signed_notification(
+                accepted_gateway,
+                order_id=order_id,
+                status="CONFIRMED",
+                payment_id="payment-1",
+            ),
+        )
+        assert confirmed.status_code == 200
+
+    database = connect_database(database_path)
+    try:
+        database.execute(
+            """
+            UPDATE billing_subscriptions
+            SET current_period_start = unixepoch() - 7200,
+                current_period_end = unixepoch() - 1
+            """
+        )
+        subscription_id = str(
+            database.execute(
+                "SELECT id FROM billing_subscriptions"
+            ).fetchone()[0]
+        )
+    finally:
+        database.close()
+
+    def rejecting_provider(request: httpx.Request) -> httpx.Response:
+        nonlocal rejected_requests
+        rejected_requests += 1
+        return httpx.Response(
+            200,
+            json={
+                "Success": False,
+                "ErrorCode": "105",
+                "Status": "REJECTED",
+            },
+        )
+
+    rejected_gateway = TBankGateway(
+        TBankSettings.for_testing(recurring_enabled=True),
+        transport=httpx.MockTransport(rejecting_provider),
+    )
+    database = connect_database(database_path)
+    try:
+        for step in range(1, 6):
+            summary = run_due_renewals(database, gateway=rejected_gateway)
+            assert summary.attempted == 1
+            assert summary.failed == 1
+            row = database.execute(
+                "SELECT * FROM billing_subscriptions WHERE id = ?",
+                (subscription_id,),
+            ).fetchone()
+            assert row["renewal_attempts"] == step
+            assert row["auto_renew"] == (0 if step == 5 else 1)
+        assert rejected_requests == 1
+        assert database.execute(
+            "SELECT status FROM billing_subscriptions WHERE id = ?",
+            (subscription_id,),
+        ).fetchone()[0] == "active"
+        assert database.execute(
+            "SELECT COUNT(*) FROM billing_audit_events "
+            "WHERE action = 'subscription.renewal.rejected'"
+        ).fetchone()[0] == 5
+    finally:
+        database.close()
+
+
+def test_auto_renew_toggle_and_admin_renewals_run(tmp_path: Path) -> None:
+    database_path = tmp_path / "recurring-toggle.db"
+    settings = Settings.for_testing(
+        database_url=database_path,
+        bootstrap_owner_email="owner@example.com",
+    )
+    provider_requests: list[dict[str, object]] = []
+
+    def provider(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        provider_requests.append(body)
+        response: dict[str, object] = {
+            "Success": True,
+            "ErrorCode": "0",
+            "TerminalKey": "TestMerchantTerminal",
+            "Status": "NEW",
+            "PaymentId": "payment-1",
+            "OrderId": body["OrderId"],
+            "Amount": body["Amount"],
+            "PaymentURL": "https://securepayments.tinkoff.ru/session/recurring-test",
+        }
+        if body.get("Recurrent") == "Y":
+            response["RebillId"] = "test-rebill-toggle"
+        return httpx.Response(200, json=response)
+
+    gateway = TBankGateway(
+        TBankSettings.for_testing(recurring_enabled=True),
+        transport=httpx.MockTransport(provider),
+    )
+    app = create_app(settings)
+    app.state.tbank_gateway = gateway
+    with TestClient(app) as client:
+        _seed_plans(database_path)
+        _register(client, email="toggle@example.com", name="Toggle")
+        initialized = client.post(
+            "/v1/billing/payment-intents",
+            headers=_mutation_headers(client, key=f"{IDEMPOTENCY_KEY}-toggle"),
+            json={"planCode": "kolibri.pro.monthly"},
+        )
+        assert initialized.status_code == 201, initialized.text
+        confirmed = client.post(
+            "/v1/billing/tbank/notifications",
+            json=_signed_notification(
+                gateway,
+                order_id=str(provider_requests[0]["OrderId"]),
+                status="CONFIRMED",
+                payment_id="payment-1",
+            ),
+        )
+        assert confirmed.status_code == 200
+        subscription = client.get("/v1/billing/subscriptions").json()["items"][0]
+        assert subscription["autoRenew"] is True
+        assert subscription["rebillConfigured"] is True
+
+        toggled = client.post(
+            f"/v1/billing/subscriptions/{subscription['id']}/auto-renew",
+            headers=_mutation_headers(client, key=f"{IDEMPOTENCY_KEY}-toggle-off"),
+            json={"enabled": False},
+        )
+        assert toggled.status_code == 200
+        assert toggled.json()["autoRenew"] is False
+        assert toggled.json()["id"] == subscription["id"]
+
+        no_csrf = client.post(
+            f"/v1/billing/subscriptions/{subscription['id']}/auto-renew",
+            headers=ORIGIN,
+            json={"enabled": True},
+        )
+        assert no_csrf.status_code == 403
+
+        not_owner = client.post(
+            "/v1/platform-admin/billing/renewals/run",
+            headers=_mutation_headers(client, key=f"{IDEMPOTENCY_KEY}-not-owner"),
+            json={},
+        )
+        assert not_owner.status_code == 403
+
+    with TestClient(app) as owner:
+        _register(owner, email="owner@example.com", name="Owner")
+        promote_registered_owner(settings, email="owner@example.com")
+        run = owner.post(
+            "/v1/platform-admin/billing/renewals/run",
+            headers=_mutation_headers(owner, key=f"{IDEMPOTENCY_KEY}-owner-run"),
+            json={},
+        )
+        assert run.status_code == 200
+        assert run.json() == {
+            "scanned": 0,
+            "attempted": 0,
+            "created": 0,
+            "alreadyInFlight": 0,
+            "failed": 0,
+            "disabled": 0,
+        }

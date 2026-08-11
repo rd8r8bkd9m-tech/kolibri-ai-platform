@@ -91,6 +91,32 @@ def test_production_embedded_v3_developer_runtime_is_explicit_and_direct(
     assert settings.chat_execution_plane("standard") == "direct"
 
 
+def test_settings_loads_gemini_config_from_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("KOLIBRI_V3_GEMINI_API_KEY", "gemini-secret")
+    monkeypatch.setenv("KOLIBRI_V3_GEMINI_BASE_URL", "https://generativeai.googleapis.com/v1beta")
+    monkeypatch.setenv("KOLIBRI_V3_GEMINI_MODEL", "gemini-3.6-flash")
+    settings = Settings.from_env()
+
+    assert settings.gemini_api_key == "gemini-secret"
+    assert settings.gemini_base_url == "https://generativeai.googleapis.com/v1beta"
+    assert settings.gemini_model == "gemini-3.6-flash"
+
+
+def test_settings_loads_deepseek_config_from_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("KOLIBRI_V3_DEEPSEEK_API_KEY", "deepseek-secret")
+    monkeypatch.setenv("KOLIBRI_V3_DEEPSEEK_BASE_URL", "https://api.deepseek.com")
+    monkeypatch.setenv("KOLIBRI_V3_DEEPSEEK_MODEL", "deepseek-chat")
+    settings = Settings.from_env()
+
+    assert settings.deepseek_api_key == "deepseek-secret"
+    assert settings.deepseek_base_url == "https://api.deepseek.com"
+    assert settings.deepseek_model == "deepseek-chat"
+
+
 def test_embedded_v3_developer_runtime_requires_complete_production_capability(
     tmp_path: Path,
 ) -> None:

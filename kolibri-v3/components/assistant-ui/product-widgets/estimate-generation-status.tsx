@@ -20,6 +20,7 @@ import {
 	type EstimateGenerationActivity,
 	type EstimateGenerationRun,
 } from "@/lib/estimate/generation";
+import { useIdentity } from "@/lib/identity/provider";
 import { useAcceptedProductChatRun } from "@/lib/product-chat/accepted-run";
 import {
 	announceDocumentsChanged,
@@ -31,6 +32,8 @@ const POLL_INTERVAL_MS = 1_500;
 const DISCOVERY_WINDOW_MS = 20_000;
 const RETRY_INTERVAL_MS = 3_000;
 const autoOpenedRunIds = new Set<string>();
+const CONSTRUCTION_ESTIMATES_WORKSPACE_CAPABILITY =
+	"construction.estimates.workspace";
 const activityTimeFormatter = new Intl.DateTimeFormat("ru-RU", {
 	hour: "2-digit",
 	minute: "2-digit",
@@ -130,6 +133,7 @@ function EstimateGenerationActivityFeed({
 }
 
 export function EstimateGenerationStatus() {
+	const identity = useIdentity();
 	const activeThreadId = useAuiState((state) => state.threads.mainThreadId);
 	const projectId = useAuiState((state) => {
 		const thread = state.threads.threadItems.find(
@@ -147,6 +151,11 @@ export function EstimateGenerationStatus() {
 	});
 	const chatRunIsActive = useAuiState((state) => state.thread.isRunning);
 	const acceptedChatRun = useAcceptedProductChatRun();
+	const canTrackEstimateGeneration =
+		identity.status === "authenticated" &&
+		identity.user?.capabilities.includes(
+			CONSTRUCTION_ESTIMATES_WORKSPACE_CAPABILITY,
+		) === true;
 	const expectedSourceRunId =
 		acceptedChatRun?.threadId === activeThreadId
 			? acceptedChatRun.runId
@@ -167,7 +176,7 @@ export function EstimateGenerationStatus() {
 	}, [projectId]);
 
 	useEffect(() => {
-		if (projectId === null) return;
+		if (projectId === null || !canTrackEstimateGeneration) return;
 
 		let disposed = false;
 		let timer: ReturnType<typeof setTimeout> | undefined;
@@ -219,6 +228,13 @@ export function EstimateGenerationStatus() {
 				if (disposed || (error instanceof DOMException && error.name === "AbortError")) {
 					return;
 				}
+				const status = (error as { status?: number } | null)?.status;
+				if (status === 403 || status === 404) {
+					// Access was denied or the project disappeared. Polling cannot
+					// recover either condition and must stop silently instead of
+					// spamming console errors while a chat run stays active.
+					return;
+				}
 				if (
 					chatRunIsActive ||
 					shouldKeepDiscovering() ||
@@ -240,6 +256,7 @@ export function EstimateGenerationStatus() {
 		};
 	}, [
 		acceptedAt,
+		canTrackEstimateGeneration,
 		chatRunIsActive,
 		expectedSourceRunId,
 		projectId,

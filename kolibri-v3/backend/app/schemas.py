@@ -80,7 +80,7 @@ ModelId = Annotated[
         strip_whitespace=True,
         min_length=1,
         max_length=120,
-        pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,119}$",
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$",
     ),
 ]
 ReasoningEffort = Annotated[
@@ -201,11 +201,14 @@ class ModelSettingsUpdate(APIModel):
     @model_validator(mode="after")
     def validate_shape(self) -> "ModelSettingsUpdate":
         if self.profile is AgentProfile.AUTO:
-            if self.model not in {None, "auto"}:
+            is_concrete_auto = self.model is not None and (
+                self.model.startswith("platform:") or self.model.startswith("user:")
+            )
+            if not is_concrete_auto and self.model not in {None, "auto"}:
                 raise ValueError("automatic profile cannot select a model")
-            if self.reasoning_effort is not None:
+            if not is_concrete_auto and self.reasoning_effort is not None:
                 raise ValueError("automatic profile cannot select effort")
-            if self.service_tier is not None:
+            if not is_concrete_auto and self.service_tier is not None:
                 raise ValueError("automatic profile cannot select service tier")
             return self
         if self.model is None:

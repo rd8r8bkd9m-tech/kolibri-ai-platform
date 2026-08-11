@@ -44,6 +44,9 @@ export type BillingSubscription = {
 	status: "active" | "refunded" | "canceled" | "expired";
 	currentPeriodStart: number;
 	currentPeriodEnd: number;
+	autoRenew: boolean;
+	renewalAttempts: number;
+	rebillConfigured: boolean;
 };
 
 const PLAN_CODE = /^[a-z0-9][a-z0-9._-]{0,47}$/;
@@ -167,7 +170,10 @@ const sanitizeSubscription = (value: unknown): BillingSubscription | null => {
 		!["active", "refunded", "canceled", "expired"].includes(value.status) ||
 		!integerBetween(value.currentPeriodStart, 0, Number.MAX_SAFE_INTEGER) ||
 		!integerBetween(value.currentPeriodEnd, 1, Number.MAX_SAFE_INTEGER) ||
-		value.currentPeriodEnd <= value.currentPeriodStart
+		value.currentPeriodEnd <= value.currentPeriodStart ||
+		typeof value.autoRenew !== "boolean" ||
+		!integerBetween(value.renewalAttempts, 0, 999) ||
+		typeof value.rebillConfigured !== "boolean"
 	) {
 		return null;
 	}
@@ -179,6 +185,9 @@ const sanitizeSubscription = (value: unknown): BillingSubscription | null => {
 		status: value.status as BillingSubscription["status"],
 		currentPeriodStart: value.currentPeriodStart,
 		currentPeriodEnd: value.currentPeriodEnd,
+		autoRenew: value.autoRenew,
+		renewalAttempts: value.renewalAttempts,
+		rebillConfigured: value.rebillConfigured,
 	};
 };
 
@@ -306,4 +315,22 @@ export async function getWebBillingPayment(
 
 export function createWebBillingIdempotencyKey() {
 	return `billing-pwa-${globalThis.crypto.randomUUID()}`;
+}
+
+export async function setWebBillingAutoRenew(
+	authorizedFetch: AuthorizedFetch,
+	subscriptionId: string,
+	enabled: boolean,
+) {
+	const payload = await requestJson(
+		authorizedFetch,
+		`/v1/billing/subscriptions/${encodeURIComponent(subscriptionId)}/auto-renew`,
+		{
+			method: "POST",
+			body: JSON.stringify({ enabled }),
+		},
+	);
+	const subscription = sanitizeSubscription(payload);
+	if (!subscription) throw contractError();
+	return subscription;
 }

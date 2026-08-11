@@ -128,7 +128,7 @@ export const uiClassTokens = {
 	threadComposerRoot:
 		"aui-composer-root relative flex w-full min-w-0 flex-col",
 	threadComposerShell:
-		"border-border/65 data-[dragging=true]:border-ring focus-within:border-ring/45 dark:border-muted-foreground/15 flex w-full min-w-0 flex-col gap-2 rounded-(--composer-radius) border bg-(--composer-bg) p-(--composer-padding) shadow-[0_12px_36px_-24px_rgba(0,0,0,0.45),0_2px_8px_-4px_rgba(0,0,0,0.12)] transition-[border-color,box-shadow] focus-within:shadow-[0_16px_40px_-24px_rgba(0,0,0,0.5),0_3px_10px_-4px_rgba(0,0,0,0.14)] data-[dragging=true]:border-dashed data-[dragging=true]:bg-[color-mix(in_oklab,var(--color-accent)_50%,var(--color-background))] dark:shadow-none [&_.aui-composer-attachments]:flex-wrap [&_.aui-composer-attachments]:overflow-x-hidden",
+		"border-border/65 data-[dragging=true]:border-ring focus-within:border-ring/45 dark:border-muted-foreground/15 relative flex w-full min-w-0 flex-col gap-2 rounded-(--composer-radius) border bg-(--composer-bg) p-(--composer-padding) shadow-[0_12px_36px_-24px_rgba(0,0,0,0.45),0_2px_8px_-4px_rgba(0,0,0,0.12)] transition-[border-color,box-shadow] focus-within:shadow-[0_16px_40px_-24px_rgba(0,0,0,0.5),0_3px_10px_-4px_rgba(0,0,0,0.14)] data-[dragging=true]:border-dashed data-[dragging=true]:bg-[color-mix(in_oklab,var(--color-accent)_50%,var(--color-background))] dark:shadow-none [&_.aui-composer-attachments]:flex-wrap [&_.aui-composer-attachments]:overflow-x-hidden",
 	threadComposerInput:
 		"aui-composer-input caret-primary placeholder:text-muted-foreground/80 max-h-36 min-h-12 w-full min-w-0 resize-none overflow-x-hidden bg-transparent px-1.5 py-1 text-[15px] outline-none",
 	threadComposerActionRow:

@@ -25,6 +25,8 @@ from .service import (
     create_payment,
     payment_view,
     plan_views,
+    run_due_renewals,
+    set_subscription_auto_renew,
     subscription_views,
     verified_return,
 )
@@ -149,12 +151,30 @@ class SubscriptionView(APIModel):
     status: Literal["active", "refunded", "canceled", "expired"]
     current_period_start: int = Field(alias="currentPeriodStart")
     current_period_end: int = Field(alias="currentPeriodEnd")
+    auto_renew: bool = Field(alias="autoRenew")
+    renewal_attempts: int = Field(alias="renewalAttempts")
+    next_renewal_at: int = Field(alias="nextRenewalAt")
+    rebill_configured: bool = Field(alias="rebillConfigured")
+    last_renewal_intent_id: str | None = Field(alias="lastRenewalIntentId")
     created_at: int = Field(alias="createdAt")
     updated_at: int = Field(alias="updatedAt")
 
 
 class SubscriptionListView(APIModel):
     items: list[SubscriptionView]
+
+
+class SubscriptionAutoRenewRequest(APIModel):
+    enabled: bool
+
+
+class RenewalRunView(APIModel):
+    scanned: int
+    attempted: int
+    created: int
+    already_in_flight: int = Field(alias="alreadyInFlight")
+    failed: int
+    disabled: int
 
 
 class AdminPaymentListView(APIModel):
@@ -376,6 +396,31 @@ def get_subscriptions(
 
 
 @router.post(
+    "/v1/billing/subscriptions/{subscription_id}/auto-renew",
+    response_model=SubscriptionView,
+)
+def update_subscription_auto_renew(
+    subscription_id: str,
+    payload: SubscriptionAutoRenewRequest,
+    response: Response,
+    database: DatabaseDependency,
+    identity: IdentityDependency,
+    _mutation: MutationDependency,
+) -> dict[str, Any]:
+    _no_store(response)
+    try:
+        return set_subscription_auto_renew(
+            database,
+            subscription_id=subscription_id,
+            tenant_id=identity.tenant_id,
+            user_id=identity.user_id,
+            enabled=payload.enabled,
+        )
+    except BillingError as exc:
+        raise _error(exc) from exc
+
+
+@router.post(
     "/v1/billing/tbank/notifications",
     response_class=PlainTextResponse,
     include_in_schema=False,
@@ -515,6 +560,29 @@ def admin_subscriptions(
 ) -> dict[str, object]:
     _no_store(response)
     return {"items": subscription_views(database, limit=limit)}
+
+
+@router.post(
+    "/v1/platform-admin/billing/renewals/run",
+    response_model=RenewalRunView,
+)
+def run_admin_billing_renewals(
+    response: Response,
+    database: DatabaseDependency,
+    request: Request,
+    _owner: OwnerDependency,
+    _mutation: MutationDependency,
+) -> dict[str, Any]:
+    _no_store(response)
+    summary = run_due_renewals(database, gateway=_gateway(request))
+    return {
+        "scanned": summary.scanned,
+        "attempted": summary.attempted,
+        "created": summary.created,
+        "alreadyInFlight": summary.already_in_flight,
+        "failed": summary.failed,
+        "disabled": summary.disabled,
+    }
 
 
 @router.get(

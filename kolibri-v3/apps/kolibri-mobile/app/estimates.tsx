@@ -1,7 +1,6 @@
 import { useRouter } from "expo-router";
 import {
 	ActivityIndicator,
-	Alert,
 	FlatList,
 	KeyboardAvoidingView,
 	Platform,
@@ -19,6 +18,7 @@ import { Icon } from "@/components/ui/icon";
 import { Radius } from "@/constants/theme";
 import { useTheme } from "@/hooks/use-theme";
 import { haptics } from "@/lib/haptics";
+import { confirmAsync } from "@/lib/dialogs";
 import { MobileApiError, useMobileSession } from "@/src/auth/mobile-session";
 import { constructionEstimateAccess } from "@/src/verticals/construction-estimates/access";
 import { ConstructionEstimateClient } from "@/src/verticals/construction-estimates/client";
@@ -439,14 +439,13 @@ function EstimateEditor({
 			onClose();
 			return;
 		}
-		Alert.alert(
+		void confirmAsync(
 			"Отменить изменения?",
 			"Несохранённые правки этой сметы будут потеряны.",
-			[
-				{ text: "Продолжить редактирование", style: "cancel" },
-				{ text: "Отменить правки", style: "destructive", onPress: onClose },
-			],
-		);
+			{ acceptLabel: "Отменить правки", cancelLabel: "Продолжить редактирование", destructive: true },
+		).then((confirmed) => {
+			if (confirmed) onClose();
+		});
 	};
 
 	const reload = useCallback(async () => {

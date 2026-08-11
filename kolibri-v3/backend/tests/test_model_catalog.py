@@ -295,6 +295,62 @@ def test_fake_third_runtime_is_visible_and_selectable_without_catalog_branch() -
     assert selected.id == "acme-reasoner"
 
 
+def test_gemini_runtime_is_available_without_provider_connection() -> None:
+    registry = AgentRuntimeRegistry()
+    registry.register(
+        _runtime(
+            "gemini",
+            "Google Gemini",
+            backend=None,
+            model_catalog=False,
+            priority=25,
+        )
+    )
+    request = _request(registry)
+    request.app.state.settings = SimpleNamespace(gemini_api_key="gemini-secret")
+    database = _database({"gemini": "connected"})
+    try:
+        snapshot = _load_snapshot(
+            request,
+            database,
+            tenant_id="tenant_test",
+        )
+    finally:
+        database.close()
+
+    assert [profile.id.value for profile in snapshot.profiles] == ["gemini"]
+    assert snapshot.profiles[0].available is True
+    assert snapshot.profiles[0].model_catalog_available is True
+
+
+def test_deepseek_runtime_is_available_without_provider_connection() -> None:
+    registry = AgentRuntimeRegistry()
+    registry.register(
+        _runtime(
+            "deepseek",
+            "DeepSeek",
+            backend=None,
+            model_catalog=False,
+            priority=15,
+        )
+    )
+    request = _request(registry)
+    request.app.state.settings = SimpleNamespace(deepseek_api_key="deepseek-secret")
+    database = _database({"deepseek": "connected"})
+    try:
+        snapshot = _load_snapshot(
+            request,
+            database,
+            tenant_id="tenant_test",
+        )
+    finally:
+        database.close()
+
+    assert [profile.id.value for profile in snapshot.profiles] == ["deepseek"]
+    assert snapshot.profiles[0].available is True
+    assert snapshot.profiles[0].model_catalog_available is True
+
+
 def test_catalog_failure_and_unknown_profile_fail_closed_without_substitution() -> None:
     registry = AgentRuntimeRegistry()
     registry.register(

@@ -196,6 +196,17 @@
   }
 }
 
+/* Desktop chat composer: the Tailwind variable utilities (bg-(--composer-bg),
+   rounded-(--composer-radius), p-(--composer-padding)) are not emitted
+   reliably for this project, which left the composer without a background or
+   radius. Apply the thread-root variables here; the mobile-layout rules below
+   keep their higher-specificity pill styling on narrow screens. */
+[data-slot="aui_composer-shell"] {
+  background: var(--composer-bg, var(--secondary));
+  border-radius: var(--composer-radius, 1.5rem);
+  padding: var(--composer-padding, 8px);
+}
+
 @media (max-width: 959px) {
   html,
   body {
@@ -384,21 +395,21 @@
     opacity: 1;
   }
 
-  [data-slot="account-settings-surface"] {
+  [data-slot="settings-canvas-surface"] {
     background: #f2f2f7;
   }
 
-  .dark [data-slot="account-settings-surface"] {
+  .dark [data-slot="settings-canvas-surface"] {
     background: #242426;
   }
 
-  [data-slot="account-settings-menu"],
-  [data-slot="account-settings-detail"] {
+  [data-slot="settings-canvas-navigation"],
+  [data-slot="settings-canvas-content"] {
     scrollbar-width: none;
   }
 
-  [data-slot="account-settings-menu"]::-webkit-scrollbar,
-  [data-slot="account-settings-detail"]::-webkit-scrollbar {
+  [data-slot="settings-canvas-navigation"]::-webkit-scrollbar,
+  [data-slot="settings-canvas-content"]::-webkit-scrollbar {
     display: none;
   }
 

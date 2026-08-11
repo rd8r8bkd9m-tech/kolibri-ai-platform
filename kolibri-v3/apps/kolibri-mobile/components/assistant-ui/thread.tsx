@@ -1,6 +1,11 @@
-import { ThreadPrimitive } from "@assistant-ui/react-native";
-import { useDrawerStatus } from "expo-router/drawer";
 import {
+	ThreadPrimitive,
+	type ThreadMessage,
+} from "@assistant-ui/react-native";
+import { useDrawerStatus } from "expo-router/drawer";
+import { useCallback, useRef } from "react";
+import {
+	FlatList,
 	KeyboardAvoidingView,
 	Platform,
 	StyleSheet,
@@ -71,6 +76,43 @@ function EmptyState() {
 }
 
 function Messages() {
+	// The bundled @assistant-ui/react-native auto-scroll relies on
+	// VirtualizedList frame metrics, which are stale on react-native-web at
+	// content-size-change time (the newly rendered cell has not been measured
+	// yet), so new messages end up off-screen. The FlatList also resets the
+	// scroll offset to 0 on each re-render, which makes any "was at bottom"
+	// tracking unreliable. We scroll the host node directly on the next
+	// frames, when layout has settled; users can still read history by
+	// scrolling up (wheel/touch scrolling is native).
+	const listRef = useRef<FlatList<ThreadMessage>>(null);
+	const scrollToBottom = useCallback(() => {
+		const list = listRef.current;
+		if (!list) return;
+		if (Platform.OS === "web") {
+			// VirtualizedList#scrollToEnd derives the offset from per-cell
+			// frame metrics, which lag behind the DOM on react-native-web, so
+			// the list stops short of the newest message. Scroll the host node
+			// directly instead.
+			const node = (
+				list as unknown as {
+					getScrollableNode?: () => HTMLElement | null;
+				}
+			).getScrollableNode?.();
+			if (node) {
+				node.scrollTop = node.scrollHeight;
+				return;
+			}
+		}
+		list.scrollToEnd({ animated: false });
+	}, []);
+	const handleContentSizeChange = useCallback(() => {
+		requestAnimationFrame(() => {
+			requestAnimationFrame(() => {
+				scrollToBottom();
+			});
+		});
+	}, [scrollToBottom]);
+
 	return (
 		<>
 			<ThreadPrimitive.Empty>
@@ -81,6 +123,8 @@ function Messages() {
 					contentContainerStyle={styles.messageList}
 					keyboardDismissMode="interactive"
 					keyboardShouldPersistTaps="handled"
+					onContentSizeChange={handleContentSizeChange}
+					ref={listRef}
 					showsVerticalScrollIndicator={false}
 					style={styles.flex}
 				>

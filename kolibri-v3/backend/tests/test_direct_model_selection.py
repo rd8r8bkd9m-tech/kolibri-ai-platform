@@ -8,6 +8,14 @@ from typing import Any
 
 import app.direct_model_runtime as direct_model_runtime
 import pytest
+from app.agent_runtime import (
+    AgentRuntimeCapabilities,
+    AgentRuntimeDescriptor,
+    AgentRuntimeRequest,
+    AgentRuntimeResult,
+    AgentRuntimeRegistry,
+    DelegatingAgentRuntime,
+)
 from app.chat.execution_adapter import PreparedChatExecution
 from app.chat.models import AgUiRunInput
 from app.chat.service import accept_run
@@ -142,6 +150,36 @@ def _settings(database_path: Path) -> Settings:
         Settings.for_testing(database_url=database_path),
         direct_model_runtime_enabled=True,
     )
+
+
+def _recording_runtime(profile_id: str, display_name: str) -> DelegatingAgentRuntime:
+    calls: list[AgentRuntimeRequest] = []
+
+    def execute(request: AgentRuntimeRequest) -> AgentRuntimeResult:
+        calls.append(request)
+        return AgentRuntimeResult(text=f"{profile_id} response")
+
+    runtime = DelegatingAgentRuntime(
+        descriptor=AgentRuntimeDescriptor(
+            profile_id=profile_id,
+            runtime_id=f"{profile_id}.runtime",
+            display_name=display_name,
+            auto_priority=25,
+            capabilities=AgentRuntimeCapabilities(
+                modes=frozenset({"chat", "structured"}),
+                streaming=False,
+                structured_output=True,
+                activity_events=False,
+                persistent_sessions=False,
+                model_catalog=False,
+            ),
+        ),
+        execute=execute,
+        start=lambda: None,
+        close=lambda: None,
+    )
+    runtime.calls = calls  # type: ignore[attr-defined]
+    return runtime
 
 
 def _runtime_registry(
@@ -1125,6 +1163,70 @@ def test_automatic_profile_uses_server_default_without_a_frozen_pair(
     assert runtime.complete_calls[0]["model"] == "gpt-server-owned"
     assert runtime.complete_calls[0]["effort"] == "low"
     assert runtime.complete_calls[0]["service_tier"] is None
+
+
+def test_key_backed_gemini_profile_resolves_with_api_key(
+    tmp_path: Path,
+) -> None:
+    database_path = tmp_path / "gemini-key-backed.db"
+    settings = replace(
+        _settings(database_path),
+        gemini_api_key="gemini-secret",
+    )
+    user = _registered_user(database_path)
+    accepted = _seed_run(
+        database_path,
+        tenant_id=user["tenantId"],
+        user_id=user["id"],
+        model=None,
+        effort=None,
+        selected_profile="gemini",
+    )
+    runtime = _recording_runtime("gemini", "Google Gemini")
+    registry = AgentRuntimeRegistry()
+    registry.register(runtime)
+
+    direct_model_runtime.execute_direct_run(
+        settings,
+        accepted,
+        registry,
+    )
+
+    assert len(runtime.calls) == 1
+    assert runtime.calls[0].tenant_id == user["tenantId"]
+    assert runtime.calls[0].configuration.selection.explicit_profile is True
+
+
+def test_key_backed_deepseek_profile_resolves_with_api_key(
+    tmp_path: Path,
+) -> None:
+    database_path = tmp_path / "deepseek-key-backed.db"
+    settings = replace(
+        _settings(database_path),
+        deepseek_api_key="deepseek-secret",
+    )
+    user = _registered_user(database_path)
+    accepted = _seed_run(
+        database_path,
+        tenant_id=user["tenantId"],
+        user_id=user["id"],
+        model=None,
+        effort=None,
+        selected_profile="deepseek",
+    )
+    runtime = _recording_runtime("deepseek", "DeepSeek")
+    registry = AgentRuntimeRegistry()
+    registry.register(runtime)
+
+    direct_model_runtime.execute_direct_run(
+        settings,
+        accepted,
+        registry,
+    )
+
+    assert len(runtime.calls) == 1
+    assert runtime.calls[0].tenant_id == user["tenantId"]
+    assert runtime.calls[0].configuration.selection.explicit_profile is True
 
 
 def test_missing_execution_context_fails_instead_of_using_defaults(

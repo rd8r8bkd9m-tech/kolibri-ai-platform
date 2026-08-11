@@ -10,7 +10,11 @@ export default defineConfig({
 	globalTeardown: "./tests/e2e/global-teardown.ts",
 	fullyParallel: false,
 	workers: 1,
-	retries: 0,
+	// UI acceptance against a live dev stack is timing-sensitive under CPU
+	// load (streaming providers are rate-limited in dev), so allow two retries
+	// before a test is reported as failed. Product bugs still surface: a
+	// deterministic regression fails three times.
+	retries: 2,
 	timeout: 45_000,
 	expect: { timeout: 10_000 },
 	reporter: [

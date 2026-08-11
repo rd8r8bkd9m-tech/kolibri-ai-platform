@@ -1281,8 +1281,12 @@ def _save_model_settings(
 ) -> UserView:
     now = _now()
     profile_id = payload.profile.value
+    is_concrete_auto = payload.profile is AgentProfile.AUTO and payload.model is not None and (
+        payload.model.startswith("platform:") or payload.model.startswith("user:")
+    )
     store_selection = (
-        payload.profile is not AgentProfile.AUTO and selection_supported
+        (payload.profile is not AgentProfile.AUTO and selection_supported)
+        or is_concrete_auto
     )
     model = payload.model if store_selection else None
     reasoning_effort = (

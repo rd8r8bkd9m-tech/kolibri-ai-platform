@@ -12,13 +12,17 @@ from typing import Any
 from urllib.parse import urlencode
 
 from ..database import transaction
-from ..schemas import UserSession
+from ..schemas import AgentProfile, UserRole, UserSession
 from .tbank import (
     TBankGateway,
     TBankProtocolError,
     TBankTransportError,
     VerifiedNotification,
 )
+
+
+_RENEWAL_LEAD_SECONDS = 86_400  # charge up to 24 hours before period end
+_RENEWAL_MAX_ATTEMPTS = 5
 
 
 class BillingError(RuntimeError):
@@ -131,6 +135,15 @@ def _request_hash(
         }
     ).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
+
+
+def _recurring_customer_key(identity: UserSession) -> str:
+    """Stable per-user provider customer key (1..64 of [A-Za-z0-9._-])."""
+
+    digest = hashlib.sha256(
+        f"{identity.tenant_id}:{identity.user_id}".encode("utf-8")
+    ).hexdigest()
+    return f"kv3-{digest[:40]}"
 
 
 def _return_nonce(gateway: TBankGateway, intent_id: str) -> str:
@@ -319,6 +332,8 @@ def _provider_payload(
     identity: UserSession,
     payment: sqlite3.Row,
     nonce: str,
+    customer_key: str | None = None,
+    rebill_id: str | None = None,
 ) -> dict[str, object]:
     terminal_key = gateway.settings.terminal_key
     notification_url = gateway.settings.notification_url
@@ -347,6 +362,33 @@ def _provider_payload(
         "PayType": "O",
         "Language": "ru",
     }
+    if rebill_id is not None:
+        if customer_key is None:
+            raise BillingError(
+                503,
+                "billing_recurring_not_configured",
+                "Автопродление пока недоступно.",
+            )
+        if len(identity.email) > 64:
+            raise BillingError(
+                422,
+                "billing_receipt_contact_invalid",
+                "Email слишком длинный для автоплатежа.",
+            )
+        payload["Recurrent"] = "Y"
+        payload["CustomerKey"] = customer_key
+        payload["RebillId"] = rebill_id
+        payload["DATA"] = {"Email": identity.email}
+    elif customer_key is not None or gateway.settings.recurring_enabled:
+        if len(identity.email) > 64:
+            raise BillingError(
+                422,
+                "billing_receipt_contact_invalid",
+                "Email слишком длинный для автоплатежа.",
+            )
+        payload["Recurrent"] = "Y"
+        payload["CustomerKey"] = customer_key or _recurring_customer_key(identity)
+        payload["DATA"] = {"Email": identity.email}
     if gateway.settings.receipt_mode == "required":
         if len(identity.email) > 64:
             raise BillingError(
@@ -387,7 +429,27 @@ def create_payment(
     return_surface: str,
     idempotency_key: str,
     gateway: TBankGateway,
+    kind: str = "initial",
+    recurrent_parent_id: str | None = None,
+    rebill_id: str | None = None,
+    customer_key: str | None = None,
 ) -> PaymentCreation:
+    if kind not in {"initial", "recurrent"}:
+        raise BillingError(422, "billing_kind_invalid", "Тип платежа невалиден.")
+    if kind == "recurrent" and (
+        recurrent_parent_id is None or rebill_id is None or customer_key is None
+    ):
+        raise BillingError(
+            422,
+            "billing_recurring_credentials_missing",
+            "Реквизиты автоплатежа отсутствуют.",
+        )
+    if kind == "initial" and customer_key is None:
+        customer_key = (
+            _recurring_customer_key(identity)
+            if gateway.settings.recurring_enabled
+            else None
+        )
     if gateway.settings.receipt_mode == "required" and len(identity.email) > 64:
         raise BillingError(
             422,
@@ -458,11 +520,12 @@ def create_payment(
                 provider_payment_id, payment_url, idempotency_key,
                 request_hash, return_nonce_hash, status, provider_status,
                 provider_error_code, version, created_at, updated_at,
-                initialized_at
+                initialized_at, kind, recurrent_parent_id, rebill_id,
+                customer_key
             ) VALUES (
                 ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'tbank',
                 ?, ?, ?, ?, NULL, NULL, ?, ?, ?, 'initializing', NULL,
-                NULL, 1, ?, ?, NULL
+                NULL, 1, ?, ?, NULL, ?, ?, ?, ?
             )
             """,
             (
@@ -489,6 +552,10 @@ def create_payment(
                 nonce_hash,
                 now,
                 now,
+                kind,
+                recurrent_parent_id,
+                rebill_id,
+                customer_key,
             ),
         )
         _audit(
@@ -522,6 +589,8 @@ def create_payment(
                 identity=identity,
                 payment=payment,
                 nonce=nonce,
+                customer_key=customer_key,
+                rebill_id=rebill_id,
             )
         )
     except BillingError:
@@ -652,6 +721,8 @@ def create_payment(
             UPDATE billing_payment_intents
             SET provider_payment_id = COALESCE(provider_payment_id, ?),
                 payment_url = COALESCE(payment_url, ?),
+                rebill_id = COALESCE(rebill_id, ?),
+                customer_key = COALESCE(customer_key, ?),
                 status = ?, provider_status = ?, provider_error_code = '0',
                 version = version + 1, updated_at = ?, initialized_at = ?
             WHERE id = ?
@@ -659,6 +730,8 @@ def create_payment(
             (
                 result.payment_id,
                 result.payment_url,
+                result.rebill_id,
+                customer_key,
                 next_status,
                 next_provider_status,
                 now,
@@ -756,6 +829,58 @@ def _activate_subscription(
     payment: sqlite3.Row,
     now: int,
 ) -> None:
+    if str(payment["kind"]) == "recurrent" and payment["recurrent_parent_id"]:
+        parent = database.execute(
+            """
+            SELECT * FROM billing_subscriptions
+            WHERE payment_intent_id = ?
+            LIMIT 1
+            """,
+            (payment["recurrent_parent_id"],),
+        ).fetchone()
+        if parent is not None:
+            period_start = max(now, int(parent["current_period_end"]))
+            period_end = period_start + int(payment["duration_seconds"])
+            database.execute(
+                """
+                UPDATE billing_subscriptions
+                SET current_period_start = ?,
+                    current_period_end = ?,
+                    rebill_id = COALESCE(?, rebill_id),
+                    customer_key = COALESCE(?, customer_key),
+                    provider_payment_id = ?,
+                    renewal_attempts = 0,
+                    last_renewal_intent_id = ?,
+                    updated_at = ?
+                WHERE id = ?
+                """,
+                (
+                    period_start,
+                    period_end,
+                    payment["rebill_id"],
+                    payment["customer_key"],
+                    payment["provider_payment_id"],
+                    payment["id"],
+                    now,
+                    parent["id"],
+                ),
+            )
+            _audit(
+                database,
+                tenant_id=str(payment["tenant_id"]),
+                user_id=str(payment["user_id"]),
+                actor_type="tbank",
+                action="subscription.renewed",
+                payment_intent_id=str(payment["id"]),
+                details={
+                    "entitlement": str(payment["entitlement_code"]),
+                    "periodStart": period_start,
+                    "periodEnd": period_end,
+                    "planCode": str(payment["plan_code"]),
+                },
+                now=now,
+            )
+            return
     existing = database.execute(
         """
         SELECT id FROM billing_subscriptions
@@ -791,8 +916,9 @@ def _activate_subscription(
         INSERT INTO billing_subscriptions (
             id, tenant_id, user_id, plan_code, entitlement_code,
             payment_intent_id, status, previous_tenant_plan_code,
-            current_period_start, current_period_end, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?)
+            current_period_start, current_period_end, created_at, updated_at,
+            auto_renew, rebill_id, customer_key, provider_payment_id
+        ) VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, 1, ?, ?, ?)
         """,
         (
             f"subscription_{uuid.uuid4().hex}",
@@ -806,6 +932,9 @@ def _activate_subscription(
             period_end,
             now,
             now,
+            payment["rebill_id"],
+            payment["customer_key"],
+            payment["provider_payment_id"],
         ),
     )
     grant = database.execute(
@@ -965,6 +1094,59 @@ def _refund_subscription(
     )
 
 
+def _record_renewal_failure(
+    database: sqlite3.Connection,
+    *,
+    payment: sqlite3.Row,
+    now: int,
+) -> None:
+    """Track a rejected recurrent charge and disable auto-renew after N tries."""
+
+    parent_id = payment["recurrent_parent_id"]
+    if not parent_id:
+        return
+    subscription = database.execute(
+        """
+        SELECT * FROM billing_subscriptions
+        WHERE payment_intent_id = ? AND status = 'active'
+        LIMIT 1
+        """,
+        (parent_id,),
+    ).fetchone()
+    if subscription is None:
+        return
+    attempts = int(subscription["renewal_attempts"]) + 1
+    disable = attempts >= _RENEWAL_MAX_ATTEMPTS
+    database.execute(
+        """
+        UPDATE billing_subscriptions
+        SET renewal_attempts = ?, auto_renew = ?,
+            updated_at = ?
+        WHERE id = ?
+        """,
+        (
+            attempts,
+            0 if disable else int(subscription["auto_renew"]),
+            now,
+            subscription["id"],
+        ),
+    )
+    _audit(
+        database,
+        tenant_id=str(payment["tenant_id"]),
+        user_id=str(payment["user_id"]),
+        actor_type="tbank",
+        action="subscription.renewal.failed",
+        payment_intent_id=str(payment["id"]),
+        details={
+            "attempts": attempts,
+            "autoRenewDisabled": disable,
+            "providerStatus": str(payment["provider_status"]),
+        },
+        now=now,
+    )
+
+
 def apply_notification(
     database: sqlite3.Connection,
     *,
@@ -1085,6 +1267,11 @@ def apply_notification(
                     _activate_subscription(database, payment=payment, now=now)
                 elif target == "refunded":
                     _refund_subscription(database, payment=payment, now=now)
+                elif (
+                    str(payment["kind"]) == "recurrent"
+                    and target in {"failed", "canceled"}
+                ):
+                    _record_renewal_failure(database, payment=payment, now=now)
 
         database.execute(
             """
@@ -1203,27 +1390,41 @@ def subscription_views(
         (*values, limit),
     ).fetchall()
     now = _now(database)
-    return [
-        {
-            "id": str(row["id"]),
-            "tenantId": str(row["tenant_id"]),
-            "userId": str(row["user_id"]),
-            "planCode": str(row["plan_code"]),
-            "entitlement": str(row["entitlement_code"]),
-            "paymentIntentId": str(row["payment_intent_id"]),
-            "status": (
-                "expired"
-                if str(row["status"]) == "active"
-                and int(row["current_period_end"]) <= now
-                else str(row["status"])
-            ),
-            "currentPeriodStart": int(row["current_period_start"]),
-            "currentPeriodEnd": int(row["current_period_end"]),
-            "createdAt": int(row["created_at"]),
-            "updatedAt": int(row["updated_at"]),
-        }
-        for row in rows
-    ]
+    return [_subscription_view(row, now=now) for row in rows]
+
+
+def _subscription_view(
+    row: sqlite3.Row,
+    *,
+    now: int,
+) -> dict[str, Any]:
+    return {
+        "id": str(row["id"]),
+        "tenantId": str(row["tenant_id"]),
+        "userId": str(row["user_id"]),
+        "planCode": str(row["plan_code"]),
+        "entitlement": str(row["entitlement_code"]),
+        "paymentIntentId": str(row["payment_intent_id"]),
+        "status": (
+            "expired"
+            if str(row["status"]) == "active"
+            and int(row["current_period_end"]) <= now
+            else str(row["status"])
+        ),
+        "currentPeriodStart": int(row["current_period_start"]),
+        "currentPeriodEnd": int(row["current_period_end"]),
+        "autoRenew": bool(int(row["auto_renew"])),
+        "renewalAttempts": int(row["renewal_attempts"]),
+        "nextRenewalAt": int(row["current_period_end"]),
+        "rebillConfigured": bool(row["rebill_id"] is not None),
+        "lastRenewalIntentId": (
+            str(row["last_renewal_intent_id"])
+            if row["last_renewal_intent_id"] is not None
+            else None
+        ),
+        "createdAt": int(row["created_at"]),
+        "updatedAt": int(row["updated_at"]),
+    }
 
 
 def admin_payment_views(
@@ -1274,3 +1475,313 @@ def admin_audit_views(
         }
         for row in rows
     ]
+
+
+def _renewal_idempotency_key(subscription_id: str, period_end: int) -> str:
+    """Stable idempotency key for one renewal period of one subscription."""
+
+    return f"renewal:{subscription_id}:{period_end}"
+
+
+@dataclass(frozen=True, slots=True)
+class RenewalRunSummary:
+    scanned: int
+    attempted: int
+    created: int
+    already_in_flight: int
+    failed: int
+    disabled: int
+
+
+def subscriptions_due_for_renewal(
+    database: sqlite3.Connection,
+    *,
+    now: int | None = None,
+    lead_seconds: int = _RENEWAL_LEAD_SECONDS,
+    max_attempts: int = _RENEWAL_MAX_ATTEMPTS,
+    limit: int = 50,
+) -> list[sqlite3.Row]:
+    """Active auto-renew subscriptions that are ready for a RebillId charge."""
+
+    if now is None:
+        now = _now(database)
+    return database.execute(
+        """
+        SELECT *
+        FROM billing_subscriptions
+        WHERE auto_renew = 1
+          AND status = 'active'
+          AND rebill_id IS NOT NULL
+          AND customer_key IS NOT NULL
+          AND current_period_end <= ?
+          AND renewal_attempts < ?
+          AND NOT EXISTS (
+              SELECT 1
+              FROM billing_payment_intents AS renewal
+              WHERE renewal.kind = 'recurrent'
+                AND renewal.recurrent_parent_id =
+                    billing_subscriptions.payment_intent_id
+                AND renewal.status IN (
+                    'initializing', 'unknown', 'pending', 'authorized'
+                )
+          )
+        ORDER BY current_period_end ASC
+        LIMIT ?
+        """,
+        (now + lead_seconds, max_attempts, limit),
+    ).fetchall()
+
+
+def _increment_renewal_attempts(
+    database: sqlite3.Connection,
+    *,
+    subscription_id: str,
+    now: int,
+    max_attempts: int,
+) -> bool:
+    """Increment failed-renewal attempts; returns True when auto-renew stops."""
+
+    with transaction(database, immediate=True):
+        current = database.execute(
+            "SELECT * FROM billing_subscriptions WHERE id = ?",
+            (subscription_id,),
+        ).fetchone()
+        if current is None:
+            return False
+        attempts = int(current["renewal_attempts"]) + 1
+        disable = attempts >= max_attempts
+        database.execute(
+            """
+            UPDATE billing_subscriptions
+            SET renewal_attempts = ?, auto_renew = ?,
+                updated_at = ?
+            WHERE id = ?
+            """,
+            (
+                attempts,
+                0 if disable else int(current["auto_renew"]),
+                now,
+                current["id"],
+            ),
+        )
+        _audit(
+            database,
+            tenant_id=str(current["tenant_id"]),
+            user_id=str(current["user_id"]),
+            actor_type="tbank",
+            action="subscription.renewal.rejected",
+            payment_intent_id=None,
+            details={
+                "attempts": attempts,
+                "autoRenewDisabled": disable,
+            },
+            now=now,
+        )
+        return disable
+
+
+def run_due_renewals(
+    database: sqlite3.Connection,
+    *,
+    gateway: TBankGateway,
+    now: int | None = None,
+    lead_seconds: int = _RENEWAL_LEAD_SECONDS,
+    max_attempts: int = _RENEWAL_MAX_ATTEMPTS,
+    limit: int = 50,
+) -> RenewalRunSummary:
+    """Charge every due RebillId subscription once, durably and idempotently."""
+
+    if now is None:
+        now = _now(database)
+    due = subscriptions_due_for_renewal(
+        database,
+        now=now,
+        lead_seconds=lead_seconds,
+        max_attempts=max_attempts,
+        limit=limit,
+    )
+    summary = RenewalRunSummary(
+        scanned=len(due),
+        attempted=0,
+        created=0,
+        already_in_flight=0,
+        failed=0,
+        disabled=0,
+    )
+
+    def bumped(
+        *,
+        attempted: int = 0,
+        created: int = 0,
+        already_in_flight: int = 0,
+        failed: int = 0,
+        disabled: int = 0,
+    ) -> RenewalRunSummary:
+        return RenewalRunSummary(
+            scanned=summary.scanned,
+            attempted=summary.attempted + attempted,
+            created=summary.created + created,
+            already_in_flight=summary.already_in_flight + already_in_flight,
+            failed=summary.failed + failed,
+            disabled=summary.disabled + disabled,
+        )
+
+    for subscription in due:
+        user = database.execute(
+            "SELECT email, name FROM users WHERE id = ? AND tenant_id = ?",
+            (subscription["user_id"], subscription["tenant_id"]),
+        ).fetchone()
+        if user is None:
+            continue
+        identity = UserSession(
+            user_id=str(subscription["user_id"]),
+            tenant_id=str(subscription["tenant_id"]),
+            role=UserRole.USER,
+            preferred_agent_profile=AgentProfile.AUTO,
+            email=str(user["email"]),
+            name=str(user["name"]),
+        )
+        try:
+            creation = create_payment(
+                database,
+                identity=identity,
+                plan_code=str(subscription["plan_code"]),
+                # RebillId charges never redirect the customer; the surface is
+                # only used to shape return URLs and must match the DB CHECK.
+                return_surface="pwa",
+                idempotency_key=_renewal_idempotency_key(
+                    str(subscription["id"]),
+                    int(subscription["current_period_end"]),
+                ),
+                gateway=gateway,
+                kind="recurrent",
+                recurrent_parent_id=str(subscription["payment_intent_id"]),
+                rebill_id=str(subscription["rebill_id"]),
+                customer_key=str(subscription["customer_key"]),
+            )
+        except BillingError:
+            summary = bumped(attempted=1, failed=1)
+            if _increment_renewal_attempts(
+                database,
+                subscription_id=str(subscription["id"]),
+                now=now,
+                max_attempts=max_attempts,
+            ):
+                summary = RenewalRunSummary(
+                    scanned=summary.scanned,
+                    attempted=summary.attempted,
+                    created=summary.created,
+                    already_in_flight=summary.already_in_flight,
+                    failed=summary.failed,
+                    disabled=summary.disabled + 1,
+                )
+            continue
+        if not creation.created:
+            existing_status = str(creation.payment["status"])
+            if existing_status in {"failed", "canceled"}:
+                summary = bumped(attempted=1, failed=1)
+                if _increment_renewal_attempts(
+                    database,
+                    subscription_id=str(subscription["id"]),
+                    now=now,
+                    max_attempts=max_attempts,
+                ):
+                    summary = RenewalRunSummary(
+                        scanned=summary.scanned,
+                        attempted=summary.attempted,
+                        created=summary.created,
+                        already_in_flight=summary.already_in_flight,
+                        failed=summary.failed,
+                        disabled=summary.disabled + 1,
+                    )
+            else:
+                summary = bumped(already_in_flight=1)
+            continue
+        summary = bumped(attempted=1, created=1)
+        with transaction(database, immediate=True):
+            database.execute(
+                """
+                UPDATE billing_subscriptions
+                SET last_renewal_intent_id = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (creation.payment["id"], _now(database), subscription["id"]),
+            )
+            _audit(
+                database,
+                tenant_id=str(subscription["tenant_id"]),
+                user_id=str(subscription["user_id"]),
+                actor_type="tbank",
+                action="subscription.renewal.intent_created",
+                payment_intent_id=str(creation.payment["id"]),
+                details={
+                    "planCode": str(subscription["plan_code"]),
+                    "amountMinor": int(creation.payment["amountMinor"]),
+                },
+                now=now,
+            )
+    return summary
+
+
+def set_subscription_auto_renew(
+    database: sqlite3.Connection,
+    *,
+    subscription_id: str,
+    tenant_id: str,
+    user_id: str,
+    enabled: bool,
+) -> dict[str, Any]:
+    """Toggle RebillId auto-renew for a user-owned active subscription."""
+
+    now = _now(database)
+    with transaction(database, immediate=True):
+        row = database.execute(
+            """
+            SELECT * FROM billing_subscriptions
+            WHERE id = ? AND tenant_id = ? AND user_id = ?
+            LIMIT 1
+            """,
+            (subscription_id, tenant_id, user_id),
+        ).fetchone()
+        if row is None:
+            raise BillingError(
+                404,
+                "billing_subscription_not_found",
+                "Подписка не найдена.",
+            )
+        if str(row["status"]) != "active":
+            raise BillingError(
+                409,
+                "billing_subscription_not_active",
+                "Автопродление доступно только для активной подписки.",
+            )
+        if enabled and row["rebill_id"] is None:
+            raise BillingError(
+                409,
+                "billing_renewal_unavailable",
+                "Автопродление недоступно для этой подписки.",
+            )
+        database.execute(
+            """
+            UPDATE billing_subscriptions
+            SET auto_renew = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (1 if enabled else 0, now, row["id"]),
+        )
+        _audit(
+            database,
+            tenant_id=tenant_id,
+            user_id=user_id,
+            actor_type="user",
+            action="subscription.auto_renew.updated",
+            payment_intent_id=str(row["payment_intent_id"]),
+            details={"enabled": enabled},
+            now=now,
+        )
+        refreshed = database.execute(
+            "SELECT * FROM billing_subscriptions WHERE id = ?",
+            (row["id"],),
+        ).fetchone()
+        assert refreshed is not None
+        return _subscription_view(refreshed, now=now)
