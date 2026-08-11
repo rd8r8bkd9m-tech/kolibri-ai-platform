@@ -3034,6 +3034,33 @@ def _runtime_error_from_direct_error(
     )
 
 
+def _openai_compatible_structured_system(
+    instructions: str,
+    output_schema: Mapping[str, Any] | None,
+) -> str:
+    """Append the exact JSON schema to structured OpenAI-compatible prompts.
+
+    DeepSeek, OpenAI and Qwen-compatible endpoints only guarantee JSON when the
+    schema is part of the prompt AND ``response_format`` requests JSON output.
+    Without both, models wrap the object in Markdown fences and the durable
+    estimate pipeline cannot parse the plan/section/review documents.
+    """
+
+    if output_schema is None:
+        return instructions
+    return (
+        instructions
+        + "\n\nОтвечай строго одним JSON-объектом без Markdown, без "
+        "пояснений и без текста вне JSON. Схема ответа:\n"
+        + json.dumps(
+            dict(output_schema),
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+    )
+
+
 def _retryable_unavailable_runtime_error(
     code: str,
     message: str,
@@ -3482,6 +3509,7 @@ def _openai_response(
     runtime: MimoClientRuntime,
     on_delta: Callable[[str], None],
     cancellation_signal: threading.Event | None = None,
+    output_schema: dict[str, Any] | None = None,
 ) -> ModelTurn:
     api_key = settings.openai_api_key
     if not api_key:
@@ -3495,11 +3523,19 @@ def _openai_response(
         request_payload: dict[str, Any] = {
             "model": chat_model,
             "messages": [
-                {"role": "system", "content": instructions},
+                {
+                    "role": "system",
+                    "content": _openai_compatible_structured_system(
+                        instructions,
+                        output_schema,
+                    ),
+                },
                 *messages,
             ],
             "stream": True,
         }
+        if output_schema is not None:
+            request_payload["response_format"] = {"type": "json_object"}
         response = runtime.stream(
             f"{base_url}/chat/completions",
             api_key=api_key,
@@ -3603,6 +3639,12 @@ def _openai_runtime_adapter(
                 "OpenAI не поддерживает режим разработчика.",
                 category="unavailable",
             )
+        if request.mode == "structured" and request.output_schema is None:
+            raise AgentRuntimeError(
+                "structured_output_schema_missing",
+                "Для структурированного запуска не задана схема ответа.",
+                category="configuration",
+            )
         try:
             turn = _openai_response(
                 settings,
@@ -3611,6 +3653,7 @@ def _openai_runtime_adapter(
                 runtime=client_transport,
                 on_delta=request.on_delta or (lambda _delta: None),
                 cancellation_signal=request.cancellation_signal,
+                output_schema=request.output_schema,
             )
         except DirectModelError as exc:
             raise _runtime_error_from_direct_error(exc) from None
@@ -3640,6 +3683,7 @@ def _qwen_response(
     runtime: MimoClientRuntime,
     on_delta: Callable[[str], None],
     cancellation_signal: threading.Event | None = None,
+    output_schema: dict[str, Any] | None = None,
 ) -> ModelTurn:
     api_key = settings.qwen_api_key
     if not api_key:
@@ -3653,11 +3697,19 @@ def _qwen_response(
         request_payload: dict[str, Any] = {
             "model": chat_model,
             "messages": [
-                {"role": "system", "content": instructions},
+                {
+                    "role": "system",
+                    "content": _openai_compatible_structured_system(
+                        instructions,
+                        output_schema,
+                    ),
+                },
                 *messages,
             ],
             "stream": True,
         }
+        if output_schema is not None:
+            request_payload["response_format"] = {"type": "json_object"}
         response = runtime.stream(
             f"{base_url}/chat/completions",
             api_key=api_key,
@@ -3761,6 +3813,12 @@ def _qwen_runtime_adapter(
                 "Qwen не поддерживает режим разработчика.",
                 category="unavailable",
             )
+        if request.mode == "structured" and request.output_schema is None:
+            raise AgentRuntimeError(
+                "structured_output_schema_missing",
+                "Для структурированного запуска не задана схема ответа.",
+                category="configuration",
+            )
         try:
             turn = _qwen_response(
                 settings,
@@ -3769,6 +3827,7 @@ def _qwen_runtime_adapter(
                 runtime=client_transport,
                 on_delta=request.on_delta or (lambda _delta: None),
                 cancellation_signal=request.cancellation_signal,
+                output_schema=request.output_schema,
             )
         except DirectModelError as exc:
             raise _runtime_error_from_direct_error(exc) from None
@@ -3963,6 +4022,7 @@ def _deepseek_response(
     runtime: MimoClientRuntime,
     on_delta: Callable[[str], None],
     cancellation_signal: threading.Event | None = None,
+    output_schema: dict[str, Any] | None = None,
 ) -> ModelTurn:
     api_key = settings.deepseek_api_key
     if not api_key:
@@ -3976,11 +4036,19 @@ def _deepseek_response(
         request_payload: dict[str, Any] = {
             "model": chat_model,
             "messages": [
-                {"role": "system", "content": instructions},
+                {
+                    "role": "system",
+                    "content": _openai_compatible_structured_system(
+                        instructions,
+                        output_schema,
+                    ),
+                },
                 *messages,
             ],
             "stream": True,
         }
+        if output_schema is not None:
+            request_payload["response_format"] = {"type": "json_object"}
         response = runtime.stream(
             f"{base_url}/chat/completions",
             api_key=api_key,
@@ -4084,6 +4152,12 @@ def _deepseek_runtime_adapter(
                 "DeepSeek не поддерживает режим разработчика.",
                 category="unavailable",
             )
+        if request.mode == "structured" and request.output_schema is None:
+            raise AgentRuntimeError(
+                "structured_output_schema_missing",
+                "Для структурированного запуска не задана схема ответа.",
+                category="configuration",
+            )
         try:
             turn = _deepseek_response(
                 settings,
@@ -4092,6 +4166,7 @@ def _deepseek_runtime_adapter(
                 runtime=client_transport,
                 on_delta=request.on_delta or (lambda _delta: None),
                 cancellation_signal=request.cancellation_signal,
+                output_schema=request.output_schema,
             )
         except DirectModelError as exc:
             raise _runtime_error_from_direct_error(exc) from None

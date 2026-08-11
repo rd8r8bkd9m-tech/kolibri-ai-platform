@@ -130,6 +130,13 @@
     (сессия ChatGPT удалена при проверке `codex exec`). Полный live-прогон
     «запрос → AI → смета → экспорт → редактирование» выполняется после
     предоставления рабочего провайдера.
+- 2026-08-12, Этап 7 (фикс «DeepSeek не составляет сметы») — structured-
+  вызовы DeepSeek/OpenAI/Qwen теперь передают модели точную JSON-схему и
+  `response_format: {"type":"json_object"}`. Раньше адаптеры игнорировали
+  `output_schema` и `mode="structured"`: модель возвращала Markdown-обёртку,
+  план/разделы/ревью не парсились — в журнале run'ов это видно как
+  `estimate_role_output_invalid` на стадии technology. Добавлены тесты
+  payload-контракта (`test_agent_runtime.py`, +5). Backend `438 passed`.
 
 ## 1. Цель
 

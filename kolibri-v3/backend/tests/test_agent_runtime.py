@@ -574,3 +574,79 @@ def test_key_backed_provider_errors_follow_neutral_retry_contract(
 
     assert error.value.code == error_code
     assert error.value.retryable is retryable
+
+
+class _FakeSseResponse:
+    status_code = 200
+
+    def __init__(self, text: str) -> None:
+        self._text = text
+
+    def iter_lines(self):
+        yield "data: " + json.dumps(
+            {"choices": [{"delta": {"content": self._text}}]}
+        )
+        yield "data: [DONE]"
+
+    def close(self) -> None:
+        return None
+
+
+class _CapturingOpenAiTransport:
+    def __init__(self) -> None:
+        self.calls: list[dict[str, Any]] = []
+
+    def stream(self, url: str, api_key: str, payload: dict[str, Any]):
+        self.calls.append({"url": url, "api_key": api_key, "payload": payload})
+        return _FakeSseResponse('{"sections": []}')
+
+
+@pytest.mark.parametrize(
+    ("adapter_name", "response_name", "settings_field"),
+    [
+        ("_deepseek_runtime_adapter", "_deepseek_response", "deepseek_api_key"),
+        ("_openai_runtime_adapter", "_openai_response", "openai_api_key"),
+        ("_qwen_runtime_adapter", "_qwen_response", "qwen_api_key"),
+    ],
+)
+def test_openai_compatible_structured_requests_force_json_object_and_schema(
+    adapter_name: str,
+    response_name: str,
+    settings_field: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Structured estimate calls must send the schema and response_format."""
+
+    transport = _CapturingOpenAiTransport()
+    settings = replace(
+        Settings.for_testing(database_url=tmp_path / "runtime.db"),
+        **{settings_field: "sk-test"},
+    )
+    runtime = getattr(
+        direct_model_runtime_module,
+        adapter_name,
+    )(
+        settings,
+        client_transport=transport,  # type: ignore[arg-type]
+    )
+    request = replace(
+        _chat_request(run_id=f"run_{response_name}_structured"),
+        mode="structured",
+        execution_profile="estimate-plan",
+        output_schema={
+            "type": "object",
+            "properties": {"sections": {"type": "array"}},
+        },
+    )
+
+    result = runtime.execute(request)
+
+    assert result.text == '{"sections": []}'
+    assert len(transport.calls) == 1
+    payload = transport.calls[0]["payload"]
+    assert payload["response_format"] == {"type": "json_object"}
+    system = payload["messages"][0]["content"]
+    assert "JSON" in system
+    assert '"sections"' in system
+    assert "Markdown" in system
