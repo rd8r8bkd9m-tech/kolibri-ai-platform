@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import os
 import re
 from dataclasses import dataclass
 from typing import Any, Mapping
@@ -262,13 +263,19 @@ class TBankGateway:
         if body.get("TerminalKey") != self.settings.terminal_key or "Token" in body:
             raise TBankProtocolError("T-Bank request authority is invalid")
         body["Token"] = make_token(body, self.settings.password)
+        ca_bundle = os.getenv("KOLIBRI_V3_TBANK_CA_FILE", "").strip()
+        verify: bool | str = (
+            ca_bundle
+            if ca_bundle
+            else self.settings.verify_ssl
+        )
         try:
             with httpx.Client(
                 timeout=httpx.Timeout(self.settings.timeout_seconds),
                 transport=self._transport,
                 follow_redirects=False,
                 trust_env=False,
-                verify=self.settings.verify_ssl,
+                verify=verify,
             ) as client:
                 response = client.post(
                     f"{self.settings.base_url}/{method}",
