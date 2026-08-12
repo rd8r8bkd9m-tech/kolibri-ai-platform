@@ -1,8 +1,8 @@
 "use client";
 
 import {
+	FileClock,
 	FileCheck2,
-	FileText,
 	ReceiptText,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -66,36 +66,47 @@ function WorkDemo() {
 }
 
 function RoutineDemo() {
+	const feed = [
+		{
+			icon: ReceiptText,
+			title: "Утренняя сводка — смета версии 4",
+			text: "Изменения по 18 позициям за вчера, причины сохранены.",
+			time: "09:00",
+		},
+		{
+			icon: FileCheck2,
+			title: "КП и договор готовы",
+			text: "Реквизиты и сроки из проекта, два черновика на согласование.",
+			time: "10:15",
+		},
+		{
+			icon: FileClock,
+			title: "Просрочка по документам",
+			text: "Акт за прошлый месяц не подписан — напоминание готово к отправке.",
+			time: "11:30",
+		},
+	];
 	return (
 		<div className="klp-chat">
 			<div className="klp-msg klp-msg-user">
 				<div className="klp-bubble">
-					Сделай КП, договор и акт по версии 3 сметы
+					Настрой регулярные сводки и документы по проекту
 				</div>
 			</div>
 			<div className="klp-msg">
 				<div className="klp-ai-body">
-					<strong>Готово — реквизиты и сроки взяты из проекта.</strong>
-					<div className="klp-file-card" style={{ marginTop: "0.8rem" }}>
-						<span className="klp-file-icon"><FileText aria-hidden="true" /></span>
-						<span className="klp-file-meta">
-							<strong>Коммерческое предложение</strong>
-							<span>Файл · DOCX · готово</span>
-						</span>
-					</div>
-					<div className="klp-file-card" style={{ marginTop: "0.5rem" }}>
-						<span className="klp-file-icon"><FileText aria-hidden="true" /></span>
-						<span className="klp-file-meta">
-							<strong>Договор подряда</strong>
-							<span>Файл · DOCX · черновик</span>
-						</span>
-					</div>
-					<div className="klp-file-card" style={{ marginTop: "0.5rem" }}>
-						<span className="klp-file-icon"><FileCheck2 aria-hidden="true" /></span>
-						<span className="klp-file-meta">
-							<strong>Акт выполненных работ</strong>
-							<span>Файл · PDF · в работе</span>
-						</span>
+					<strong>Задачи созданы — первая сводка придёт завтра в 9:00.</strong>
+					<div className="klp-feed" style={{ marginTop: "0.8rem" }}>
+						{feed.map(({ icon: Icon, text, time, title }) => (
+							<div className="klp-feed-item" key={title}>
+								<span className="klp-feed-icon"><Icon aria-hidden="true" /></span>
+								<span className="klp-feed-meta">
+									<strong>{title}</strong>
+									<span>{text}</span>
+								</span>
+								<span className="klp-feed-time">{time}</span>
+							</div>
+						))}
 					</div>
 				</div>
 			</div>
@@ -110,13 +121,34 @@ function DevDemo() {
 				<strong><i /> Интеграция · ФГИС ЦС</strong>
 				<span>нормативы и цены</span>
 			</div>
-			<div className="klp-role-demo-body">
-				<ul className="klp-timeline">
-					<li><span>Проверил 48 позиций по официальным ценам<i>4s</i></span></li>
-					<li><span>Сопоставил позиции со справочником ГЭСН<i>3s</i></span></li>
-					<li><span>Обновил версию сметы и основания<i>3s</i></span></li>
-					<li><span>Сохранил изменения — любую правку можно откатить<i>2s</i></span></li>
-				</ul>
+			<div className="klp-role-demo-body" style={{ padding: "1rem" }}>
+				<div className="klp-chat">
+					<div className="klp-msg klp-msg-user">
+						<div className="klp-bubble">
+							Подключи ФГИС ЦС и проверь цены по 48 позициям
+						</div>
+					</div>
+					<div className="klp-msg">
+						<div className="klp-ai-body">
+							<strong>Готово — цены проверены, версия 4 собрана.</strong>
+							<div className="klp-diff" style={{ marginTop: "0.8rem" }}>
+								<div className="klp-diff-bar">
+									<strong>main ← prices-check</strong>
+									<i>+48</i>
+									<span>M estimate_rows.py</span>
+								</div>
+								<code>
+									<span className="is-num">@@ 1,7 +1,7 @@</span>
+									<span className="is-ctx"> app = estimate()</span>
+									<span className="is-ctx"> rows = load("version_3.xlsx")</span>
+									<span className="is-add">+prices = fgis.check(rows, region="МО")</span>
+									<span className="is-add">+estimate.update(rows, prices)</span>
+									<span className="is-ctx"> save("version_4.xlsx")</span>
+								</code>
+							</div>
+						</div>
+					</div>
+				</div>
 			</div>
 		</>
 	);

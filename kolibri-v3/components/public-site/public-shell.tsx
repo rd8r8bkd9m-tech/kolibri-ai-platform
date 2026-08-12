@@ -63,17 +63,24 @@ export function PublicShell({
 						<PublicNavigationLink href="/pricing">Тарифы</PublicNavigationLink>
 						<PublicNavigationLink href="/app">Приложение</PublicNavigationLink>
 					</nav>
-					<nav aria-label="Документы и контакты">
-						<strong>Компания</strong>
+					<nav aria-label="Сценарии">
+						<strong>Сценарии</strong>
+						<PublicNavigationLink href="/#roles">Сметы</PublicNavigationLink>
+						<PublicNavigationLink href="/#roles">Документы</PublicNavigationLink>
+						<PublicNavigationLink href="/#roles">Цены и нормативы</PublicNavigationLink>
+						<PublicNavigationLink href="/#roles">Экспорт</PublicNavigationLink>
+					</nav>
+					<nav aria-label="Ресурсы">
+						<strong>Ресурсы</strong>
+						<PublicNavigationLink href="/#faq">Вопросы и ответы</PublicNavigationLink>
 						<PublicNavigationLink href="/contacts">Контакты</PublicNavigationLink>
-						<PublicNavigationLink href="/legal/offer">Публичная оферта</PublicNavigationLink>
 						<PublicNavigationLink href="/legal/privacy">
 							Конфиденциальность
 						</PublicNavigationLink>
+						<PublicNavigationLink href="/legal/offer">Публичная оферта</PublicNavigationLink>
 						<PublicNavigationLink href="/legal/payment-and-refund">
 							Оплата и возврат
 						</PublicNavigationLink>
-						<PublicNavigationLink href="/contacts">Контакты</PublicNavigationLink>
 					</nav>
 					<div className="kp-footer-legal">
 						{commerce.ready ? (
@@ -86,6 +93,7 @@ export function PublicShell({
 								Реквизиты готовятся к публикации
 							</span>
 						)}
+						<span>© {new Date().getFullYear()} КолИ</span>
 					</div>
 				</div>
 			</footer>

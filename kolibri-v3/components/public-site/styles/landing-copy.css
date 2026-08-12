@@ -288,6 +288,17 @@
 	white-space: nowrap;
 }
 
+.klp-hero-letter {
+	display: inline-block;
+	opacity: 0;
+	animation: klp-letter-in 0.4s var(--klp-ease) forwards;
+}
+
+@keyframes klp-letter-in {
+	from { opacity: 0; transform: translateY(0.3em); }
+	to { opacity: 1; transform: translateY(0); }
+}
+
 .klp-hero-word::after {
 	position: absolute;
 	right: 0.03em;
@@ -396,6 +407,40 @@
 	border-radius: 999px;
 	background: var(--klp-leaf);
 	box-shadow: 0 0 0 0.25rem rgb(117 224 167 / 12%);
+}
+
+.klp-scene-switch {
+	display: inline-flex;
+	gap: 0.2rem;
+	border: 1px solid var(--klp-line);
+	border-radius: 999px;
+	background: rgb(255 255 255 / 3%);
+	padding: 0.18rem;
+}
+
+.klp-scene-switch button {
+	border: 0;
+	border-radius: 999px;
+	background: transparent;
+	padding: 0.3rem 0.7rem;
+	color: var(--klp-faint);
+	font-size: 0.7rem;
+	cursor: pointer;
+	transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.klp-scene-switch button.is-active {
+	background: var(--klp-surface-2);
+	color: var(--klp-text);
+}
+
+.klp-chat-scene {
+	animation: klp-scene-in 0.45s var(--klp-ease) both;
+}
+
+@keyframes klp-scene-in {
+	from { opacity: 0; transform: translateY(10px); }
+	to { opacity: 1; transform: translateY(0); }
 }
 
 .klp-chat {
@@ -925,6 +970,12 @@
 	height: 1.05rem;
 }
 
+.klp-connector-icon.is-brand {
+	font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+	font-size: 0.72rem;
+	font-weight: 700;
+}
+
 .klp-connector-meta {
 	min-width: 0;
 	flex: 1;
@@ -993,6 +1044,121 @@
 	flex: 0 0 auto;
 	background: var(--klp-line);
 	content: "";
+}
+
+.klp-feed {
+	display: grid;
+	gap: 0.55rem;
+}
+
+.klp-feed-item {
+	display: flex;
+	align-items: flex-start;
+	gap: 0.7rem;
+	border: 1px solid var(--klp-line);
+	border-radius: 0.8rem;
+	background: var(--klp-bg);
+	padding: 0.75rem 0.9rem;
+}
+
+.klp-feed-icon {
+	display: grid;
+	width: 2rem;
+	height: 2rem;
+	flex: 0 0 auto;
+	place-items: center;
+	border-radius: 0.55rem;
+	background: var(--klp-surface-2);
+	color: var(--klp-mint);
+}
+
+.klp-feed-icon svg {
+	width: 0.95rem;
+	height: 0.95rem;
+}
+
+.klp-feed-meta {
+	min-width: 0;
+	flex: 1;
+}
+
+.klp-feed-meta strong {
+	display: block;
+	color: var(--klp-text);
+	font-size: 0.8rem;
+	font-weight: 600;
+	line-height: 1.35;
+}
+
+.klp-feed-meta span {
+	display: block;
+	margin-top: 0.15rem;
+	color: var(--klp-faint);
+	font-size: 0.68rem;
+	line-height: 1.45;
+}
+
+.klp-feed-time {
+	flex: 0 0 auto;
+	color: var(--klp-faint);
+	font-size: 0.66rem;
+	font-variant-numeric: tabular-nums;
+}
+
+.klp-diff {
+	overflow: hidden;
+	border: 1px solid var(--klp-line);
+	border-radius: 0.8rem;
+	background: #141210;
+}
+
+.klp-diff-bar {
+	display: flex;
+	align-items: center;
+	gap: 0.7rem;
+	border-bottom: 1px solid var(--klp-line-soft);
+	padding: 0.6rem 0.9rem;
+	color: var(--klp-faint);
+	font-size: 0.68rem;
+}
+
+.klp-diff-bar strong {
+	color: var(--klp-text-soft);
+	font-size: 0.72rem;
+	font-weight: 600;
+}
+
+.klp-diff-bar i {
+	color: var(--klp-leaf);
+	font-style: normal;
+}
+
+.klp-diff code {
+	display: grid;
+	padding: 0.7rem 0;
+	font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+	font-size: 0.68rem;
+	line-height: 1.55;
+}
+
+.klp-diff code span {
+	display: block;
+	padding-inline: 0.9rem;
+	white-space: pre;
+}
+
+.klp-diff code .is-add {
+	background: rgb(117 224 167 / 10%);
+	color: var(--klp-leaf);
+}
+
+.klp-diff code .is-ctx {
+	color: var(--klp-faint);
+}
+
+.klp-diff code .is-num {
+	color: var(--klp-faint);
+	opacity: 0.55;
 }
 
 /* Тарифы */
@@ -1302,6 +1468,38 @@
 	line-height: 1.6;
 }
 
+.klp-case-meta {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 0.6rem;
+	margin-top: auto;
+	padding-top: 1rem;
+}
+
+.klp-case-chip {
+	border: 1px solid var(--klp-line);
+	border-radius: 999px;
+	background: rgb(255 255 255 / 4%);
+	color: var(--klp-faint);
+	padding: 0.25rem 0.6rem;
+	font-size: 0.66rem;
+}
+
+.klp-case-link {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.35rem;
+	color: var(--klp-mint);
+	font-size: 0.76rem;
+	font-weight: 600;
+}
+
+.klp-case-link svg {
+	width: 0.9rem;
+	height: 0.9rem;
+}
+
 @media (max-width: 1100px) {
 	.klp-pricing-grid {
 		grid-template-columns: repeat(2, 1fr);
@@ -1385,6 +1583,11 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+	.klp-hero-letter {
+		opacity: 1;
+		animation: none !important;
+	}
+
 	.klp-nav-panel,
 	.klp-pillar-btn::before,
 	.klp-pillar-title,

@@ -3,15 +3,8 @@
 import {
 	ArrowLeft,
 	ArrowRight,
-	Calculator,
-	Database,
 	FileCheck2,
-	FileSpreadsheet,
 	FileText,
-	FileType2,
-	History,
-	Landmark,
-	Send,
 } from "lucide-react";
 import { useRef, useState } from "react";
 
@@ -76,22 +69,28 @@ function DocumentsDemo() {
 }
 
 const connectors = [
-	{ icon: Database, name: "ФСНБ-2022", meta: "справочник базовых цен" },
-	{ icon: FileType2, name: "ГЭСН", meta: "нормы и расценки" },
-	{ icon: Calculator, name: "ФГИС ЦС", meta: "официальные цены" },
-	{ icon: Landmark, name: "Т-Банк", meta: "оплата и доступ" },
-	{ icon: FileSpreadsheet, name: "Excel", meta: "сметы и расчёты" },
-	{ icon: FileText, name: "Word", meta: "КП и договоры" },
-	{ icon: FileCheck2, name: "PDF", meta: "акты и пакеты" },
-	{ icon: Send, name: "Telegram", meta: "результаты и уведомления" },
+	{ name: "ФСНБ-2022", meta: "справочник базовых цен", mark: "Ф", bg: "#0F9D58" },
+	{ name: "ГЭСН", meta: "нормы и расценки", mark: "Г", bg: "#2B579A" },
+	{ name: "ФГИС ЦС", meta: "официальные цены", mark: "Ц", bg: "#009688" },
+	{ name: "Т-Банк", meta: "оплата и доступ", mark: "Т", bg: "#FFDD2D", fg: "#1a1817" },
+	{ name: "Excel", meta: "сметы и расчёты", mark: "X", bg: "#107C41" },
+	{ name: "Word", meta: "КП и договоры", mark: "W", bg: "#2B579A" },
+	{ name: "PDF", meta: "акты и пакеты", mark: "P", bg: "#E40F0F" },
+	{ name: "Telegram", meta: "результаты и уведомления", mark: "T", bg: "#229ED9" },
 ];
 
 function NormativesDemo() {
 	return (
 		<div className="klp-role-demo-body" style={{ padding: "0.75rem" }}>
-			{connectors.map(({ icon: Icon, name, meta }) => (
+			{connectors.map(({ bg, fg, mark, meta, name }) => (
 				<div className="klp-connector" key={name}>
-					<span className="klp-connector-icon"><Icon aria-hidden="true" /></span>
+					<span
+						className="klp-connector-icon is-brand"
+						style={{ background: bg, color: fg ?? "#ffffff" }}
+						aria-hidden="true"
+					>
+						{mark}
+					</span>
 					<span className="klp-connector-meta">
 						<strong>{name}</strong>
 						<span><i /> {meta}</span>
