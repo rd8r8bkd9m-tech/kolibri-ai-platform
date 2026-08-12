@@ -11,6 +11,7 @@ import {
 import { kolibriToolkit } from "@/components/assistant-ui/toolkit";
 import { EstimateDraftInteractableSpike } from "@/components/assistant-ui/interactables/estimate-draft-spike";
 import { WorkspaceShell } from "@/components/kolibri-shell/workspace-shell";
+import { ThreadDeepLink } from "@/components/kolibri-shell/thread-deep-link";
 
 const kolibriSuggestions = Suggestions([
 	{
@@ -39,7 +40,11 @@ const kolibriSuggestions = Suggestions([
 	},
 ]);
 
-export function KolibriApp() {
+export function KolibriApp({
+	initialThreadId,
+}: {
+	initialThreadId?: string;
+}) {
 	const aui = useAui({
 		 suggestions: kolibriSuggestions,
 		 tools: Tools({ toolkit: kolibriToolkit }),
@@ -48,6 +53,7 @@ export function KolibriApp() {
 
 	return (
 		<AuiProvider value={aui}>
+			{initialThreadId ? <ThreadDeepLink initialThreadId={initialThreadId} /> : null}
 			{process.env.NEXT_PUBLIC_ENABLE_INTERACTABLES_SPIKE === "true" ? (
 				<EstimateDraftInteractableSpike />
 			) : null}

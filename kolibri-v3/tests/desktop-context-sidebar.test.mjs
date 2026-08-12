@@ -43,7 +43,7 @@ test("desktop shell has one shared central Canvas and an optional tool panel", a
 		]);
 
 	assert.match(wrapper, /import \{ DesktopWorkspace \}/);
-	assert.match(wrapper, /return <DesktopWorkspace \/>/);
+	assert.match(wrapper, /return <DesktopWorkspace[^>]*\/>/);
 	assert.doesNotMatch(wrapper, /WorkspaceContextSidebar|desktopContextTool/);
 
 	assert.match(layout, /id=["']workspace-project-navigation["']/);

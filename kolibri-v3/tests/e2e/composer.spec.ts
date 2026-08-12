@@ -11,6 +11,15 @@ function watchConsole(page: Page): string[] {
 	return failures;
 }
 
+async function waitForRunIdle(page: Page) {
+	const stop = page.getByRole("button", { name: "Остановить ответ" });
+	if (await stop.isVisible().catch(() => false)) {
+		await stop
+			.waitFor({ state: "hidden", timeout: 90_000 })
+			.catch(() => undefined);
+	}
+}
+
 test.beforeEach(async ({ browser, page }) => {
 	// Fresh user per test: composer runs must never inherit an in-flight run,
 	// rate-limited provider state, or thread history from another test.
@@ -131,6 +140,7 @@ test("thread list: new thread, message, switch back restores history", async ({
 	await expect(page.locator('[data-role="user"]').last()).toContainText(
 		"Сообщение в первом треде",
 	);
+	await waitForRunIdle(page);
 
 	await page
 		.getByRole("button", { name: "Новая задача", exact: true })
@@ -139,6 +149,9 @@ test("thread list: new thread, message, switch back restores history", async ({
 	await expect(input).toHaveValue("");
 
 	await input.fill("Сообщение во втором треде");
+	await expect(
+		page.getByRole("button", { name: "Отправить сообщение" }),
+	).toBeVisible({ timeout: 25_000 });
 	await page.getByRole("button", { name: "Отправить сообщение" }).click();
 	await expect(page.locator('[data-role="user"]').last()).toContainText(
 		"Сообщение во втором треде",

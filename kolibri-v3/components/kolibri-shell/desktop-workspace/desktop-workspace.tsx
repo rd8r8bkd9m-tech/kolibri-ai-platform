@@ -40,7 +40,6 @@ export function DesktopWorkspace() {
 	const activeThread = threadItems.find(
 		(thread) => thread.id === activeThreadId,
 	);
-
 	const [navigationOpen, setNavigationOpen] = useState(true);
 	const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
 	const [activeComposerTask, setActiveComposerTask] = useState<{
