@@ -4,6 +4,8 @@ import { PublicPlanCatalog } from "@/components/public-site/public-plan-catalog"
 import { PublicShell } from "@/components/public-site/public-shell";
 import { getPublicCommerceConfig } from "@/lib/server/public-commerce";
 
+export const dynamic = "force-dynamic";
+
 export const metadata: Metadata = {
 	title: "Тарифы",
 	description: "Тариф Kolibri AI из официального серверного каталога биллинга.",

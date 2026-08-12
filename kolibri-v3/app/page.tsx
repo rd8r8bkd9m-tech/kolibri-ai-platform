@@ -3,6 +3,8 @@ import { LandingPage } from "@/components/public-site/landing/landing-page";
 import { PublicShell } from "@/components/public-site/public-shell";
 import { getPublicCommerceConfig } from "@/lib/server/public-commerce";
 
+export const dynamic = "force-dynamic";
+
 export const metadata: Metadata = {
 	title: "КолИ — ИИ-сметчик, документы и нормативы строительного проекта",
 	description:
