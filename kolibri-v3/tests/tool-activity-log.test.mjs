@@ -39,7 +39,8 @@ test("developer command and file rows are independently collapsed", () => {
 });
 
 test("developer activity mirrors the conversational agent work log", () => {
-  assert.match(developerActivity, /Работал на протяжении/);
+  assert.match(developerActivity, /Ход работы/);
+  assert.match(developerActivity, /formatStepCount/);
   assert.match(developerActivity, /WrenchIcon/);
   assert.match(developerActivity, /TerminalSquareIcon/);
   assert.match(developerActivity, /CheckCircle2Icon/);

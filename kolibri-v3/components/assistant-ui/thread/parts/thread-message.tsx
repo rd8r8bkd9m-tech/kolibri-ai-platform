@@ -1,18 +1,14 @@
 "use client";
 
 import {
+	ChainOfThoughtByIndicesProvider,
+	ChainOfThoughtPrimitive,
 	MessagePrimitive,
 	type ReasoningMessagePartComponent,
 	type ToolCallMessagePartComponent,
 	useAuiState,
-	useMessageTiming,
 } from "@assistant-ui/react";
-import {
-	BrainIcon,
-	CheckCircle2Icon,
-	ChevronDownIcon,
-	LoaderCircleIcon,
-} from "lucide-react";
+import { BrainIcon } from "lucide-react";
 import {
 	createElement,
 	type ComponentProps,
@@ -51,67 +47,20 @@ import {
 } from "./thread-message-primitives";
 import { THREAD_UI_CLASS } from "../thread-ui-constants";
 
-const formatWorkDuration = (milliseconds: number): string => {
-	const seconds = Math.max(1, Math.round(milliseconds / 1_000));
-	const minutes = Math.floor(seconds / 60);
-	const remainder = seconds % 60;
-	if (minutes === 0) return `${seconds}с`;
-	return remainder === 0 ? `${minutes}м` : `${minutes}м ${remainder}с`;
-};
-
 export const AssistantActionBarWithTools: ComponentType = () => {
 	return <AssistantActionBar />;
 };
 
 const ReasoningBlock: ReasoningMessagePartComponent = ({ text }) => {
 	const content = text?.trim();
-	const isStreaming = useAuiState((state) => state.thread.isRunning);
-	const timing = useMessageTiming();
-
 	if (!content) return null;
-
-	const duration =
-		timing?.totalStreamTime === undefined
-			? ""
-			: ` · ${formatWorkDuration(timing.totalStreamTime)}`;
-
 	return (
-		<details
-			className="border-border/70 bg-muted/20 group/reasoning-step rounded-lg border"
-			data-slot="reasoning-step"
-			open={isStreaming || undefined}
+		<div
+			data-slot="reasoning-part"
+			className="text-muted-foreground px-3 py-2 text-[13px] leading-5 whitespace-pre-wrap"
 		>
-			<summary className="hover:bg-muted/35 flex min-h-9 cursor-pointer list-none items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors [&::-webkit-details-marker]:hidden">
-				{isStreaming ? (
-					<LoaderCircleIcon
-						className="size-3.5 shrink-0 animate-spin"
-						aria-hidden="true"
-					/>
-				) : (
-					<CheckCircle2Icon
-						className="size-3.5 shrink-0 text-emerald-600"
-						aria-hidden="true"
-					/>
-				)}
-				<BrainIcon className="size-3.5 shrink-0" aria-hidden="true" />
-				<span className="shrink-0">
-					{isStreaming ? "Обдумываю задачу…" : "Обдумал задачу"}
-					{duration}
-				</span>
-				<span className="text-muted-foreground ml-auto truncate text-[10px] font-normal">
-					Подробности рассуждения
-				</span>
-				<ChevronDownIcon
-					className="size-3.5 shrink-0 transition-transform group-open/reasoning-step:rotate-180"
-					aria-hidden="true"
-				/>
-			</summary>
-			<div className="border-border/60 border-t px-2.5 py-2">
-				<div className="text-muted-foreground max-h-64 overflow-y-auto text-[12px] leading-relaxed whitespace-pre-wrap">
-					{content}
-				</div>
-			</div>
-		</details>
+			{content}
+		</div>
 	);
 };
 
@@ -300,35 +249,28 @@ const AssistantMessage = () => {
 				Fallback: ToolFallbackComponent,
 			},
 			ToolGroup: DeveloperActivityGroup,
-			ReasoningGroup: ({ children }: { children?: ReactNode }) => {
-				const running = useAuiState((state) => state.thread.isRunning);
-				const timing = useMessageTiming();
-				const durationLabel =
-					timing?.totalStreamTime === undefined
-						? ""
-						: ` ${formatWorkDuration(timing.totalStreamTime)}`;
+			ReasoningGroup: ({
+				startIndex,
+				endIndex,
+			}: {
+				startIndex: number;
+				endIndex: number;
+			}) => {
 				return (
-					<details
-						className="group/work-feed min-w-0 max-w-full"
-						open={running || undefined}
-						data-slot="work-feed"
+					<ChainOfThoughtByIndicesProvider
+						startIndex={startIndex}
+						endIndex={endIndex}
 					>
-						<summary className="text-muted-foreground hover:text-foreground flex cursor-pointer list-none items-center gap-2 py-1 text-sm transition-colors [&::-webkit-details-marker]:hidden">
-							<BrainIcon className="size-4 shrink-0" aria-hidden="true" />
-							<span>Ход работы{durationLabel}</span>
-							<ChevronDownIcon
-								className="size-4 shrink-0 transition-transform group-open/work-feed:rotate-180"
-								aria-hidden="true"
+						<ChainOfThoughtPrimitive.Root className="my-2">
+							<ChainOfThoughtPrimitive.AccordionTrigger className="text-muted-foreground hover:text-foreground flex items-center gap-2 px-1 py-1.5 text-sm transition-colors">
+								<BrainIcon className="size-4 shrink-0" aria-hidden="true" />
+								<span>Ход работы</span>
+							</ChainOfThoughtPrimitive.AccordionTrigger>
+							<ChainOfThoughtPrimitive.Parts
+								components={{ Reasoning: ReasoningBlock }}
 							/>
-						</summary>
-						<div
-							className="space-y-1.5 pt-1.5"
-							role="log"
-							aria-label="Ход работы агента"
-						>
-							{children}
-						</div>
-					</details>
+						</ChainOfThoughtPrimitive.Root>
+					</ChainOfThoughtByIndicesProvider>
 				);
 			},
 		}),

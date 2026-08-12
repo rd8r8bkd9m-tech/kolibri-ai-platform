@@ -241,8 +241,6 @@ class Settings:
         "http://localhost:3103",
         "http://127.0.0.1:3104",
         "http://localhost:3104",
-        "http://127.0.0.1:4103",
-        "http://localhost:4103",
         "http://127.0.0.1:4104",
         "http://localhost:4104",
     )
@@ -712,7 +710,7 @@ class Settings:
         ).strip()
         raw_origins = os.getenv(
             "KOLIBRI_V3_ALLOWED_ORIGINS",
-            "http://127.0.0.1:3103,http://localhost:3103,http://127.0.0.1:4103,http://localhost:4103",
+            "http://127.0.0.1:3103,http://localhost:3103,http://127.0.0.1:3104,http://localhost:3104,http://127.0.0.1:4104,http://localhost:4104",
         )
         origins = tuple(origin.strip() for origin in raw_origins.split(",") if origin.strip())
 

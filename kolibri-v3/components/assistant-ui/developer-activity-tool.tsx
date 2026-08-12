@@ -38,6 +38,15 @@ const formatWorkDuration = (milliseconds: number): string => {
 	return remainder === 0 ? `${minutes}м` : `${minutes}м ${remainder}с`;
 };
 
+const formatStepCount = (count: number): string => {
+	const lastDigit = count % 10;
+	const lastTwo = count % 100;
+	if (lastTwo >= 11 && lastTwo <= 14) return `${count} шагов`;
+	if (lastDigit === 1) return `${count} шаг`;
+	if (lastDigit >= 2 && lastDigit <= 4) return `${count} шага`;
+	return `${count} шагов`;
+};
+
 const isDeveloperToolPart = (part: unknown): boolean =>
 	isRecord(part) &&
 	part.type === "tool-call" &&
@@ -78,6 +87,7 @@ export function DeveloperActivityGroup({
 		);
 	}
 
+	const stepCount = endIndex - startIndex + 1;
 	const durationLabel = duration === undefined ? "" : ` ${formatWorkDuration(duration)}`;
 	return (
 		<details
@@ -88,8 +98,9 @@ export function DeveloperActivityGroup({
 			<summary className="text-muted-foreground hover:text-foreground flex cursor-pointer list-none items-center gap-2 py-2 text-sm transition-colors [&::-webkit-details-marker]:hidden">
 				<WrenchIcon className="size-4 shrink-0" aria-hidden="true" />
 				<span>
-					{running ? "Работает" : "Работал на протяжении"}
-					{durationLabel}
+					{running
+						? `Ход работы · ${formatStepCount(stepCount)}`
+						: `Ход работы · ${formatStepCount(stepCount)}${durationLabel}`}
 				</span>
 				<ChevronRightIcon
 					className="size-4 shrink-0 transition-transform group-open/developer-work:rotate-90"
