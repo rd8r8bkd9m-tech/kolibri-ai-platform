@@ -6,8 +6,7 @@ import {
 	type ToolCallMessagePartComponent,
 	useAuiState,
 } from "@assistant-ui/react";
-import { ChevronDownIcon } from "lucide-react";
-import { createElement, type ComponentProps, type ComponentType, type ReactNode, useContext, useMemo } from "react";
+import { createElement, type ComponentProps, type ComponentType, useContext, useMemo } from "react";
 import { KolibriGenerativeUI } from "@/components/assistant-ui/generative-ui-renderer";
 import { MarkdownText } from "@/components/assistant-ui/markdown-text";
 import { kolibriGenerativeUILibrary } from "@/components/assistant-ui/generative-ui-library";
@@ -37,34 +36,17 @@ import {
 	UserMessage,
 } from "./thread-message-primitives";
 import { THREAD_UI_CLASS } from "../thread-ui-constants";
+import { ThinkingStatus } from "./thinking-status";
 
 export const AssistantActionBarWithTools: ComponentType = () => {
 	return <AssistantActionBar />;
 };
 
 const ReasoningBlock: ReasoningMessagePartComponent = ({ text }) => {
-	const content = text?.trim();
-	if (!content) return null;
-	return (
-		<details
-			className={uiClassTokens.threadReasoningBlock}
-			data-slot="aui_reasoning-block"
-		>
-			<summary className={uiClassTokens.threadReasoningSummary}>
-				<span>Рассуждение</span>
-				<ChevronDownIcon
-					className={uiClassTokens.threadReasoningChevron}
-					aria-hidden="true"
-				/>
-			</summary>
-			<div
-				className={uiClassTokens.threadReasoningBody}
-				data-slot="aui_reasoning-body"
-			>
-				{content}
-			</div>
-		</details>
-	);
+	// Рассуждение в стиле Сам Решу: показывается только живой статус работы,
+	// а сырой ход мыслей после завершения ответа не выводится.
+	void text;
+	return null;
 };
 
 const AssistantMessage = () => {
@@ -252,17 +234,7 @@ const AssistantMessage = () => {
 				Fallback: ToolFallbackComponent,
 			},
 			ToolGroup: DeveloperActivityGroup,
-			ReasoningGroup: ({ children }: { children?: ReactNode }) => (
-				<details
-					className={uiClassTokens.threadReasoningStatus}
-					data-slot="aui_safe-reasoning-status"
-				>
-					<summary className="cursor-pointer select-none" aria-label="Показать рассуждение">
-						Рассуждение
-					</summary>
-					<div role="status" aria-live="polite">{children}</div>
-				</details>
-			),
+			ReasoningGroup: () => <ThinkingStatus />,
 		}),
 		[generativeUIComponents, presentRenderer, weatherRenderer, documentPackRenderer, ToolFallbackComponent, withApproval],
 	);
