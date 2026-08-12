@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ChevronDown } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { LandingPet } from "./landing-pet";
 
 type NavLink = {
 	label: string;
@@ -144,11 +145,7 @@ export function LandingNav() {
 		<nav className={`klp-nav${scrolled ? " is-scrolled" : ""}`} aria-label="Основная навигация">
 			<div className="klp-nav-inner">
 				<Link className="klp-nav-logo" href="/" aria-label="КолИ — на главную">
-					<span className="klp-logo-mark" aria-hidden="true">
-						<i />
-						<i />
-						<b />
-					</span>
+					<LandingPet interactive width={30} />
 					<span className="klp-logo-pixel">колИ</span>
 				</Link>
 				<div className="klp-nav-center">

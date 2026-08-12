@@ -7,6 +7,7 @@ import {
 	Send,
 } from "lucide-react";
 import { useEffect, useState } from "react";
+import { LandingPet } from "./landing-pet";
 
 const chips = ["ФСНБ-2022", "ГЭСН", "ФГИС ЦС"];
 
@@ -156,8 +157,16 @@ export function HeroStage() {
 							))}
 						</div>
 						<span className="klp-stage-status">
+							<LandingPet interactive width={26} className="klp-topbar-pet" />
 							<i /> агент в сети
 						</span>
+					</div>
+					<div
+						className={`klp-scene-progress${paused ? " is-paused" : ""}`}
+						key={`progress-${scenes[index].id}`}
+						aria-hidden="true"
+					>
+						<i />
 					</div>
 					<div className="klp-chat klp-chat-scene" key={scenes[index].id}>
 						{scenes[index].node}

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { ArrowUpRight, Calculator, FileStack, History } from "lucide-react";
+import { Reveal } from "./reveal";
 
 const cases = [
 	{
@@ -37,16 +38,18 @@ export function CasesSection() {
 					<p>Как строительные компании передают сметы и документы агенту: разборы и готовые сценарии.</p>
 				</header>
 				<div className="klp-cases-grid">
-					{cases.map(({ chip, href, icon: Icon, text, time, title }) => (
-						<Link className="klp-case-card" href={href} key={title}>
-							<Icon aria-hidden="true" />
-							<h3>{title}</h3>
-							<p>{text}</p>
-							<div className="klp-case-meta">
-								<span className="klp-case-chip">{chip} · {time}</span>
-								<span className="klp-case-link">Читать <ArrowUpRight aria-hidden="true" /></span>
-							</div>
-						</Link>
+					{cases.map(({ chip, href, icon: Icon, text, time, title }, index) => (
+						<Reveal delay={index * 90} key={title}>
+							<Link className="klp-case-card" href={href}>
+								<Icon aria-hidden="true" />
+								<h3>{title}</h3>
+								<p>{text}</p>
+								<div className="klp-case-meta">
+									<span className="klp-case-chip">{chip} · {time}</span>
+									<span className="klp-case-link">Читать <ArrowUpRight aria-hidden="true" /></span>
+								</div>
+							</Link>
+						</Reveal>
 					))}
 				</div>
 			</div>

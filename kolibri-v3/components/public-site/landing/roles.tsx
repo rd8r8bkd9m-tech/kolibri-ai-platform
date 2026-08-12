@@ -7,6 +7,7 @@ import {
 	FileText,
 } from "lucide-react";
 import { useRef, useState } from "react";
+import { Reveal } from "./reveal";
 
 function ChatDemo({ prompt, summary, fileTitle, fileType }: {
 	prompt: string;
@@ -212,22 +213,24 @@ export function RolesSection() {
 				</span>
 			</div>
 			<div className="klp-roles-track" ref={track} onScroll={updateProgress}>
-				{roles.map((role) => (
-					<article className="klp-role-card" key={role.title}>
-						<header className="klp-role-card-head">
-							<h3>{role.title}</h3>
-							<p>{role.text}</p>
-						</header>
-						<div className="klp-role-demo">
-							<div className="klp-role-demo-panel">
-								<div className="klp-role-demo-bar">
-									<strong><i /> {role.title}</strong>
-									<span>проект · версия 3</span>
+				{roles.map((role, index) => (
+					<Reveal delay={index * 80} key={role.title}>
+						<article className="klp-role-card">
+							<header className="klp-role-card-head">
+								<h3>{role.title}</h3>
+								<p>{role.text}</p>
+							</header>
+							<div className="klp-role-demo">
+								<div className="klp-role-demo-panel">
+									<div className="klp-role-demo-bar">
+										<strong><i /> {role.title}</strong>
+										<span>проект · версия 3</span>
+									</div>
+									{role.demo}
 								</div>
-								{role.demo}
 							</div>
-						</div>
-					</article>
+						</article>
+					</Reveal>
 				))}
 			</div>
 		</section>

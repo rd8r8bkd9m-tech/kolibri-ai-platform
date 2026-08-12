@@ -1,4 +1,5 @@
 import { Plus } from "lucide-react";
+import { Reveal } from "./reveal";
 
 const questions = [
 	{
@@ -37,14 +38,16 @@ export function FaqSection() {
 					<h2 id="faq-title">Частые вопросы</h2>
 				</div>
 				<div className="kp-faq-grid">
-					{questions.map((item) => (
-						<details className="kp-faq-item" key={item.question}>
-							<summary>
-								{item.question}
-								<Plus aria-hidden="true" />
-							</summary>
-							<p>{item.answer}</p>
-						</details>
+					{questions.map((item, index) => (
+						<Reveal delay={index * 60} key={item.question}>
+							<details className="kp-faq-item">
+								<summary>
+									{item.question}
+									<Plus aria-hidden="true" />
+								</summary>
+								<p>{item.answer}</p>
+							</details>
+						</Reveal>
 					))}
 				</div>
 			</div>

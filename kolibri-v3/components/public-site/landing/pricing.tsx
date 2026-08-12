@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import type { BillingPlan } from "@/lib/billing/client";
 import { getPublicLaunchPlan } from "@/lib/server/public-billing";
 import { PublicPlanCheckoutButton } from "./public-plan-checkout-button";
+import { Reveal } from "./reveal";
 
 function durationLabel(seconds: number) {
 	const days = Math.round(seconds / 86_400);
@@ -71,67 +72,75 @@ function PricingGrid({ plan }: { plan: BillingPlan | null }) {
 				</button>
 			</div>
 			<div className="klp-pricing-grid">
-				<PriceCard
-					name="Бесплатный"
-					subtitle="Познакомиться в чате — без карты"
-					price="0 ₽"
-					period="/ месяц"
-					features={[
-						"Регистрация без карты",
-						"Чат с агентом",
-						"Проекты и версии смет",
-						"Демо-экспорт документов",
-					]}
-					cta={<Link className="klp-price-cta" href="/app">Попробовать бесплатно</Link>}
-				/>
-				<PriceCard
-					name="Pro"
-					badge="Популярный"
-					subtitle="Регулярная работа со сметами, документами и нормативами"
-					price={serverPrice}
-					period={serverPeriod}
-					features={[
-						"Полный контур: смета, КП, договор, акт",
-						"ФСНБ-2022, ГЭСН и цены ФГИС ЦС",
-						"Экспорт XLSX, PDF, DOCX",
-						"Версии и основания расчёта",
-						"Оплата через защищённую страницу Т‑Банка",
-					]}
-					cta={
-						plan ? (
-							<PublicPlanCheckoutButton planCode={plan.code} />
-						) : (
-							<Link className="klp-price-cta" href="/pricing">Посмотреть тариф</Link>
-						)
-					}
-					featured
-				/>
-				<PriceCard
-					name="Max"
-					subtitle="Для команд и потоков проектов"
-					price="по запросу"
-					period="/ месяц"
-					features={[
-						"Общий каталог проектов",
-						"Роли и доступы команды",
-						"Единый биллинг",
-						"Приоритетная поддержка",
-					]}
-					cta={<Link className="klp-price-cta" href="/contacts">Обсудить</Link>}
-				/>
-				<PriceCard
-					name="Командный"
-					subtitle="Корпоративный доступ и договор"
-					price="по запросу"
-					period="/ чел. / месяц"
-					features={[
-						"Выделенные контуры и справочники",
-						"Интеграции с 1С и CRM",
-						"Аудит и журналы операций",
-						"Договор и счёт для юрлиц",
-					]}
-					cta={<Link className="klp-price-cta" href="/contacts">Обсудить</Link>}
-				/>
+				<Reveal delay={0}>
+					<PriceCard
+						name="Бесплатный"
+						subtitle="Познакомиться в чате — без карты"
+						price="0 ₽"
+						period="/ месяц"
+						features={[
+							"Регистрация без карты",
+							"Чат с агентом",
+							"Проекты и версии смет",
+							"Демо-экспорт документов",
+						]}
+						cta={<Link className="klp-price-cta" href="/app">Попробовать бесплатно</Link>}
+					/>
+				</Reveal>
+				<Reveal delay={90}>
+					<PriceCard
+						name="Pro"
+						badge="Популярный"
+						subtitle="Регулярная работа со сметами, документами и нормативами"
+						price={serverPrice}
+						period={serverPeriod}
+						features={[
+							"Полный контур: смета, КП, договор, акт",
+							"ФСНБ-2022, ГЭСН и цены ФГИС ЦС",
+							"Экспорт XLSX, PDF, DOCX",
+							"Версии и основания расчёта",
+							"Оплата через защищённую страницу Т‑Банка",
+						]}
+						cta={
+							plan ? (
+								<PublicPlanCheckoutButton planCode={plan.code} />
+							) : (
+								<Link className="klp-price-cta" href="/pricing">Посмотреть тариф</Link>
+							)
+						}
+						featured
+					/>
+				</Reveal>
+				<Reveal delay={180}>
+					<PriceCard
+						name="Max"
+						subtitle="Для команд и потоков проектов"
+						price="по запросу"
+						period="/ месяц"
+						features={[
+							"Общий каталог проектов",
+							"Роли и доступы команды",
+							"Единый биллинг",
+							"Приоритетная поддержка",
+						]}
+						cta={<Link className="klp-price-cta" href="/contacts">Обсудить</Link>}
+					/>
+				</Reveal>
+				<Reveal delay={270}>
+					<PriceCard
+						name="Командный"
+						subtitle="Корпоративный доступ и договор"
+						price="по запросу"
+						period="/ чел. / месяц"
+						features={[
+							"Выделенные контуры и справочники",
+							"Интеграции с 1С и CRM",
+							"Аудит и журналы операций",
+							"Договор и счёт для юрлиц",
+						]}
+						cta={<Link className="klp-price-cta" href="/contacts">Обсудить</Link>}
+					/>
+				</Reveal>
 			</div>
 			<p style={{ marginTop: "2rem", color: "var(--klp-faint)", fontSize: "0.78rem", textAlign: "center" }}>
 				Цена тарифа загружается из серверного каталога биллинга и не подставляется вручную.{" "}
