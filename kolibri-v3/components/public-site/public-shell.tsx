@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
 import type { PublicCommerceConfig } from "@/lib/server/public-commerce";
+import { LandingNav } from "./landing/landing-nav";
 import { PublicBrand } from "./public-brand";
 
 function PublicNavigationLink({
@@ -44,46 +45,7 @@ export function PublicShell({
 			<a className="kp-skip-link" href="#main-content">
 				Перейти к содержанию
 			</a>
-			<header className="kp-header">
-				<div className="kp-container kp-header-inner">
-					<PublicBrand />
-					<nav className="kp-main-nav" aria-label="Основная навигация">
-						<PublicNavigationLink href="/#features">
-							Возможности
-						</PublicNavigationLink>
-						<PublicNavigationLink href="/#workflow">
-							Как работает
-						</PublicNavigationLink>
-						<PublicNavigationLink href="/pricing">Тарифы</PublicNavigationLink>
-					</nav>
-					<div className="kp-header-actions">
-						<details className="kp-mobile-nav">
-							<summary aria-label="Открыть меню сайта">
-								<span />
-								<span />
-								<span />
-							</summary>
-							<div className="kp-mobile-nav-panel">
-								<PublicNavigationLink href="/#features">Возможности</PublicNavigationLink>
-								<PublicNavigationLink href="/#workflow">Как работает</PublicNavigationLink>
-								<PublicNavigationLink href="/#pricing">Тарифы</PublicNavigationLink>
-								<PublicNavigationLink href="/#faq">Вопросы</PublicNavigationLink>
-								<PublicNavigationLink href="/app">Войти</PublicNavigationLink>
-							</div>
-						</details>
-						<Link className="kp-login-link" href="/app" prefetch>
-							Войти
-						</Link>
-						<Link
-							className="kp-button kp-button-small kp-button-primary"
-							href="/app"
-							prefetch
-						>
-							Открыть КолИ
-						</Link>
-					</div>
-				</div>
-			</header>
+			<LandingNav />
 			<main id="main-content">{children}</main>
 			<footer className="kp-footer">
 				<div className="kp-container kp-footer-grid">
@@ -96,8 +58,8 @@ export function PublicShell({
 					</div>
 					<nav aria-label="Продукт">
 						<strong>Продукт</strong>
-						<PublicNavigationLink href="/#features">Возможности</PublicNavigationLink>
-						<PublicNavigationLink href="/#workflow">Как работает</PublicNavigationLink>
+						<PublicNavigationLink href="/#roles">Возможности</PublicNavigationLink>
+						<PublicNavigationLink href="/#work">Как работает</PublicNavigationLink>
 						<PublicNavigationLink href="/pricing">Тарифы</PublicNavigationLink>
 						<PublicNavigationLink href="/app">Приложение</PublicNavigationLink>
 					</nav>

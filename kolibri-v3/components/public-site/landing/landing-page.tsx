@@ -1,26 +1,21 @@
-import { CommerceSection } from "./commerce";
+import { CasesSection } from "./cases";
 import { FaqSection } from "./faq";
-import { FeatureGrid } from "./features";
 import { LandingHero } from "./hero";
-import { PlatformSection } from "./platform-section";
-import { WorkflowSection } from "./workflow";
+import { PillarsSection } from "./pillars";
+import { PricingSection } from "./pricing";
+import { RolesSection } from "./roles";
+import { StatsSection } from "./stats";
 
 export function LandingPage() {
 	return (
 		<>
 			<LandingHero />
-			<div className="kp-principle-bar" aria-label="Процесс работы">
-				<span>Исходные данные</span><i />
-				<span>Смета</span><i />
-				<span>Версии</span><i />
-				<span>Документы</span><i />
-				<span>Результат</span>
-			</div>
-			<FeatureGrid />
-			<WorkflowSection />
-			<CommerceSection />
+			<PillarsSection />
+			<RolesSection />
+			<PricingSection />
+			<StatsSection />
 			<FaqSection />
-			<PlatformSection />
+			<CasesSection />
 		</>
 	);
 }

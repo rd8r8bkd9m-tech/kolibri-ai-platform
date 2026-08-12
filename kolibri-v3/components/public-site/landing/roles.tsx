@@ -1,0 +1,236 @@
+"use client";
+
+import {
+	ArrowLeft,
+	ArrowRight,
+	Calculator,
+	Database,
+	FileCheck2,
+	FileSpreadsheet,
+	FileText,
+	FileType2,
+	History,
+	Landmark,
+	Send,
+} from "lucide-react";
+import { useRef, useState } from "react";
+
+function ChatDemo({ prompt, summary, fileTitle, fileType }: {
+	prompt: string;
+	summary: string;
+	fileTitle: string;
+	fileType: string;
+}) {
+	return (
+		<div className="klp-role-demo-body" style={{ padding: "1rem" }}>
+			<div className="klp-chat">
+				<div className="klp-msg klp-msg-user">
+					<div className="klp-bubble">{prompt}</div>
+				</div>
+				<div className="klp-msg">
+					<div className="klp-ai-body">
+						<strong>{summary}</strong>
+						<div className="klp-file-card" style={{ marginTop: "0.8rem" }}>
+							<span className="klp-file-icon"><FileText aria-hidden="true" /></span>
+							<span className="klp-file-meta">
+								<strong>{fileTitle}</strong>
+								<span>Документ · {fileType}</span>
+							</span>
+						</div>
+					</div>
+				</div>
+			</div>
+		</div>
+	);
+}
+
+function DocumentsDemo() {
+	const docs = [
+		{ title: "Коммерческое предложение", type: "DOCX", state: "готово" },
+		{ title: "Договор подряда", type: "DOCX", state: "черновик" },
+		{ title: "Акт выполненных работ", type: "PDF", state: "в работе" },
+	];
+	return (
+		<div className="klp-role-demo-body" style={{ padding: "1rem" }}>
+			<div className="klp-chat">
+				<div className="klp-msg klp-msg-user">
+					<div className="klp-bubble">Сделай пакет документов по версии 3</div>
+				</div>
+				<div className="klp-msg">
+					<div className="klp-ai-body">
+						<strong>Готово — все документы из данных проекта.</strong>
+						{docs.map((doc, index) => (
+							<div className="klp-file-card" key={doc.title} style={{ marginTop: index === 0 ? "0.8rem" : "0.5rem" }}>
+								<span className="klp-file-icon"><FileText aria-hidden="true" /></span>
+								<span className="klp-file-meta">
+									<strong>{doc.title}</strong>
+									<span>{doc.type} · {doc.state}</span>
+								</span>
+							</div>
+						))}
+					</div>
+				</div>
+			</div>
+		</div>
+	);
+}
+
+const connectors = [
+	{ icon: Database, name: "ФСНБ-2022", meta: "справочник базовых цен" },
+	{ icon: FileType2, name: "ГЭСН", meta: "нормы и расценки" },
+	{ icon: Calculator, name: "ФГИС ЦС", meta: "официальные цены" },
+	{ icon: Landmark, name: "Т-Банк", meta: "оплата и доступ" },
+	{ icon: FileSpreadsheet, name: "Excel", meta: "сметы и расчёты" },
+	{ icon: FileText, name: "Word", meta: "КП и договоры" },
+	{ icon: FileCheck2, name: "PDF", meta: "акты и пакеты" },
+	{ icon: Send, name: "Telegram", meta: "результаты и уведомления" },
+];
+
+function NormativesDemo() {
+	return (
+		<div className="klp-role-demo-body" style={{ padding: "0.75rem" }}>
+			{connectors.map(({ icon: Icon, name, meta }) => (
+				<div className="klp-connector" key={name}>
+					<span className="klp-connector-icon"><Icon aria-hidden="true" /></span>
+					<span className="klp-connector-meta">
+						<strong>{name}</strong>
+						<span><i /> {meta}</span>
+					</span>
+				</div>
+			))}
+		</div>
+	);
+}
+
+function VersionsDemo() {
+	const steps = [
+		["Поменял материал стен на версии 3", "2s"],
+		["Пересчитал 18 позиций сметы", "4s"],
+		["Сохранил причину изменения", "1s"],
+		["Собрал версию 4 и документы", "3s"],
+	] as const;
+	return (
+		<div className="klp-role-demo-body" style={{ padding: "1rem" }}>
+			<ul className="klp-timeline">
+				{steps.map(([text, time]) => (
+					<li key={text}><span>{text}<i>{time}</i></span></li>
+				))}
+			</ul>
+		</div>
+	);
+}
+
+function ExportDemo() {
+	const formats = [
+		{ title: "Смета · версия 3", type: "XLSX" },
+		{ title: "Коммерческое предложение", type: "PDF" },
+		{ title: "Пакет документов", type: "DOCX" },
+	];
+	return (
+		<div className="klp-role-demo-body" style={{ padding: "1rem" }}>
+			<div className="klp-chat">
+				<div className="klp-msg klp-msg-user">
+					<div className="klp-bubble">Выгрузи смету и документы клиенту</div>
+				</div>
+				<div className="klp-msg">
+					<div className="klp-ai-body">
+						<strong>Готово — три файла в нужных форматах.</strong>
+						{formats.map((file, index) => (
+							<div className="klp-file-card" key={file.title} style={{ marginTop: index === 0 ? "0.8rem" : "0.5rem" }}>
+								<span className="klp-file-icon"><FileCheck2 aria-hidden="true" /></span>
+								<span className="klp-file-meta">
+									<strong>{file.title}</strong>
+									<span>Файл · {file.type}</span>
+								</span>
+							</div>
+						))}
+					</div>
+				</div>
+			</div>
+		</div>
+	);
+}
+
+const roles = [
+	{
+		title: "Сметы",
+		text: "Опишите объект, объёмы и регион — агент соберёт работы, материалы, количества и цены в версионный расчёт.",
+		demo: <ChatDemo prompt="Собери смету на каркасный дом 38 м²" summary="Смета готова — 68 позиций, версия 3." fileTitle="Смета · версия 3" fileType="XLSX" />,
+	},
+	{
+		title: "Документы",
+		text: "КП, договоры и акты по шаблонам компании: реквизиты подставляются из проекта, результат — готовым файлом.",
+		demo: <DocumentsDemo />,
+	},
+	{
+		title: "Цены и нормативы",
+		text: "ФСНБ-2022, ГЭСН и официальные цены ФГИС ЦС: каждая строка сметы связана с источником.",
+		demo: <NormativesDemo />,
+	},
+	{
+		title: "Версии",
+		text: "Любое изменение создаёт новую версию сметы. Предыдущий расчёт и причина правки не теряются.",
+		demo: <VersionsDemo />,
+	},
+	{
+		title: "Экспорт",
+		text: "Сметы и документы выгружаются в XLSX, PDF и DOCX — там, где вы работаете с клиентом.",
+		demo: <ExportDemo />,
+	},
+];
+
+export function RolesSection() {
+	const track = useRef<HTMLDivElement>(null);
+	const [progress, setProgress] = useState(0);
+
+	const updateProgress = () => {
+		const node = track.current;
+		if (!node) return;
+		const max = node.scrollWidth - node.clientWidth;
+		setProgress(max > 0 ? Math.min(100, (node.scrollLeft / max) * 100) : 0);
+	};
+
+	const scrollBy = (direction: 1 | -1) => {
+		track.current?.scrollBy({ left: direction * 320, behavior: "smooth" });
+	};
+
+	return (
+		<section className="klp-roles" id="roles" aria-labelledby="roles-title">
+			<div>
+				<div className="klp-roles-head">
+					<h2 id="roles-title">Один агент — для смет, документов и всего между ними</h2>
+				</div>
+				<div className="klp-roles-arrows">
+					<button className="klp-arrow" type="button" aria-label="Предыдущие возможности" onClick={() => scrollBy(-1)}>
+						<ArrowLeft aria-hidden="true" />
+					</button>
+					<button className="klp-arrow" type="button" aria-label="Следующие возможности" onClick={() => scrollBy(1)}>
+						<ArrowRight aria-hidden="true" />
+					</button>
+				</div>
+				<span className="klp-roles-progress" aria-hidden="true">
+					<i style={{ width: `${progress}%` }} />
+				</span>
+			</div>
+			<div className="klp-roles-track" ref={track} onScroll={updateProgress}>
+				{roles.map((role) => (
+					<article className="klp-role-card" key={role.title}>
+						<header className="klp-role-card-head">
+							<h3>{role.title}</h3>
+							<p>{role.text}</p>
+						</header>
+						<div className="klp-role-demo">
+							<div className="klp-role-demo-panel">
+								<div className="klp-role-demo-bar">
+									<strong><i /> {role.title}</strong>
+									<span>проект · версия 3</span>
+								</div>
+								{role.demo}
+							</div>
+						</div>
+					</article>
+				))}
+			</div>
+		</section>
+	);
+}

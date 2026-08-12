@@ -6,6 +6,7 @@ import "@/components/public-site/styles/tokens.css";
 import "@/components/public-site/styles/shell.css";
 import "@/components/public-site/styles/landing.css";
 import "@/components/public-site/styles/landing-sections.css";
+import "@/components/public-site/styles/landing-copy.css";
 import "@/components/public-site/styles/public-pages.css";
 
 export const metadata: Metadata = {

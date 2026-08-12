@@ -1,6 +1,7 @@
 .kp-public-page,
 .kp-legal-page {
 	min-height: calc(100vh - 4.5rem);
+	padding-top: 4.5rem;
 	background:
 		radial-gradient(circle at 82% 2%, rgb(160 215 209 / 10%), transparent 26rem),
 		var(--kp-bg);
