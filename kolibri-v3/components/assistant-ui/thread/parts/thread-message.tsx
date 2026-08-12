@@ -56,7 +56,7 @@ const ReasoningBlock: ReasoningMessagePartComponent = ({ text }) => {
 	return (
 		<div
 			data-slot="reasoning-part"
-			className="text-muted-foreground px-3 py-2 text-[13px] leading-5 whitespace-pre-wrap"
+			className="text-muted-foreground max-h-64 overflow-y-auto px-3 py-2 text-[13px] leading-5 whitespace-pre-wrap"
 		>
 			{content}
 		</div>
@@ -262,6 +262,7 @@ const AssistantMessage = () => {
 			end: indices.length > 0 ? indices[indices.length - 1]! : -1,
 		};
 	}, [messageContent]);
+	const chainCollapsed = useAuiState((state) => state.chainOfThought.collapsed);
 	const partsComponents = useMemo(
 		() => ({
 			Text: MarkdownText,
@@ -317,12 +318,14 @@ const AssistantMessage = () => {
 									<BrainIcon className="size-4 shrink-0" aria-hidden="true" />
 									<span>Ход работы</span>
 								</ChainOfThoughtPrimitive.AccordionTrigger>
-								<ChainOfThoughtPrimitive.Parts
-									components={{
-										Reasoning: ReasoningBlock,
-										tools: { Fallback: chainToolRenderer },
-									}}
-								/>
+								{!chainCollapsed ? (
+									<ChainOfThoughtPrimitive.Parts
+										components={{
+											Reasoning: ReasoningBlock,
+											tools: { Fallback: chainToolRenderer },
+										}}
+									/>
+								) : null}
 							</ChainOfThoughtPrimitive.Root>
 						</ChainOfThoughtByIndicesProvider>
 					) : null}

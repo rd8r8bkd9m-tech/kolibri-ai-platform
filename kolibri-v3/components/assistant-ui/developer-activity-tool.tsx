@@ -4,6 +4,7 @@ import {
 	type ToolCallMessagePartComponent,
 	useAuiState,
 	useMessageTiming,
+	useToolCallElapsed,
 } from "@assistant-ui/react";
 import {
 	CheckCircle2Icon,
@@ -77,6 +78,26 @@ const fileStepLabel = (
 		running: "Изменяю файлы",
 	};
 	return running ? labels.running : labels.done;
+};
+
+const diffStats = (diff: string) => {
+	const lines = diff.split("\n");
+	const added = lines.filter(
+		(line) => line.startsWith("+") && !line.startsWith("+++"),
+	).length;
+	const removed = lines.filter(
+		(line) => line.startsWith("-") && !line.startsWith("---"),
+	).length;
+	return { added, removed };
+};
+
+const filesWord = (count: number): string => {
+	const lastDigit = count % 10;
+	const lastTwo = count % 100;
+	if (lastTwo >= 11 && lastTwo <= 14) return "файлов";
+	if (lastDigit === 1) return "файл";
+	if (lastDigit >= 2 && lastDigit <= 4) return "файла";
+	return "файлов";
 };
 
 export function DeveloperActivityGroup({
@@ -154,6 +175,7 @@ export const DeveloperCommandToolUI: ToolCallMessagePartComponent<
 	unknown
 > = ({ args, result, status }) => {
 		const completed = status.type !== "running";
+		const elapsedMs = useToolCallElapsed();
 		const decoded = decodeResult(result);
 		const failed =
 			completed &&
@@ -162,6 +184,8 @@ export const DeveloperCommandToolUI: ToolCallMessagePartComponent<
 				decoded?.status === "error");
 		const command =
 			typeof args.command === "string" && args.command ? args.command : null;
+		const elapsedLabel =
+			elapsedMs === undefined ? "" : formatWorkDuration(elapsedMs);
 		const isSearch =
 			command !== null &&
 			/(^|\s)(rg|grep|find)\s/.test(command);
@@ -201,8 +225,8 @@ export const DeveloperCommandToolUI: ToolCallMessagePartComponent<
 									? "Выполнен поиск"
 									: "Выполнена команда"
 								: isSearch
-									? "Ищу"
-									: "Выполняется команда"}
+									? `Поиск выполняется ${elapsedLabel}`
+									: `Команда выполняется ${elapsedLabel}`}
 					</span>
 					{command ? (
 						<code className="text-muted-foreground ml-auto min-w-0 truncate text-[10px] font-normal">
@@ -264,11 +288,49 @@ export const DeveloperFileChangeToolUI: ToolCallMessagePartComponent<
 		const changes = rawChanges.filter(isRecord).slice(0, 40);
 		const primaryKind = changes[0]?.kind;
 		const runningLabel = fileStepLabel(primaryKind, true);
-		const doneLabel = fileStepLabel(primaryKind, false);
-		const changesLabel =
-			changes.length > 0
-				? `${changes.length} ${changes.length === 1 ? "файл" : changes.length < 5 ? "файла" : "файлов"}`
+		const writeCount = changes.filter(
+			(change) =>
+				typeof change.kind === "string" &&
+				["write", "edit", "patch", "delete"].includes(change.kind),
+		).length;
+		const readCount = changes.filter(
+			(change) => change.kind === "read",
+		).length;
+		const searchCount = changes.filter(
+			(change) =>
+				typeof change.kind === "string" &&
+				["glob", "grep", "search"].includes(change.kind),
+		).length;
+		const totalStats = changes.reduce<{
+			added: number;
+			removed: number;
+		}>(
+			(acc, change) => {
+				if (typeof change.diff !== "string") return acc;
+				const stats = diffStats(change.diff);
+				return {
+					added: acc.added + stats.added,
+					removed: acc.removed + stats.removed,
+				};
+			},
+			{ added: 0, removed: 0 },
+		);
+		const statsLabel =
+			totalStats.added + totalStats.removed > 0
+				? ` +${totalStats.added} −${totalStats.removed}`
 				: "";
+		const doneLabel =
+			writeCount > 0
+				? `Изменено ${changes.length} ${filesWord(changes.length)}${statsLabel}`
+				: readCount > 0
+					? `Прочитал файлы (${readCount})`
+					: searchCount > 0
+						? `Выполнен поиск (${searchCount})`
+						: fileStepLabel(primaryKind, false);
+		const changesLabel =
+			status.type === "running"
+				? runningLabel
+				: doneLabel;
 		return (
 			<details
 				className="border-border/70 bg-muted/20 group/developer-tool rounded-lg border"
@@ -288,11 +350,6 @@ export const DeveloperFileChangeToolUI: ToolCallMessagePartComponent<
 					)}
 					<FileCode2Icon className="size-3.5 shrink-0" aria-hidden="true" />
 					<span className="shrink-0">
-						{status.type === "running"
-							? runningLabel
-							: doneLabel}
-					</span>
-					<span className="text-muted-foreground ml-auto truncate text-[10px] font-normal">
 						{changesLabel}
 					</span>
 					<ChevronRightIcon
@@ -307,14 +364,31 @@ export const DeveloperFileChangeToolUI: ToolCallMessagePartComponent<
 								? change.path
 								: `file-${index + 1}`;
 						const diff = typeof change.diff === "string" ? change.diff : "";
-						const label = fileStepLabel(change.kind, status.type === "running");
+						const label = fileStepLabel(
+							change.kind,
+							status.type === "running",
+						);
+						const changeStats =
+							typeof change.diff === "string"
+								? diffStats(change.diff)
+								: null;
+						const statsSuffix =
+							changeStats && changeStats.added + changeStats.removed > 0
+								? ` +${changeStats.added} −${changeStats.removed}`
+								: "";
+						const kind = change.kind;
+						const rowLabel =
+							typeof kind === "string" &&
+							["write", "edit", "patch"].includes(kind)
+								? `Редактирование ${path}${statsSuffix}`
+								: `${label}: ${path}`;
 						return (
 							<details
 								key={`${path}:${index}`}
 								className="border-border/60 bg-background/70 rounded-lg border"
 							>
 								<summary className="cursor-pointer px-2.5 py-2 text-[11px] font-medium">
-									{label}: {path}
+									{rowLabel}
 								</summary>
 								{diff ? (
 									<pre className="border-border/60 max-h-72 overflow-auto border-t px-2.5 py-2 text-[10px] whitespace-pre">
