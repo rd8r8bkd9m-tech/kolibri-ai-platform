@@ -31,7 +31,16 @@ from .config import Settings
 
 LOGGER = logging.getLogger(__name__)
 
-MAX_AGENT_ITERATIONS = 14
+def _developer_agent_iteration_limit() -> int:
+    raw = os.environ.get("KOLIBRI_V3_DEVELOPER_AGENT_MAX_ITERATIONS", "40")
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        value = 40
+    return min(200, max(1, value))
+
+
+MAX_AGENT_ITERATIONS = _developer_agent_iteration_limit()
 MAX_TOOL_OUTPUT_CHARS = 60_000
 MAX_READ_BYTES = 256 * 1024
 MAX_GLOB_RESULTS = 200
