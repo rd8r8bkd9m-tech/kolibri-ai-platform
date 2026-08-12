@@ -15,7 +15,7 @@ test("estimate generation migrations are executable and tenant-scoped", async ()
 	const migrationFiles = (await readdir(MIGRATIONS))
 		.filter((name) => /^\d{3}_.+\.sql$/.test(name))
 		.sort();
-	assert.equal(migrationFiles.at(-1), "062_tbank_paid_at.sql");
+	assert.equal(migrationFiles.at(-1), "064_tbank_admin_settings_verify_ssl.sql");
 
 	const database = new DatabaseSync(":memory:");
 	try {
@@ -25,7 +25,7 @@ test("estimate generation migrations are executable and tenant-scoped", async ()
 		const [{ user_version: userVersion }] = database
 			.prepare("PRAGMA user_version")
 			.all();
-	assert.equal(userVersion, 62);
+	assert.equal(userVersion, 64);
 		assert.deepEqual(database.prepare("PRAGMA foreign_key_check").all(), []);
 
 		const actualTables = new Set(

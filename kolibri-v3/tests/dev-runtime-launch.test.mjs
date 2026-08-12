@@ -69,7 +69,12 @@ test("canonical backend launcher pins the V3 database and auth surface", () => {
   assert.match(backendLauncher, /unset KOLIBRI_V3_CSRF_SECRET_FILE/);
   assert.match(backendLauncher, /KOLIBRI_V3_DEV_OWNER_EMAIL/);
   assert.match(backendLauncher, /--expected-owner-email/);
-  assert.match(backendLauncher, /KOLIBRI_V3_ALLOWED_ORIGINS=.*127\.0\.0\.1:3103/);
+  assert.match(
+    backendLauncher,
+    /base_allowed_origins=.*127\.0\.0\.1:3103/,
+  );
+  assert.match(backendLauncher, /export KOLIBRI_V3_ALLOWED_ORIGINS=/);
+  assert.match(backendLauncher, /KOLIBRI_V3_ALLOWED_ORIGINS_EXTRA/);
   assert.doesNotMatch(backendLauncher, /4103/);
   assert.doesNotMatch(backendLauncher, /--reload/);
   assert.doesNotMatch(backendLauncher, /--reload-dir/);
