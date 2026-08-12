@@ -1425,25 +1425,38 @@ function AiModelsSection() {
 			<SectionHeading
 				icon={Bot}
 				title="ИИ и модели"
-				description="Выберите модель для новых сообщений. Доступность проверяется перед каждым запросом."
+				description={
+					identity.user?.isPlatformOwner
+						? "Выберите модель для новых сообщений. Доступность проверяется перед каждым запросом."
+						: "Модели и провайдеры настраивает администратор платформы."
+				}
 			/>
 
 			<div className="mt-6">
 				<h3 className="text-[13px] font-semibold">Модель по умолчанию</h3>
-				<p className="text-muted-foreground mt-1 max-w-xl text-[12px] leading-5">
-					Этот же селектор используется в чате: модель, усилие рассуждения и
-					скорость применяются к новым сообщениям.
-				</p>
-				<div className="mt-3 max-w-md">
-					<AgentProfileSelector surface="settings" />
-				</div>
+				{identity.user?.isPlatformOwner ? (
+					<>
+						<p className="text-muted-foreground mt-1 max-w-xl text-[12px] leading-5">
+							Этот же селектор используется в чате: модель, усилие рассуждения и
+							скорость применяются к новым сообщениям.
+						</p>
+						<div className="mt-3 max-w-md">
+							<AgentProfileSelector surface="settings" />
+						</div>
+					</>
+				) : (
+					<p className="text-muted-foreground mt-1 max-w-xl text-[12px] leading-5">
+						Выбор модели недоступен пользователям — модель назначает
+						администратор платформы.
+					</p>
+				)}
 			</div>
 
 			<div className="mt-6">
 				<h3 className="text-[13px] font-semibold">Dev-режим</h3>
 				<p className="text-muted-foreground mt-1 max-w-xl text-[12px] leading-5">
-					То же явное переключение доступно в композере: выключено, с
-					подтверждением или полный доступ.
+					Режим применяется к новым сообщениям: выключено, с подтверждением
+					или полный доступ.
 				</p>
 				<div className="mt-3 max-w-md">
 					<AgentProfileSelector surface="settings" control="developer" />

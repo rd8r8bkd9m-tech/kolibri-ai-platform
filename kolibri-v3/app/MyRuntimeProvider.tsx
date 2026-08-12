@@ -46,6 +46,8 @@ import type {
 import { useIdentity } from "@/lib/identity/provider";
 import {
 	DeveloperAgentModeContext,
+	persistDeveloperAccessMode,
+	readDeveloperAccessMode,
 	type DeveloperAccessMode,
 } from "@/lib/product-chat/developer-agent-mode";
 import {
@@ -162,14 +164,34 @@ function ProductChatRuntimeScope({
 	const client = useMemo(() => new ProductChatClient(), []);
 	const profileRef = useRef(preferredAgentProfile);
 	profileRef.current = preferredAgentProfile;
+	// Developer mode defaults to full, unlimited access for the owner and
+	// persists the choice so a reload does not silently downgrade it.
 	const [developerAccessMode, setDeveloperAccessMode] =
-		useState<DeveloperAccessMode>("standard");
+		useState<DeveloperAccessMode>(readDeveloperAccessMode);
 	const [acceptedRun, setAcceptedRun] = useState<AcceptedProductChatRun | null>(
 		null,
 	);
 	const [dictation, setDictation] = useState<DictationAdapter | undefined>();
 	const developerAccessModeRef = useRef(developerAccessMode);
 	developerAccessModeRef.current = developerAccessMode;
+	const persistMode = useCallback(
+		(next: DeveloperAccessMode) => {
+			developerAccessModeRef.current = next;
+			persistDeveloperAccessMode(next);
+		},
+		[],
+	);
+	const setDeveloperAccessModePersisted = useCallback(
+		(next: DeveloperAccessMode | ((current: DeveloperAccessMode) => DeveloperAccessMode)) => {
+			setDeveloperAccessMode((current) => {
+				const resolved =
+					typeof next === "function" ? next(current) : next;
+				persistMode(resolved);
+				return resolved;
+			});
+		},
+		[persistMode],
+	);
 
 	useEffect(() => {
 		if (!WebSpeechDictationAdapter.isSupported()) return;
@@ -567,10 +589,10 @@ function ProductChatRuntimeScope({
 				value={{
 					available: developerAgentAvailable,
 					mode: developerAccessMode,
-					setMode: setDeveloperAccessMode,
+					setMode: setDeveloperAccessModePersisted,
 					enabled: developerAccessMode !== "standard",
 					setEnabled: (next) =>
-						setDeveloperAccessMode((current) => {
+						setDeveloperAccessModePersisted((current) => {
 							const enabled = current !== "standard";
 							const resolved =
 								typeof next === "function" ? next(enabled) : next;

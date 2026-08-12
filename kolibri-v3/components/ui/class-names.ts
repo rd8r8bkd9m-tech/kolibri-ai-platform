@@ -130,7 +130,7 @@ export const uiClassTokens = {
 	threadComposerShell:
 		"border-border/65 data-[dragging=true]:border-ring focus-within:border-ring/45 dark:border-muted-foreground/15 relative flex w-full min-w-0 flex-col gap-2 rounded-(--composer-radius) border bg-(--composer-bg) p-(--composer-padding) shadow-[0_12px_36px_-24px_rgba(0,0,0,0.45),0_2px_8px_-4px_rgba(0,0,0,0.12)] transition-[border-color,box-shadow] focus-within:shadow-[0_16px_40px_-24px_rgba(0,0,0,0.5),0_3px_10px_-4px_rgba(0,0,0,0.14)] data-[dragging=true]:border-dashed data-[dragging=true]:bg-[color-mix(in_oklab,var(--color-accent)_50%,var(--color-background))] dark:shadow-none [&_.aui-composer-attachments]:flex-wrap [&_.aui-composer-attachments]:overflow-x-hidden",
 	threadComposerInput:
-		"aui-composer-input caret-primary placeholder:text-muted-foreground/80 max-h-36 min-h-12 w-full min-w-0 resize-none overflow-x-hidden bg-transparent px-1.5 py-1 text-[15px] outline-none",
+		"aui-composer-input caret-primary placeholder:text-muted-foreground/80 max-h-36 min-h-12 w-full min-w-0 resize-none overflow-x-hidden overflow-y-auto bg-transparent px-1.5 py-1 text-[15px] outline-none",
 	threadComposerActionRow:
 		"aui-composer-action-wrapper relative flex items-center justify-between",
 	threadComposerLeadingActions:
@@ -146,7 +146,7 @@ export const uiClassTokens = {
 	threadDictateFallback:
 		"aui-composer-dictate aui-composer-dictate-fallback size-7 rounded-full",
 	threadComposerSend:
-		"aui-composer-send size-7 rounded-full",
+		"aui-composer-send size-8 rounded-full",
 	threadComposerSendEmpty:
 		"aui-composer-send-empty",
 	threadComposerCancel:
@@ -165,6 +165,14 @@ export const uiClassTokens = {
 		"data-[submitted=true]:bg-accent data-[submitted=true]:text-foreground",
 	threadReasoningStatus:
 		"my-1.5",
+	threadReasoningBlock:
+		"aui-reasoning-block group/reasoning mt-2 overflow-hidden rounded-xl border border-border/70 bg-muted/35",
+	threadReasoningSummary:
+		"text-muted-foreground hover:text-foreground flex cursor-pointer select-none items-center justify-between gap-2 px-3 py-2 text-[13px] font-medium transition-colors outline-none",
+	threadReasoningChevron:
+		"size-3.5 opacity-60 transition-transform group-open/reasoning:rotate-180",
+	threadReasoningBody:
+		"text-muted-foreground border-t border-border/60 px-3 py-2.5 text-[13px] leading-5 whitespace-pre-wrap",
 	threadUserMessageRoot:
 		"group/user fade-in slide-in-from-bottom-1 animate-in flex min-w-0 max-w-full flex-col items-end gap-y-1.5 duration-150 [contain-intrinsic-size:auto_200px] [content-visibility:auto] [&_.aui-user-message-attachments-end]:max-w-[78%] [&_.aui-user-message-attachments-end]:flex-wrap",
 	threadUserMessageContentWrapper:

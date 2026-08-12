@@ -30,6 +30,12 @@ export function ModelSelector() {
 	const [message, setMessage] = useState("");
 	const [saving, setSaving] = useState(false);
 
+	// Models and providers are platform-admin concerns. Regular users must not
+	// see provider names, model ids or connection state in the mobile UI.
+	if (session.user?.isPlatformOwner !== true) {
+		return null;
+	}
+
 	const client = useMemo(
 		() => new MobileModelClient(session.authorizedFetch, API_BASE_URL),
 		[session.authorizedFetch],

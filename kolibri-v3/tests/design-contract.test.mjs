@@ -132,7 +132,7 @@ test("the compact shell matches the mobile chat contract and persists theme choi
   );
   assert.match(
     sidebarBrand,
-    /data-slot=["']workspace-sidebar-brand["'][\s\S]{0,240}Колибри/,
+    /data-slot=["']workspace-sidebar-brand["'][\s\S]{0,240}Птичка/,
   );
   assert.match(sidebarNavigation, /data-slot=["']workspace-sidebar-body["']/);
   assert.match(sidebarNavigation, /isOverlay/);
@@ -153,7 +153,7 @@ test("the compact shell matches the mobile chat contract and persists theme choi
   assert.match(thread, /aui-composer-mobile-model/);
   assert.match(thread, /data-mobile-layout=\{compact\s*\?/);
   assert.match(thread, /aui-mobile-starter-actions/);
-  assert.match(thread, /Спросить Chat\.\.\./);
+  assert.match(thread, /Спросите что угодно…/);
   assert.match(threadList, /setTimeout\(\(\)\s*=>\s*\{/);
   assert.match(threadList, /setMenuOpen\(true\)/);
   assert.match(threadList, /onContextMenu=/);

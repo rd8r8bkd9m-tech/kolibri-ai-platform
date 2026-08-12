@@ -31,6 +31,7 @@ from ..direct_run_outbox import (
 )
 from ..image_generation import resolve_image_prompt
 from ..model_catalog import (
+    load_model_catalog,
     validate_model_selection,
     validate_profile_selection,
 )
@@ -390,6 +391,25 @@ def prepare_chat_execution(
         identity,
         runtime_profile,
     )
+    if model_id is None and runtime_profile == AgentProfile.AUTO.value:
+        # Only-DeepSeek policy: auto without an explicit user model resolves
+        # to the admin's default enabled platform model and is persisted in
+        # the execution context so the durable estimate continuation uses the
+        # exact same model as the source chat.
+        default_model = database.execute(
+            """
+            SELECT id, model_id
+            FROM platform_models
+            WHERE is_enabled = 1 AND is_default = 1
+            ORDER BY auto_priority DESC
+            LIMIT 1
+            """
+        ).fetchone()
+        if default_model is not None:
+            model_id = (
+                f"platform:{str(default_model['id'])[:8]}:"
+                f"{default_model['model_id']}"
+            )
     execution_plane = settings.chat_execution_plane(execution_mode)
     current_message = run_input.messages[-1]
     explicit_image_request = resolve_image_prompt(
@@ -506,11 +526,31 @@ def prepare_chat_execution(
         and profile_catalog is not None
         and profile_catalog.model_selection_supported
     ):
-        raise _error(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
-            "developer_model_selection_required",
-            "Выберите конкретную модель из каталога runtime.",
+        # Devmode works out of the box: without an explicit user choice the
+        # runtime's own default model (the only enabled DeepSeek model on
+        # this deployment) is resolved from the live catalog.
+        models, _legacy_available = load_model_catalog(
+            request,
+            database,
+            tenant_id=identity.tenant_id,
         )
+        profile_models = [
+            entry
+            for entry in models
+            if entry.profile.value == runtime_profile
+        ]
+        selected_default = next(
+            (entry for entry in profile_models if entry.is_default),
+            profile_models[0] if profile_models else None,
+        )
+        if selected_default is None:
+            raise _error(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                "developer_model_selection_required",
+                "Runtime не публикует выбираемую модель для developer-режима.",
+            )
+        model_id = selected_default.id
+        reasoning_effort = selected_default.default_reasoning_effort
 
     return PreparedChatExecution(
         execution_plane=execution_plane,

@@ -293,6 +293,8 @@ class Settings:
     gemini_model: str = "gemini-3.6-flash"
     local_provider_vault_read_enabled: bool = False
     developer_agent_enabled: bool = False
+    codex_cli_runtime_enabled: bool = False
+    mimo_runtime_enabled: bool = False
     embedded_developer_runtime_enabled: bool = False
     developer_workspace_root: Path | None = None
     developer_agent_timeout_seconds: float = 30 * 60
@@ -752,6 +754,14 @@ class Settings:
             os.getenv("KOLIBRI_V3_DEVELOPER_AGENT_ENABLED"),
             default=environment == "development",
         )
+        codex_cli_runtime_enabled = _parse_bool(
+            os.getenv("KOLIBRI_V3_CODEX_CLI_ENABLED"),
+            default=False,
+        )
+        mimo_runtime_enabled = _parse_bool(
+            os.getenv("KOLIBRI_V3_MIMO_ENABLED"),
+            default=False,
+        )
         return cls(
             database_url=database_url,
             allowed_origins=origins,
@@ -828,6 +838,8 @@ class Settings:
                 default=False,
             ),
             developer_agent_enabled=developer_agent_enabled,
+            codex_cli_runtime_enabled=codex_cli_runtime_enabled,
+            mimo_runtime_enabled=mimo_runtime_enabled,
             embedded_developer_runtime_enabled=_parse_bool(
                 os.getenv(
                     "KOLIBRI_V3_EMBEDDED_DEVELOPER_RUNTIME_ENABLED"

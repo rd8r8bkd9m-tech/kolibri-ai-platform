@@ -959,6 +959,40 @@ def test_provider_admin_context_requires_owner_and_csrf(
         assert forbidden.json()["code"] == "owner_required"
 
 
+def test_null_origin_mutation_requires_valid_double_submit_csrf(
+    tmp_path: Path,
+) -> None:
+    """Sandboxed iframes send Origin: null; CSRF must still bind the session."""
+
+    database_path = tmp_path / "null-origin.db"
+    settings = _settings(database_path)
+    with TestClient(create_app(settings)) as client:
+        owner = _register(client, email="owner@example.com", name="Owner")
+        assert owner.status_code == 201
+        promote_registered_owner(settings, email="owner@example.com")
+
+        denied = client.post(
+            "/v1/internal/provider-admin-context",
+            headers={"Origin": "null"},
+        )
+        assert denied.status_code == 403
+
+        forged = client.post(
+            "/v1/internal/provider-admin-context",
+            headers={"Origin": "null", "X-CSRF-Token": "forged-token"},
+        )
+        assert forged.status_code == 403
+        assert forged.json()["code"] == "http_403"
+
+        csrf = client.cookies.get("kolibri_v3_csrf")
+        approved = client.post(
+            "/v1/internal/provider-admin-context",
+            headers={"Origin": "null", "X-CSRF-Token": csrf},
+        )
+        assert approved.status_code == 200
+        assert approved.json()["csrfVerified"] is True
+
+
 def test_login_is_origin_checked_and_throttled_without_storing_raw_email(
     tmp_path: Path,
 ) -> None:

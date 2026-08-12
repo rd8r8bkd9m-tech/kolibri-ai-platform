@@ -61,6 +61,34 @@ def _message_content(
             and isinstance(part.get("result"), dict)
         ):
             return [part]
+        if isinstance(part, list) and len(part) <= 128:
+            parts: list[dict[str, object]] = []
+            for item in part:
+                if not isinstance(item, dict):
+                    continue
+                if item.get("type") == "reasoning" and isinstance(
+                    item.get("text"),
+                    str,
+                ):
+                    parts.append(
+                        {
+                            "type": "reasoning",
+                            "text": item["text"],
+                        }
+                    )
+                    continue
+                if item.get("type") == "text" and isinstance(
+                    item.get("text"),
+                    str,
+                ):
+                    parts.append(
+                        {
+                            "type": "text",
+                            "text": item["text"],
+                        }
+                    )
+            if parts:
+                return parts
     content: list[dict[str, object]] = [
         {"type": "text", "text": str(row["content_text"])}
     ]

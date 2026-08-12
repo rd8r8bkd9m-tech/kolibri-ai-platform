@@ -30,6 +30,7 @@ from app.estimate_generation import (
     save_generation_project_case,
     save_technology_card_revision,
     transition_generation_run,
+    _unit,
     validate_project_case,
     validate_technology_card,
 )
@@ -947,3 +948,26 @@ def test_universal_card_accepts_common_construction_units(unit: str) -> None:
     }
     report = validate_technology_card(_analysed_project_case(), card)
     assert report.passed, report.as_dict()
+
+
+@pytest.mark.parametrize(
+    ("raw_unit", "expected"),
+    [
+        ("kg/m2", "kg_per_m2"),
+        ("kg/m²", "kg_per_m2"),
+        ("кг/м2", "kg_per_m2"),
+        ("кг/m2", "kg_per_m2"),
+        ("l/m2", "l_per_m2"),
+        ("l/m²", "l_per_m2"),
+        ("l/kg", "l_per_kg"),
+        ("kwh/m2", "kwh_per_m2"),
+        ("квт·ч/м2", "kwh_per_m2"),
+    ],
+)
+def test_ascii_compound_unit_aliases_are_normalized(
+    raw_unit: str,
+    expected: str,
+) -> None:
+    """DeepSeek/OpenAI models write kg/m2; the pipeline must accept it."""
+
+    assert _unit(raw_unit, field="test.unit") == expected

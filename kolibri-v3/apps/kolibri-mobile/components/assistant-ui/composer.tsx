@@ -21,7 +21,11 @@ import { Layout } from "@/constants/theme";
 import { useTheme } from "@/hooks/use-theme";
 import { haptics } from "@/lib/haptics";
 import { API_BASE_URL } from "@/src/auth/mobile-session";
-import { useProductChatContext } from "@/src/product-chat/runtime-provider";
+import {
+	useMobileDeveloperMode,
+	useProductChatContext,
+	type MobileDeveloperMode,
+} from "@/src/product-chat/runtime-provider";
 
 // Contract marker for the behavioral QA: the PWA Enter-to-send behaviour is
 // only testable once the served bundle contains this module. The dev server
@@ -143,6 +147,52 @@ function SendButton() {
 	);
 }
 
+const DEV_MODE_CYCLE: readonly MobileDeveloperMode[] = [
+	"standard",
+	"auto",
+	"full",
+];
+
+const DEV_MODE_LABELS: Record<MobileDeveloperMode, string> = {
+	standard: "Dev",
+	auto: "Dev · Авто",
+	full: "Dev · Полный",
+};
+
+function DevModeToggle() {
+	const { colors } = useTheme();
+	const { mode, setMode } = useMobileDeveloperMode();
+	const cycle = () => {
+		const next =
+			DEV_MODE_CYCLE[
+				(DEV_MODE_CYCLE.indexOf(mode) + 1) % DEV_MODE_CYCLE.length
+			] ?? "full";
+		haptics.selection();
+		setMode(next);
+	};
+	const active = mode !== "standard";
+	return (
+		<Pressable
+			accessibilityHint="Переключает режим разработчика: обычный, с подтверждением или полный доступ"
+			accessibilityLabel={`Режим разработчика: ${DEV_MODE_LABELS[mode]}`}
+			accessibilityRole="button"
+			onPress={cycle}
+			style={[
+				styles.devToggle,
+				active && { backgroundColor: colors.muted },
+			]}
+		>
+			<Icon name="shield" size={16} color={colors.mutedForeground} />
+			<Text
+				numberOfLines={1}
+				style={[styles.devToggleLabel, { color: colors.mutedForeground }]}
+			>
+				{DEV_MODE_LABELS[mode]}
+			</Text>
+		</Pressable>
+	);
+}
+
 function StopButton() {
 	const { colors } = useTheme();
 	return (
@@ -203,6 +253,7 @@ export function Composer() {
 				]}
 			>
 				<AttachmentButton />
+				<DevModeToggle />
 				<ComposerPrimitive.Input
 					accessibilityLabel="Сообщение"
 					maxLength={65_536}
@@ -210,7 +261,7 @@ export function Composer() {
 					onBlur={handleBlur}
 					onFocus={handleFocus}
 					onKeyPress={handleKeyPress}
-					placeholder="Спросить Kolibri…"
+					placeholder="Спросите что угодно…"
 					placeholderTextColor={colors.mutedForeground}
 					style={[styles.input, { color: colors.foreground }]}
 				/>
@@ -295,6 +346,17 @@ const styles = StyleSheet.create({
 		opacity: 0.94,
 		width: 40,
 	},
+	devToggle: {
+		alignItems: "center",
+		borderRadius: 18,
+		flexDirection: "row",
+		gap: 4,
+		height: 36,
+		justifyContent: "center",
+		marginLeft: 2,
+		paddingHorizontal: 9,
+	},
+	devToggleLabel: { fontSize: 12, fontWeight: "600", lineHeight: 15 },
 	disabled: { opacity: 0.42 },
 	input: {
 		flex: 1,

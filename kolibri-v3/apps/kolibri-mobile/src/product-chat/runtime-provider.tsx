@@ -42,6 +42,38 @@ const ATTACHMENT_CONTENT_PATH =
 const MIME_TYPE =
 	/^[a-z0-9][a-z0-9!#$&^_.+-]{0,126}\/[a-z0-9][a-z0-9!#$&^_.+-]{0,126}$/;
 
+export type MobileDeveloperMode = "standard" | "auto" | "full";
+
+const MOBILE_DEVELOPER_MODE_KEY = "kolibri.ui.mobile-developer-access-mode";
+
+const readMobileDeveloperMode = (): MobileDeveloperMode => {
+	if (typeof globalThis.localStorage === "undefined") return "full";
+	const saved = globalThis.localStorage.getItem(MOBILE_DEVELOPER_MODE_KEY);
+	return saved === "standard" || saved === "auto" || saved === "full"
+		? saved
+		: "full";
+};
+
+const persistMobileDeveloperMode = (next: MobileDeveloperMode) => {
+	try {
+		globalThis.localStorage?.setItem(MOBILE_DEVELOPER_MODE_KEY, next);
+	} catch {
+		// Storage can be blocked; the in-memory choice still applies.
+	}
+};
+
+export const MobileDeveloperModeContext =
+	createContext<{
+		mode: MobileDeveloperMode;
+		setMode: (next: MobileDeveloperMode) => void;
+	}>({
+		mode: "full",
+		setMode: () => undefined,
+	});
+
+export const useMobileDeveloperMode = () =>
+	useContext(MobileDeveloperModeContext);
+
 type NormalizedContentPart =
 	| { type: "text"; text: string }
 	| {
@@ -214,16 +246,45 @@ const hydrate = (messages: readonly ProductMessage[]) => {
 			role: message.role,
 			content: message.content,
 		})),
-		{ showThinking: false },
+		{ showThinking: true },
 	);
 	if (converted.length !== messages.length) {
 		throw new Error("Product Chat history could not be reconstructed.");
 	}
+	// The server persists reasoning as a content part of the assistant
+	// message. assistant-ui's snapshot converter keeps only text parts, so
+	// re-inject the reasoning part to render one bubble: collapsed
+	// «Рассуждение» plus the always-visible answer.
+	const pairs = converted.map((message, index) => ({
+		message,
+		historical: messages[index]!,
+	}));
+	const mergedPairs = pairs.map(({ message, historical }) => {
+		if (message.role !== "assistant") return { message, historical };
+		const reasoningPart = historical.content.find(
+			(part) =>
+				part.type === "reasoning" &&
+				typeof (part as { text?: unknown }).text === "string",
+		);
+		if (!reasoningPart) return { message, historical };
+		return {
+			message: {
+				...message,
+				content: [
+					reasoningPart,
+					...(Array.isArray(message.content)
+						? message.content
+						: []),
+				],
+			},
+			historical,
+		};
+	});
 	return ExportedMessageRepository.fromArray(
-		converted.map((message, index) => ({
+		mergedPairs.map(({ message, historical }) => ({
 			...message,
-			id: messages[index]!.id,
-			createdAt: new Date(messages[index]!.createdAt),
+			id: historical.id,
+			createdAt: new Date(historical.createdAt),
 		})),
 	);
 };
@@ -232,11 +293,13 @@ const createProductAgent = ({
 	request,
 	threadId,
 	agentProfile,
+	developerMode,
 	onAccepted,
 }: {
 	request: typeof fetch;
 	threadId: string;
 	agentProfile: string;
+	developerMode: MobileDeveloperMode;
 	onAccepted: (runId: string) => void;
 	}) =>
 	new HttpAgent({
@@ -261,6 +324,7 @@ const createProductAgent = ({
 				runId,
 				messages,
 				agentProfile,
+				developerMode,
 			});
 			const headers = new Headers(init.headers);
 			headers.set("Accept", "text/event-stream");
@@ -287,11 +351,13 @@ export const buildMobileAgUiPayload = ({
 	runId,
 	messages,
 	agentProfile,
+	developerMode,
 }: {
 	threadId: string;
 	runId: string;
 	messages: readonly unknown[];
 	agentProfile: unknown;
+	developerMode: MobileDeveloperMode;
 }) => ({
 	threadId,
 	runId,
@@ -299,11 +365,17 @@ export const buildMobileAgUiPayload = ({
 	messages,
 	tools: [],
 	context: [],
-	// Keep standard mobile chat on the same V1 wire contract as desktop. The
-	// backend defaults omitted standard access to the canonical standard policy.
+	// Developer mode is an explicit owner hint: the backend independently
+	// verifies the session role, policy and workspace before executing.
 	forwardedProps: {
 		agentProfile: normalizeAgentProfile(agentProfile),
-		executionMode: "standard" as const,
+		executionMode:
+			developerMode === "standard"
+				? ("standard" as const)
+				: ("developer" as const),
+		...(developerMode === "standard"
+			? {}
+			: { accessMode: developerMode }),
 	},
 });
 
@@ -331,6 +403,15 @@ function ProductRuntimeScope({
 	const activeRunIdRef = useRef<string | null>(null);
 	const bootstrapRef = useRef<Promise<Bootstrap> | null>(null);
 	const [initialDraftId] = useState(createDraftId);
+	const [developerMode, setDeveloperMode] =
+		useState<MobileDeveloperMode>(readMobileDeveloperMode);
+	const setDeveloperModePersisted = useCallback(
+		(next: MobileDeveloperMode) => {
+			setDeveloperMode(next);
+			persistMobileDeveloperMode(next);
+		},
+		[],
+	);
 
 	const commit = useCallback((next: Projection) => {
 		projectionRef.current = next;
@@ -418,6 +499,7 @@ function ProductRuntimeScope({
 				request: session.authorizedFetch,
 				threadId: activeAgentThreadId,
 				agentProfile: activeAgentProfile,
+				developerMode,
 				onAccepted: (runId) => {
 					activeRunIdRef.current = runId;
 					publishPetMessageAccepted(activeAgentThreadId, runId);
@@ -427,6 +509,7 @@ function ProductRuntimeScope({
 		[
 			activeAgentProfile,
 			activeAgentThreadId,
+			developerMode,
 			loadThreads,
 			session.authorizedFetch,
 		],
@@ -588,11 +671,15 @@ function ProductRuntimeScope({
 	});
 
 	return (
-		<ProductChatContext.Provider value={productChatContext}>
-			<AssistantRuntimeProvider runtime={runtime}>
-				{children}
-			</AssistantRuntimeProvider>
-		</ProductChatContext.Provider>
+		<MobileDeveloperModeContext.Provider
+			value={{ mode: developerMode, setMode: setDeveloperModePersisted }}
+		>
+			<ProductChatContext.Provider value={productChatContext}>
+				<AssistantRuntimeProvider runtime={runtime}>
+					{children}
+				</AssistantRuntimeProvider>
+			</ProductChatContext.Provider>
+		</MobileDeveloperModeContext.Provider>
 	);
 }
 

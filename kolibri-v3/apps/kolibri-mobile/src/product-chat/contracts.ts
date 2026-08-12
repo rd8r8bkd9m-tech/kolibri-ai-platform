@@ -11,9 +11,10 @@ export type ProductThread = {
 
 export type ProductMessage = {
 	id: string;
-	role: "user" | "assistant";
+	role: "user" | "assistant" | "reasoning";
 	content: readonly (
 		| { type: "text"; text: string }
+		| { type: "reasoning"; text: string }
 		| {
 				type: "tool-call";
 				toolCallId: string;
@@ -80,6 +81,13 @@ const parseContent = (value: unknown): ProductMessage["content"][number] => {
 		return { type: "text", text: value.text };
 	}
 	if (
+		value.type === "reasoning" &&
+		typeof value.text === "string" &&
+		value.text.length <= 1_000_000
+	) {
+		return { type: "reasoning", text: value.text };
+	}
+	if (
 		value.type === "tool-call" &&
 		isId(value.toolCallId) &&
 		typeof value.toolName === "string" &&
@@ -105,7 +113,9 @@ const parseMessage = (value: unknown): ProductMessage => {
 	if (
 		!isRecord(value) ||
 		!isId(value.id) ||
-		(value.role !== "user" && value.role !== "assistant") ||
+		(value.role !== "user" &&
+			value.role !== "assistant" &&
+			value.role !== "reasoning") ||
 		!Array.isArray(value.content) ||
 		value.content.length === 0 ||
 		value.content.length > 128 ||

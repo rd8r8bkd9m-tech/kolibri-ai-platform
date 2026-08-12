@@ -48,12 +48,13 @@ export type ProductChatAttachmentPart = {
 
 export type ProductChatContentPart =
 	| ProductChatTextPart
+	| { readonly type: "reasoning"; readonly text: string }
 	| ProductChatAttachmentPart
 	| ProductChatToolCallPart;
 
 export type ProductChatMessage = {
 	readonly id: string;
-	readonly role: "user" | "assistant";
+	readonly role: "user" | "assistant" | "reasoning";
 	readonly content: readonly ProductChatContentPart[];
 	readonly createdAt: string;
 	readonly status: {
@@ -182,6 +183,23 @@ const parseTextPart = (value: unknown): ProductChatTextPart => {
 		throw new ProductChatContractError("Invalid Product Chat message part.");
 	}
 	return { type: "text", text: value.text };
+};
+
+const parseReasoningPart = (
+	value: unknown,
+): { type: "reasoning"; text: string } => {
+	if (
+		!isRecord(value) ||
+		!hasExactlyKeys(value, ["type", "text"]) ||
+		value.type !== "reasoning" ||
+		typeof value.text !== "string" ||
+		value.text.length > 1_000_000
+	) {
+		throw new ProductChatContractError(
+			"Invalid Product Chat message part.",
+		);
+	}
+	return { type: "reasoning", text: value.text };
 };
 
 const parseToolArgumentsText = (
@@ -435,6 +453,9 @@ const parseContentPart = (value: unknown): ProductChatContentPart => {
 	) {
 		return parseAttachmentPart(value);
 	}
+	if (isRecord(value) && value.type === "reasoning") {
+		return parseReasoningPart(value);
+	}
 	return parseTextPart(value);
 };
 
@@ -443,7 +464,9 @@ const parseMessage = (value: unknown): ProductChatMessage => {
 		!isRecord(value) ||
 		!hasExactlyKeys(value, MESSAGE_KEYS) ||
 		!isSafeProductChatId(value.id) ||
-		(value.role !== "user" && value.role !== "assistant") ||
+		(value.role !== "user" &&
+			value.role !== "assistant" &&
+			value.role !== "reasoning") ||
 		!Array.isArray(value.content) ||
 		value.content.length === 0 ||
 		value.content.length > 128 ||

@@ -11,6 +11,30 @@ export const DEVELOPER_ACCESS_MODES = ["standard", "auto", "full"] as const;
 
 export type DeveloperAccessMode = (typeof DEVELOPER_ACCESS_MODES)[number];
 
+const DEVELOPER_ACCESS_MODE_KEY = "kolibri.ui.developer-access-mode";
+
+/**
+ * Developer access mode is a local UI preference (like theme choice), not a
+ * history source of truth. Product Chat history itself stays server-backed.
+ */
+export const readDeveloperAccessMode = (): DeveloperAccessMode => {
+	if (typeof globalThis.localStorage === "undefined") return "full";
+	const saved = globalThis.localStorage.getItem(DEVELOPER_ACCESS_MODE_KEY);
+	return saved === "standard" || saved === "auto" || saved === "full"
+		? saved
+		: "full";
+};
+
+export const persistDeveloperAccessMode = (
+	next: DeveloperAccessMode,
+): void => {
+	try {
+		globalThis.localStorage?.setItem(DEVELOPER_ACCESS_MODE_KEY, next);
+	} catch {
+		// Storage can be blocked; the in-memory choice still applies.
+	}
+};
+
 export type DeveloperAgentModeContextValue = {
 	readonly available: boolean;
 	readonly mode: DeveloperAccessMode;

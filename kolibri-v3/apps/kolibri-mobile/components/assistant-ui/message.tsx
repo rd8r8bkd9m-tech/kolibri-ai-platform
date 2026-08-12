@@ -6,7 +6,14 @@ import {
 	type TextMessagePartComponent,
 } from "@assistant-ui/react-native";
 import { useEffect, useState } from "react";
-import { Animated, Platform, StyleSheet, Text, View } from "react-native";
+import {
+	Animated,
+	Platform,
+	Pressable,
+	StyleSheet,
+	Text,
+	View,
+} from "react-native";
 
 import { MessageActionBar } from "@/components/assistant-ui/message-action-bar";
 import { MessageBranchPicker } from "@/components/assistant-ui/message-branch-picker";
@@ -32,6 +39,52 @@ const AssistantText: TextMessagePartComponent = ({ text }) => {
 		</Text>
 	);
 };
+
+function ReasoningBlock({ text }: { text: string }) {
+	const { colors } = useTheme();
+	const [open, setOpen] = useState(false);
+	const content = text?.trim();
+	if (!content) return null;
+	return (
+		<View
+			style={[
+				styles.reasoning,
+				{
+					backgroundColor: colors.surface,
+					borderColor: colors.border,
+				},
+			]}
+		>
+			<Pressable
+				accessibilityLabel="Рассуждение"
+				accessibilityRole="button"
+				accessibilityState={{ expanded: open }}
+				onPress={() => {
+					haptics.selection();
+					setOpen((value) => !value);
+				}}
+				style={styles.reasoningHeader}
+			>
+				<Text style={[styles.reasoningTitle, { color: colors.mutedForeground }]}>
+					Рассуждение
+				</Text>
+				<Text style={[styles.reasoningChevron, { color: colors.mutedForeground }]}>
+					{open ? "⌃" : "⌄"}
+				</Text>
+			</Pressable>
+			{open ? (
+				<View style={[styles.reasoningBody, { borderTopColor: colors.border }]}>
+					<Text
+						selectable
+						style={[styles.reasoningText, { color: colors.mutedForeground }]}
+					>
+						{content}
+					</Text>
+				</View>
+			) : null}
+		</View>
+	);
+}
 
 function TypingDot({ delay }: { delay: number }) {
 	const { colors } = useTheme();
@@ -97,7 +150,11 @@ function AssistantMessage() {
 		<MessagePrimitive.Root style={styles.assistantRoot}>
 			<View style={styles.assistantContent}>
 				<MessagePrimitive.Parts
-					components={{ Text: AssistantText, Empty: TypingIndicator }}
+					components={{
+						Text: AssistantText,
+						Reasoning: ReasoningBlock,
+						Empty: TypingIndicator,
+					}}
 				/>
 				<ErrorPrimitive.Root
 					style={[
@@ -170,6 +227,28 @@ const styles = StyleSheet.create({
 	},
 	assistantRoot: { alignItems: "flex-start" },
 	assistantContent: { paddingHorizontal: 2 },
+	reasoning: {
+		borderRadius: Radius.md,
+		borderWidth: StyleSheet.hairlineWidth,
+		marginBottom: 10,
+		marginTop: 2,
+		overflow: "hidden",
+	},
+	reasoningHeader: {
+		alignItems: "center",
+		flexDirection: "row",
+		justifyContent: "space-between",
+		paddingHorizontal: 12,
+		paddingVertical: 9,
+	},
+	reasoningTitle: { fontSize: 13, fontWeight: "600", lineHeight: 17 },
+	reasoningChevron: { fontSize: 16, lineHeight: 17 },
+	reasoningBody: {
+		borderTopWidth: StyleSheet.hairlineWidth,
+		paddingHorizontal: 12,
+		paddingVertical: 10,
+	},
+	reasoningText: { fontSize: 13, lineHeight: 19 },
 	userText: { fontSize: 16, letterSpacing: -0.2, lineHeight: 22 },
 	assistantText: { fontSize: 16, letterSpacing: -0.2, lineHeight: 25 },
 	typing: {

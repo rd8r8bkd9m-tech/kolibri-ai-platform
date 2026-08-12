@@ -229,6 +229,11 @@ class AgentRuntimeRequest:
         repr=False,
         compare=False,
     )
+    on_reasoning: RuntimeDeltaCallback | None = field(
+        default=None,
+        repr=False,
+        compare=False,
+    )
     cancellation_signal: threading.Event | None = field(
         default=None,
         repr=False,

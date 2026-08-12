@@ -265,8 +265,6 @@ export const ComposerAction: ComponentType = () => {
 		useContext(ThreadNavigationContext);
 	const authenticated = identity.status === "authenticated";
 	const attachmentsSupported = useAuiState((s) => s.thread.capabilities.attachments);
-	const dictationSupported = useAuiState((s) => s.thread.capabilities.dictation);
-	const composerEmpty = useAuiState((s) => s.composer.isEmpty);
 	const attachmentsDisabled = !authenticated || !attachmentsSupported;
 	const attachmentTooltip = !authenticated
 		? THREAD_UI_TEXT.TOOLTIP_ATTACH
@@ -352,15 +350,7 @@ export const ComposerAction: ComponentType = () => {
 				{authenticated ? (
 					<>
 						{!compact ? (
-							<>
-								<AuiIf condition={(s) => s.thread.isRunning}>
-										<LoaderCircleIcon
-											className={THREAD_UI_CLASS.SPINNER_RUNNING}
-											aria-hidden="true"
-										/>
-								</AuiIf>
-								<AgentProfileSelector />
-							</>
+							<AgentProfileSelector />
 						) : null}
 						<AuiIf condition={(s) => s.thread.capabilities.dictation}>
 							<AuiIf condition={(s) => s.composer.dictation == null}>
@@ -397,20 +387,6 @@ export const ComposerAction: ComponentType = () => {
 								</ComposerPrimitive.StopDictation>
 							</AuiIf>
 						</AuiIf>
-						{compact && !dictationSupported ? (
-							<TooltipIconButton
-											tooltip={THREAD_UI_TEXT.LABEL_DICTATE_UNAVAILABLE}
-								side="bottom"
-								type="button"
-								variant="ghost"
-								size="icon"
-								disabled
-								className={uiClassTokens.threadDictateFallback}
-											aria-label={THREAD_UI_TEXT.LABEL_DICTATE_UNAVAILABLE}
-							>
-								<MicIcon className={uiClassTokens.threadDictateIcon} />
-							</TooltipIconButton>
-						) : null}
 						<AuiIf condition={(s) => !s.thread.isRunning && !s.composer.isEmpty}>
 							<ComposerPrimitive.Send asChild>
 								<TooltipIconButton

@@ -185,6 +185,7 @@ class ModelToolCall:
 class ModelTurn:
     text: str | None = None
     tool_call: ModelToolCall | None = None
+    reasoning: str | None = None
 
 
 class EstimateGenerationNeedsInput(DirectModelError):
@@ -989,14 +990,20 @@ class _TextRunStream:
         self.accepted = accepted
         self.provider = provider
         self.message_id = new_id("message")
+        self.reasoning_message_id = new_id("reasoning")
         self.started = False
+        self.reasoning_started = False
         self.text = ""
+        self.reasoning = ""
         self._started_at = time.monotonic()
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
 
-    def append(self, delta: str) -> None:
-        if not delta:
-            return
+    def _persist_events(
+        self,
+        events: list[dict[str, Any]],
+        *,
+        text_delta: str | None = None,
+    ) -> None:
         with self._lock:
             database = connect_database(self.settings.database_url)
             now = utc_now()
@@ -1016,22 +1023,6 @@ class _TextRunStream:
                     if run is None or str(run["status"]) != "running":
                         return
                     first = int(run["last_event_sequence"]) + 1
-                    events: list[dict[str, Any]] = []
-                    if not self.started:
-                        events.append(
-                            {
-                                "type": "TEXT_MESSAGE_START",
-                                "messageId": self.message_id,
-                                "role": "assistant",
-                            }
-                        )
-                    events.append(
-                        {
-                            "type": "TEXT_MESSAGE_CONTENT",
-                            "messageId": self.message_id,
-                            "delta": delta,
-                        }
-                    )
                     for offset, event in enumerate(events):
                         _insert_event(
                             database,
@@ -1056,10 +1047,7 @@ class _TextRunStream:
                             self.accepted.run_id,
                         ),
                     )
-                first_delta = not self.started
-                self.started = True
-                self.text += delta
-                if first_delta:
+                if text_delta:
                     logger.info(
                         "Direct model first delta provider=%s run=%s ttft_ms=%d",
                         self.provider,
@@ -1068,6 +1056,58 @@ class _TextRunStream:
                     )
             finally:
                 database.close()
+
+    def append(self, delta: str) -> None:
+        if not delta:
+            return
+        with self._lock:
+            self.text += delta
+            first_delta = not self.started
+            self.started = True
+            events: list[dict[str, Any]] = []
+            if first_delta:
+                events.append(
+                    {
+                        "type": "TEXT_MESSAGE_START",
+                        "messageId": self.message_id,
+                        "role": "assistant",
+                    }
+                )
+            events.append(
+                {
+                    "type": "TEXT_MESSAGE_CONTENT",
+                    "messageId": self.message_id,
+                    "delta": delta,
+                }
+            )
+        self._persist_events(
+            events,
+            text_delta=delta if first_delta else None,
+        )
+
+    def append_reasoning(self, delta: str) -> None:
+        if not delta:
+            return
+        with self._lock:
+            self.reasoning += delta
+            first_reasoning = not self.reasoning_started
+            self.reasoning_started = True
+            events: list[dict[str, Any]] = []
+            if first_reasoning:
+                events.append(
+                    {
+                        "type": "REASONING_MESSAGE_START",
+                        "messageId": self.reasoning_message_id,
+                    }
+                )
+            events.append(
+                {
+                    "type": "REASONING_MESSAGE_CONTENT",
+                    "messageId": self.reasoning_message_id,
+                    "delta": delta,
+                }
+            )
+        self._persist_events(events)
 
     def elapsed_ms(self) -> int:
         return round((time.monotonic() - self._started_at) * 1000)
@@ -1292,6 +1332,7 @@ def _history(
          AND input.id = run.input_message_id
         WHERE message.tenant_id = ?
           AND message.thread_id = ?
+          AND message.role != 'reasoning'
           AND message.sequence <= input.sequence
         ORDER BY message.sequence DESC
         LIMIT 60
@@ -2699,6 +2740,16 @@ def _finish_success(
             message_id = (
                 text_stream.message_id if text_stream is not None else new_id("message")
             )
+            reasoning_message_id = (
+                text_stream.reasoning_message_id
+                if text_stream is not None
+                else new_id("reasoning")
+            )
+            streamed_reasoning = (
+                text_stream.reasoning
+                if text_stream is not None and text_stream.reasoning
+                else ""
+            )
             tool_call_id = new_id("tool") if widget is not None else None
             tool_arguments = (
                 json.dumps(
@@ -2737,8 +2788,25 @@ def _finish_success(
                     allow_nan=False,
                 )
                 if widget is not None
-                else None
+                else (
+                    json.dumps(
+                        [
+                            {
+                                "type": "reasoning",
+                                "text": streamed_reasoning,
+                            },
+                            {"type": "text", "text": text},
+                        ],
+                        ensure_ascii=False,
+                        sort_keys=True,
+                        separators=(",", ":"),
+                        allow_nan=False,
+                    )
+                    if streamed_reasoning
+                    else None
+                )
             )
+            next_sequence = int(sequence_row["value"]) + 1
             database.execute(
                 """
                 INSERT INTO chat_messages (
@@ -2752,7 +2820,7 @@ def _finish_success(
                     message_id,
                     accepted.project_id,
                     accepted.thread_id,
-                    int(sequence_row["value"]) + 1,
+                    next_sequence,
                     accepted.run_id,
                     text,
                     content_json,
@@ -2761,7 +2829,18 @@ def _finish_success(
             )
             first = int(run["last_event_sequence"]) + 1
             if widget is None and text_stream is not None and text_stream.started:
+                reasoning_end = (
+                    (
+                        {
+                            "type": "REASONING_MESSAGE_END",
+                            "messageId": reasoning_message_id,
+                        },
+                    )
+                    if text_stream.reasoning_started
+                    else ()
+                )
                 events = (
+                    *reasoning_end,
                     {"type": "TEXT_MESSAGE_END", "messageId": message_id},
                     {
                         "type": "RUN_FINISHED",
@@ -3938,7 +4017,9 @@ def _custom_model_response(
     messages: list[dict[str, str]],
     instructions: str,
     on_delta: Callable[[str], None],
+    on_reasoning: Callable[[str], None] | None = None,
     cancellation_signal: threading.Event | None = None,
+    output_schema: dict[str, Any] | None = None,
 ) -> ModelTurn:
     """Stream an OpenAI-compatible chat completion for a custom model."""
 
@@ -3948,11 +4029,19 @@ def _custom_model_response(
     request_payload: dict[str, Any] = {
         "model": api_model,
         "messages": [
-            {"role": "system", "content": instructions},
+            {
+                "role": "system",
+                "content": _openai_compatible_structured_system(
+                    instructions,
+                    output_schema,
+                ),
+            },
             *messages,
         ],
         "stream": True,
     }
+    if output_schema is not None:
+        request_payload["response_format"] = {"type": "json_object"}
     try:
         response = runtime.stream(
             f"{base_url}/chat/completions",
@@ -3984,6 +4073,7 @@ def _custom_model_response(
         )
 
     text_parts: list[str] = []
+    reasoning_parts: list[str] = []
     try:
         for line in response.iter_lines():
             if cancellation_signal is not None and cancellation_signal.is_set():
@@ -4008,10 +4098,112 @@ def _custom_model_response(
             if content:
                 text_parts.append(content)
                 on_delta(content)
+            reasoning = delta.get("reasoning_content")
+            if reasoning and on_reasoning is not None:
+                reasoning_parts.append(reasoning)
+                on_reasoning(reasoning)
     finally:
         response.close()
 
-    return ModelTurn(text="".join(text_parts))
+    return ModelTurn(
+        text="".join(text_parts),
+        reasoning="".join(reasoning_parts) or None,
+    )
+
+
+def _custom_model_runtime_adapter(
+    settings: Settings,
+    *,
+    api_key: str,
+    base_url: str,
+    api_model: str,
+    provider_label: str,
+) -> DelegatingAgentRuntime:
+    """Runtime for admin-configured platform/user OpenAI-compatible models.
+
+    These models are first-class estimate providers: the durable pipeline
+    requires structured JSON output, so the adapter passes the exact schema
+    and ``response_format`` to the custom endpoint.
+    """
+
+    descriptor = AgentRuntimeDescriptor(
+        profile_id=(
+            "custom-"
+            + hashlib.sha256(api_model.encode("utf-8")).hexdigest()[:12]
+        ),
+        runtime_id="custom-model-runtime",
+        display_name=provider_label,
+        auto_priority=10,
+        capabilities=AgentRuntimeCapabilities(
+            modes=frozenset({"chat", "structured", "developer"}),
+            streaming=True,
+            structured_output=True,
+            activity_events=True,
+            persistent_sessions=False,
+            model_catalog=False,
+        ),
+    )
+
+    def execute(request: AgentRuntimeRequest) -> AgentRuntimeResult:
+        selection = request.configuration.selection
+        if any(
+            value is not None
+            for value in (
+                selection.reasoning_effort,
+                selection.service_tier,
+            )
+        ):
+            raise AgentRuntimeError(
+                "agent_model_selection_not_supported",
+                "Модель не поддерживает эти настройки.",
+                category="configuration",
+            )
+        if request.mode == "developer":
+            from .deepseek_developer_agent import (
+                execute_deepseek_developer_agent,
+            )
+
+            return execute_deepseek_developer_agent(
+                settings,
+                api_key=api_key,
+                base_url=base_url,
+                api_model=api_model,
+                request=request,
+            )
+        if request.mode == "structured" and request.output_schema is None:
+            raise AgentRuntimeError(
+                "structured_output_schema_missing",
+                "Для структурированного запуска не задана схема ответа.",
+                category="configuration",
+            )
+        try:
+            turn = _custom_model_response(
+                settings,
+                api_key=api_key,
+                base_url=base_url,
+                api_model=api_model,
+                messages=_runtime_messages(request),
+                instructions=request.instructions,
+                on_delta=request.on_delta or (lambda _delta: None),
+                cancellation_signal=request.cancellation_signal,
+                output_schema=request.output_schema,
+            )
+        except DirectModelError as exc:
+            raise _runtime_error_from_direct_error(exc) from None
+        return AgentRuntimeResult(text=(turn.text or "").strip()[:200_000])
+
+    def start() -> None:
+        return None
+
+    def close() -> None:
+        return None
+
+    return DelegatingAgentRuntime(
+        descriptor=descriptor,
+        execute=execute,
+        start=start,
+        close=close,
+    )
 
 
 def _deepseek_response(
@@ -4123,10 +4315,10 @@ def _deepseek_runtime_adapter(
         display_name="DeepSeek",
         auto_priority=15,
         capabilities=AgentRuntimeCapabilities(
-            modes=frozenset({"chat", "structured"}),
+            modes=frozenset({"chat", "structured", "developer"}),
             streaming=True,
             structured_output=True,
-            activity_events=False,
+            activity_events=True,
             persistent_sessions=False,
             model_catalog=False,
         ),
@@ -4146,17 +4338,23 @@ def _deepseek_runtime_adapter(
                 "DeepSeek не поддерживает эти настройки.",
                 category="configuration",
             )
-        if request.mode == "developer":
-            raise AgentRuntimeError(
-                "developer_agent_unavailable",
-                "DeepSeek не поддерживает режим разработчика.",
-                category="unavailable",
-            )
         if request.mode == "structured" and request.output_schema is None:
             raise AgentRuntimeError(
                 "structured_output_schema_missing",
                 "Для структурированного запуска не задана схема ответа.",
                 category="configuration",
+            )
+        if request.mode == "developer":
+            from .deepseek_developer_agent import (
+                execute_deepseek_developer_agent,
+            )
+
+            return execute_deepseek_developer_agent(
+                settings,
+                api_key=settings.deepseek_api_key or "",
+                base_url=settings.deepseek_base_url,
+                api_model=settings.deepseek_model,
+                request=request,
             )
         try:
             turn = _deepseek_response(
@@ -4372,26 +4570,31 @@ def build_agent_runtime_registry(
     """Create the process-lifetime registry used by the live V3 backend."""
 
     registry = AgentRuntimeRegistry()
-    codex_transport = CodexAppServerRuntime(
-        runtime_root=runtime_root / "codex-direct",
-        session_cache=AgentRuntimeSessionCache(settings.database_url),
-    )
-    mimo_client = MimoClientRuntime(
-        timeout_seconds=settings.direct_model_timeout_seconds,
-    )
-    mimo_developer_transport: MimoDeveloperServerRuntime | None = None
-    if settings.developer_agent_enabled:
-        mimo_developer_transport = MimoDeveloperServerRuntime(
-            runtime_root=runtime_root / "mimo-developer",
+    # Only-DeepSeek policy: the local Codex CLI and MiMo runtimes are
+    # opt-in and off by default. Product chat and devmode run on the
+    # admin's platform DeepSeek model through the direct runtime.
+    if settings.codex_cli_runtime_enabled:
+        codex_transport = CodexAppServerRuntime(
+            runtime_root=runtime_root / "codex-direct",
+            session_cache=AgentRuntimeSessionCache(settings.database_url),
         )
-    registry.register(_codex_runtime_adapter(settings, codex_transport))
-    registry.register(
-        _mimo_runtime_adapter(
-            settings,
-            client_transport=mimo_client,
-            developer_transport=mimo_developer_transport,
+        registry.register(_codex_runtime_adapter(settings, codex_transport))
+    if settings.mimo_runtime_enabled:
+        mimo_client = MimoClientRuntime(
+            timeout_seconds=settings.direct_model_timeout_seconds,
         )
-    )
+        mimo_developer_transport: MimoDeveloperServerRuntime | None = None
+        if settings.developer_agent_enabled:
+            mimo_developer_transport = MimoDeveloperServerRuntime(
+                runtime_root=runtime_root / "mimo-developer",
+            )
+        registry.register(
+            _mimo_runtime_adapter(
+                settings,
+                client_transport=mimo_client,
+                developer_transport=mimo_developer_transport,
+            )
+        )
     if settings.openai_api_key:
         openai_client = MimoClientRuntime(
             timeout_seconds=settings.direct_model_timeout_seconds,
@@ -4476,6 +4679,7 @@ def _agent_runtime_request(
     guidance: str | None = None,
     on_delta: Callable[[str], None] | None = None,
     on_activity: Callable[[str, dict[str, Any]], None] | None = None,
+    on_reasoning: Callable[[str], None] | None = None,
     cancellation_signal: threading.Event | None = None,
 ) -> AgentRuntimeRequest:
     return AgentRuntimeRequest(
@@ -4507,6 +4711,7 @@ def _agent_runtime_request(
         output_schema=output_schema,
         on_delta=on_delta,
         on_activity=on_activity,
+        on_reasoning=on_reasoning,
         cancellation_signal=cancellation_signal,
     )
 
@@ -7053,14 +7258,27 @@ def execute_estimate_generation_continuation(
         except PlatformPolicyError as exc:
             raise DirectModelError(exc.code, exc.message) from exc
         messages = _history(database, claim)
-        profile, credential_tenant_id = _connected_profile(
-            database,
-            claim,
-            str(run["selected_profile"]),
-            settings,
+        user_id = str(run["requested_by_user_id"])
+        frozen_model = (
+            str(run["model_id"]) if run["model_id"] is not None else None
+        )
+        custom_credentials = (
+            _custom_model_credentials(
+                database,
+                settings,
+                frozen_model,
+                tenant_id=claim.tenant_id,
+                user_id=user_id,
+            )
+            if frozen_model is not None
+            and (
+                frozen_model.startswith("platform:")
+                or frozen_model.startswith("user:")
+            )
+            else None
         )
         selection = AgentModelSelection(
-            model_id=str(run["model_id"]) if run["model_id"] is not None else None,
+            model_id=frozen_model,
             reasoning_effort=(
                 str(run["reasoning_effort"])
                 if run["reasoning_effort"] is not None
@@ -7073,11 +7291,29 @@ def execute_estimate_generation_continuation(
             ),
             explicit_profile=(str(run["selected_profile"]) != "auto"),
         )
-        user_id = str(run["requested_by_user_id"])
+        if custom_credentials is not None:
+            api_key, base_url, api_model, provider_label = custom_credentials
+            runtime = _custom_model_runtime_adapter(
+                settings,
+                api_key=api_key,
+                base_url=base_url,
+                api_model=api_model,
+                provider_label=provider_label,
+            )
+            profile = runtime.descriptor.profile_id
+            credential_tenant_id = claim.tenant_id
+        else:
+            profile, credential_tenant_id = _connected_profile(
+                database,
+                claim,
+                str(run["selected_profile"]),
+                settings,
+            )
     finally:
         database.close()
     try:
-        runtime = runtime_registry.require(profile)
+        if custom_credentials is None:
+            runtime = runtime_registry.require(profile)
         estimate_result = _generate_full_estimate_proposal(
             settings,
             claim,
@@ -7145,6 +7381,172 @@ def execute_estimate_generation_continuation(
             ),
             failure=(str(code), str(message)),
         )
+
+
+def _run_durable_estimate_with_runtime(
+    settings: Settings,
+    accepted: AcceptedRunLike,
+    *,
+    runtime: AgentRuntime,
+    provider_profile: str,
+    messages: list[dict[str, str]],
+    user_id: str,
+    credential_tenant_id: str,
+    frozen_model: str | None,
+    frozen_effort: str | None,
+    frozen_service_tier: str | None,
+    selected_profile: str,
+    cancellation_signal: threading.Event | None,
+) -> None:
+    """Generate and persist one durable estimate through the given runtime."""
+
+    try:
+        estimate_result = _generate_full_estimate_proposal(
+            settings,
+            accepted,
+            runtime=runtime,
+            messages=messages,
+            user_id=user_id,
+            credential_tenant_id=credential_tenant_id,
+            selection=AgentModelSelection(
+                model_id=frozen_model,
+                reasoning_effort=frozen_effort,
+                service_tier=frozen_service_tier,
+                explicit_profile=(selected_profile != "auto"),
+            ),
+            cancellation_signal=cancellation_signal,
+        )
+    except EstimateGenerationNeedsInput as exc:
+        questions = "\n".join(
+            f"{index}. {item}"
+            for index, item in enumerate(exc.questions, 1)
+        )
+        _finish_success(
+            settings,
+            accepted,
+            exc.message + (f"\n\n{questions}" if questions else ""),
+        )
+        return
+    except AgentRuntimeError as exc:
+        local_result = _run_local_house_estimate(
+            settings,
+            accepted,
+            messages=messages,
+            user_id=user_id,
+        )
+        if local_result is not None:
+            widget, generation_run_id = local_result
+            _finish_success(
+                settings,
+                accepted,
+                (
+                    "Смета подготовлена и прошла независимую проверку. "
+                    "Открыта в редакторе."
+                ),
+                widget=widget,
+                continuation_generation_run_id=generation_run_id,
+            )
+            return
+        raise DirectModelError(exc.code, exc.message) from None
+    except (ValueError, ValidationError):
+        raise DirectModelError(
+            "estimate_proposal_invalid",
+            "Агент не сформировал полную ресурсную смету.",
+        ) from None
+    reconciliation_status = str(
+        estimate_result.quality_report.get("status") or "failed"
+    )
+    artifact_quality_status = {
+        "passed": "passed",
+        "failed": "failed",
+        "needs_input": "pending",
+    }.get(reconciliation_status, "failed")
+    try:
+        widget = materialize_generated_estimate_widget(
+            settings,
+            accepted,
+            proposal=estimate_result.proposal,
+            provider_profile=provider_profile,
+            replace_existing=True,
+            generation_metadata={
+                "estimate_generation_run_id": (
+                    estimate_result.generation_run_id
+                ),
+                "technology_card_revision_id": (
+                    estimate_result.technology_revision_id
+                ),
+                "technology_card_hash": (
+                    estimate_result.technology_card_hash
+                ),
+                "quality_status": artifact_quality_status,
+                "expanded_rows_hash": estimate_result.expanded_rows_hash,
+            },
+        )
+    except RuntimeError:
+        raise DirectModelError(
+            "estimate_persistence_failed",
+            "Не удалось сохранить полную смету в проекте.",
+        ) from None
+    document_id = str(widget.arguments["documentId"])
+    document_version = int(widget.arguments["version"])
+    database = connect_database(settings.database_url)
+    try:
+        quality_status = reconciliation_status
+        if quality_status == "passed":
+            state = get_generation_run(
+                database,
+                tenant_id=accepted.tenant_id,
+                run_id=estimate_result.generation_run_id,
+                include_details=False,
+            )
+            if state["status"] == "running":
+                transition_generation_run(
+                    database,
+                    tenant_id=accepted.tenant_id,
+                    run_id=estimate_result.generation_run_id,
+                    expected_statuses=("running",),
+                    target_status="review",
+                    target_stage="persisting",
+                    quality_report=estimate_result.quality_report,
+                )
+            transition_generation_run(
+                database,
+                tenant_id=accepted.tenant_id,
+                run_id=estimate_result.generation_run_id,
+                expected_statuses=("review",),
+                target_status="ready",
+                target_stage="complete",
+                quality_report=estimate_result.quality_report,
+                result_document_id=document_id,
+                result_version=document_version,
+            )
+        else:
+            transition_generation_run(
+                database,
+                tenant_id=accepted.tenant_id,
+                run_id=estimate_result.generation_run_id,
+                expected_statuses=("running", "review"),
+                target_status="needs_input",
+                target_stage="reconciliation",
+                quality_report=estimate_result.quality_report,
+                result_document_id=document_id,
+                result_version=document_version,
+                error={
+                    "code": "estimate_prices_need_input",
+                    "message": (
+                        "Часть цен не имеет даже честного "
+                        "предварительного evidence."
+                    ),
+                },
+            )
+    finally:
+        database.close()
+    _finish_success(
+        settings,
+        accepted,
+        widget.fallback_text,
+        widget=widget,
+    )
 
 
 def execute_direct_run(
@@ -7342,18 +7744,77 @@ def execute_direct_run(
             )
             credential_tenant_id = accepted.tenant_id
             resolved_profile = selected_profile
-            if selected_profile == "auto":
-                raise DirectModelError(
-                    "developer_profile_required",
-                    (
-                        "Для режима разработчика нужен явно выбранный "
-                        "runtime-профиль."
-                    ),
+            credentials_database = connect_database(settings.database_url)
+            custom_credentials = (
+                _custom_model_credentials(
+                    credentials_database,
+                    settings,
+                    frozen_model,
+                    tenant_id=accepted.tenant_id,
+                    user_id=requested_by_user_id,
                 )
-            try:
-                runtime = runtimes.require(resolved_profile)
-            except AgentRuntimeError as exc:
-                raise DirectModelError(exc.code, exc.message) from None
+                if frozen_model is not None
+                and (
+                    frozen_model.startswith("platform:")
+                    or frozen_model.startswith("user:")
+                )
+                else None
+            )
+            if custom_credentials is None:
+                # Only-DeepSeek devmode: a CLI-catalog selection such as
+                # ``deepseek-v4-flash`` still resolves to the admin's default
+                # enabled platform model so the developer loop stays entirely
+                # CLI-free on the server.
+                default_model = credentials_database.execute(
+                    """
+                    SELECT id, model_id
+                    FROM platform_models
+                    WHERE is_enabled = 1 AND is_default = 1
+                    ORDER BY auto_priority DESC
+                    LIMIT 1
+                    """
+                ).fetchone()
+                if default_model is not None:
+                    platform_model_id = (
+                        f"platform:{str(default_model['id'])[:8]}:"
+                        f"{default_model['model_id']}"
+                    )
+                    platform_credentials = _custom_model_credentials(
+                        credentials_database,
+                        settings,
+                        platform_model_id,
+                        tenant_id=accepted.tenant_id,
+                        user_id=requested_by_user_id,
+                    )
+                    if platform_credentials is not None:
+                        custom_credentials = platform_credentials
+                        frozen_model = platform_model_id
+            credentials_database.close()
+            if custom_credentials is not None:
+                # Only-DeepSeek devmode: platform/user models (the admin's
+                # DeepSeek model) run the direct Responses-API developer
+                # agent without any local Codex CLI dependency.
+                api_key, base_url, api_model, provider_label = custom_credentials
+                runtime = _custom_model_runtime_adapter(
+                    settings,
+                    api_key=api_key,
+                    base_url=base_url,
+                    api_model=api_model,
+                    provider_label=provider_label,
+                )
+            else:
+                if selected_profile == "auto":
+                    raise DirectModelError(
+                        "developer_profile_required",
+                        (
+                            "Для режима разработчика нужен явно выбранный "
+                            "runtime-профиль или платформенная модель."
+                        ),
+                    )
+                try:
+                    runtime = runtimes.require(resolved_profile)
+                except AgentRuntimeError as exc:
+                    raise DirectModelError(exc.code, exc.message) from None
             workspace_root = settings.developer_workspace_root
             if not settings.developer_agent_enabled or workspace_root is None:
                 raise DirectModelError(
@@ -7407,6 +7868,7 @@ def execute_direct_run(
                     accepted=accepted,
                     workspace_root=workspace_root,
                 ),
+                on_reasoning=text_stream.append_reasoning,
                 cancellation_signal=cancellation_signal,
             )
             try:
@@ -7638,6 +8100,24 @@ def execute_direct_run(
                 return
         database = connect_database(settings.database_url)
         try:
+            if frozen_model is None and selected_profile == "auto":
+                # Only-DeepSeek policy: when no key-backed provider or explicit
+                # user model exists, auto resolves to the admin's default
+                # platform model instead of failing with provider_not_connected.
+                default_model = database.execute(
+                    """
+                    SELECT id, model_id
+                    FROM platform_models
+                    WHERE is_enabled = 1 AND is_default = 1
+                    ORDER BY auto_priority DESC
+                    LIMIT 1
+                    """
+                ).fetchone()
+                if default_model is not None:
+                    frozen_model = (
+                        f"platform:{str(default_model['id'])[:8]}:"
+                        f"{default_model['model_id']}"
+                    )
             custom_credentials = (
                 _custom_model_credentials(
                     database,
@@ -7656,204 +8136,80 @@ def execute_direct_run(
         finally:
             database.close()
         if custom_credentials is not None and estimate_requested:
-            local_result = _run_local_house_estimate(
+            api_key, base_url, api_model, provider_label = custom_credentials
+            custom_runtime = _custom_model_runtime_adapter(
+                settings,
+                api_key=api_key,
+                base_url=base_url,
+                api_model=api_model,
+                provider_label=provider_label,
+            )
+            _run_durable_estimate_with_runtime(
                 settings,
                 accepted,
+                runtime=custom_runtime,
+                provider_profile=custom_runtime.descriptor.profile_id,
                 messages=messages,
                 user_id=requested_by_user_id,
-            )
-            if local_result is None:
-                raise DirectModelError(
-                    "estimate_generation_unavailable",
-                    "Сметный режим недоступен для выбранной модели.",
-                )
-            widget, generation_run_id = local_result
-            _finish_success(
-                settings,
-                accepted,
-                (
-                    "Смета подготовлена и прошла независимую проверку. "
-                    "Открыта в редакторе."
-                ),
-                widget=widget,
-                continuation_generation_run_id=generation_run_id,
+                credential_tenant_id=accepted.tenant_id,
+                frozen_model=frozen_model,
+                frozen_effort=frozen_effort,
+                frozen_service_tier=frozen_service_tier,
+                selected_profile=selected_profile,
+                cancellation_signal=cancellation_signal,
             )
             return
-        database = connect_database(settings.database_url)
-        try:
-            profile, credential_tenant_id = _connected_profile(
-                database,
-                accepted,
-                selected_profile,
-                settings,
-            )
-        finally:
-            database.close()
-        try:
-            runtime = runtimes.require(profile)
-        except AgentRuntimeError as exc:
-            if estimate_requested:
-                local_result = _run_local_house_estimate(
-                    settings,
+        runtime: AgentRuntime | None = None
+        credential_tenant_id = accepted.tenant_id
+        if custom_credentials is None:
+            database = connect_database(settings.database_url)
+            try:
+                profile, credential_tenant_id = _connected_profile(
+                    database,
                     accepted,
-                    messages=messages,
-                    user_id=requested_by_user_id,
+                    selected_profile,
+                    settings,
                 )
-                if local_result is not None:
-                    widget, generation_run_id = local_result
-                    _finish_success(
+            finally:
+                database.close()
+            try:
+                runtime = runtimes.require(profile)
+            except AgentRuntimeError as exc:
+                if estimate_requested:
+                    local_result = _run_local_house_estimate(
                         settings,
                         accepted,
-                        "Смета подготовлена и прошла независимую проверку. Открыта в редакторе.",
-                        widget=widget,
-                        continuation_generation_run_id=generation_run_id,
+                        messages=messages,
+                        user_id=requested_by_user_id,
                     )
-                    return
-            raise DirectModelError(exc.code, exc.message) from None
+                    if local_result is not None:
+                        widget, generation_run_id = local_result
+                        _finish_success(
+                            settings,
+                            accepted,
+                            "Смета подготовлена и прошла независимую проверку. Открыта в редакторе.",
+                            widget=widget,
+                            continuation_generation_run_id=generation_run_id,
+                        )
+                        return
+                raise DirectModelError(exc.code, exc.message) from None
         if estimate_requested:
             # Every natural-language estimate request uses the general
             # sectioned estimator. The plastering engine is a dedicated
             # calculation endpoint, never an implicit chat fallback.
-            try:
-                estimate_result = _generate_full_estimate_proposal(
-                    settings,
-                    accepted,
-                    runtime=runtime,
-                    messages=messages,
-                    user_id=requested_by_user_id,
-                    credential_tenant_id=credential_tenant_id,
-                    selection=AgentModelSelection(
-                        model_id=frozen_model,
-                        reasoning_effort=frozen_effort,
-                        service_tier=frozen_service_tier,
-                        explicit_profile=(selected_profile != "auto"),
-                    ),
-                    cancellation_signal=cancellation_signal,
-                )
-            except EstimateGenerationNeedsInput as exc:
-                questions = "\n".join(f"{index}. {item}" for index, item in enumerate(exc.questions, 1))
-                _finish_success(
-                    settings,
-                    accepted,
-                    exc.message + (f"\n\n{questions}" if questions else ""),
-                )
-                return
-            except AgentRuntimeError as exc:
-                local_result = _run_local_house_estimate(
-                    settings,
-                    accepted,
-                    messages=messages,
-                    user_id=requested_by_user_id,
-                )
-                if local_result is not None:
-                    widget, generation_run_id = local_result
-                    _finish_success(
-                        settings,
-                        accepted,
-                        "Смета подготовлена и прошла независимую проверку. Открыта в редакторе.",
-                        widget=widget,
-                        continuation_generation_run_id=generation_run_id,
-                    )
-                    return
-                raise DirectModelError(exc.code, exc.message) from None
-            except (ValueError, ValidationError):
-                raise DirectModelError(
-                    "estimate_proposal_invalid",
-                    "Агент не сформировал полную ресурсную смету.",
-                ) from None
-            reconciliation_status = str(
-                estimate_result.quality_report.get("status") or "failed"
-            )
-            artifact_quality_status = {
-                "passed": "passed",
-                "failed": "failed",
-                "needs_input": "pending",
-            }.get(reconciliation_status, "failed")
-            try:
-                widget = materialize_generated_estimate_widget(
-                    settings,
-                    accepted,
-                    proposal=estimate_result.proposal,
-                    provider_profile=profile,
-                    replace_existing=True,
-                    generation_metadata={
-                        "estimate_generation_run_id": (
-                            estimate_result.generation_run_id
-                        ),
-                        "technology_card_revision_id": (
-                            estimate_result.technology_revision_id
-                        ),
-                        "technology_card_hash": (
-                            estimate_result.technology_card_hash
-                        ),
-                        "quality_status": artifact_quality_status,
-                        "expanded_rows_hash": estimate_result.expanded_rows_hash,
-                    },
-                )
-            except RuntimeError:
-                raise DirectModelError(
-                    "estimate_persistence_failed",
-                    "Не удалось сохранить полную смету в проекте.",
-                ) from None
-            document_id = str(widget.arguments["documentId"])
-            document_version = int(widget.arguments["version"])
-            database = connect_database(settings.database_url)
-            try:
-                quality_status = reconciliation_status
-                if quality_status == "passed":
-                    state = get_generation_run(
-                        database,
-                        tenant_id=accepted.tenant_id,
-                        run_id=estimate_result.generation_run_id,
-                        include_details=False,
-                    )
-                    if state["status"] == "running":
-                        transition_generation_run(
-                            database,
-                            tenant_id=accepted.tenant_id,
-                            run_id=estimate_result.generation_run_id,
-                            expected_statuses=("running",),
-                            target_status="review",
-                            target_stage="persisting",
-                            quality_report=estimate_result.quality_report,
-                        )
-                    transition_generation_run(
-                        database,
-                        tenant_id=accepted.tenant_id,
-                        run_id=estimate_result.generation_run_id,
-                        expected_statuses=("review",),
-                        target_status="ready",
-                        target_stage="complete",
-                        quality_report=estimate_result.quality_report,
-                        result_document_id=document_id,
-                        result_version=document_version,
-                    )
-                else:
-                    transition_generation_run(
-                        database,
-                        tenant_id=accepted.tenant_id,
-                        run_id=estimate_result.generation_run_id,
-                        expected_statuses=("running", "review"),
-                        target_status="needs_input",
-                        target_stage="reconciliation",
-                        quality_report=estimate_result.quality_report,
-                        result_document_id=document_id,
-                        result_version=document_version,
-                        error={
-                            "code": "estimate_prices_need_input",
-                            "message": (
-                                "Часть цен не имеет даже честного "
-                                "предварительного evidence."
-                            ),
-                        },
-                    )
-            finally:
-                database.close()
-            _finish_success(
+            _run_durable_estimate_with_runtime(
                 settings,
                 accepted,
-                widget.fallback_text,
-                widget=widget,
+                runtime=runtime,
+                provider_profile=profile,
+                messages=messages,
+                user_id=requested_by_user_id,
+                credential_tenant_id=credential_tenant_id,
+                frozen_model=frozen_model,
+                frozen_effort=frozen_effort,
+                frozen_service_tier=frozen_service_tier,
+                selected_profile=selected_profile,
+                cancellation_signal=cancellation_signal,
             )
             return
         text_stream = _TextRunStream(
@@ -7913,6 +8269,7 @@ def execute_direct_run(
                 messages=messages,
                 instructions=AGENT_CHAT_INSTRUCTIONS + workspace_guidance,
                 on_delta=text_stream.append,
+                on_reasoning=text_stream.append_reasoning,
                 cancellation_signal=cancellation_signal,
             )
         else:

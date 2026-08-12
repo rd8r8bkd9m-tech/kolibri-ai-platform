@@ -42,6 +42,39 @@ const page = (...messages) => ({
   nextCursor: null,
 });
 
+test("history parser accepts reasoning parts inside assistant messages", () => {
+  const historicalPage = page(
+    {
+      id: "message_history_reasoning_user01",
+      role: "user",
+      content: [{ type: "text", text: "Сколько будет 25*4?" }],
+      createdAt: timestamp,
+      status: { type: "complete", reason: "stop" },
+      submittedFeedback: null,
+    },
+    {
+      id: "message_history_reasoning_answer01",
+      role: "assistant",
+      content: [
+        { type: "reasoning", text: "Сначала 20*4=80, потом 5*4=20." },
+        { type: "text", text: "100" },
+      ],
+      createdAt: timestamp,
+      status: { type: "complete", reason: "stop" },
+      submittedFeedback: null,
+    },
+  );
+  const parsed = contracts.parseProductChatMessagePage(historicalPage, threadId);
+  assert.deepEqual(
+    parsed.messages.map((entry) => entry.role),
+    ["user", "assistant"],
+  );
+  assert.deepEqual(
+    parsed.messages[1].content.map((part) => part.type),
+    ["reasoning", "text"],
+  );
+});
+
 test("history parser normalizes canonical, string, and one-sided tool args", () => {
   const canonicalArgs = {
     projectId: "project_history_compatibility01",

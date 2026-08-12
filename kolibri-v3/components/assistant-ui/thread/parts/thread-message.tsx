@@ -2,9 +2,11 @@
 
 import {
 	MessagePrimitive,
+	type ReasoningMessagePartComponent,
 	type ToolCallMessagePartComponent,
 	useAuiState,
 } from "@assistant-ui/react";
+import { ChevronDownIcon } from "lucide-react";
 import { createElement, type ComponentProps, type ComponentType, type ReactNode, useContext, useMemo } from "react";
 import { KolibriGenerativeUI } from "@/components/assistant-ui/generative-ui-renderer";
 import { MarkdownText } from "@/components/assistant-ui/markdown-text";
@@ -40,16 +42,29 @@ export const AssistantActionBarWithTools: ComponentType = () => {
 	return <AssistantActionBar />;
 };
 
-export const ThreadMessage: ComponentType = () => {
-	const { AssistantMessage: AssistantMessageComponent = AssistantMessage } =
-		useContext(ThreadComponentsContext);
-	const role = useAuiState((s) => s.message.role);
-	const isEditing = useAuiState((s) => s.message.composer.isEditing);
-
-	if (isEditing) return <EditComposer />;
-	if (role === "user") return <UserMessage />;
-	if (role === "assistant") return <AssistantMessageComponent />;
-	return null;
+const ReasoningBlock: ReasoningMessagePartComponent = ({ text }) => {
+	const content = text?.trim();
+	if (!content) return null;
+	return (
+		<details
+			className={uiClassTokens.threadReasoningBlock}
+			data-slot="aui_reasoning-block"
+		>
+			<summary className={uiClassTokens.threadReasoningSummary}>
+				<span>Рассуждение</span>
+				<ChevronDownIcon
+					className={uiClassTokens.threadReasoningChevron}
+					aria-hidden="true"
+				/>
+			</summary>
+			<div
+				className={uiClassTokens.threadReasoningBody}
+				data-slot="aui_reasoning-body"
+			>
+				{content}
+			</div>
+		</details>
+	);
 };
 
 const AssistantMessage = () => {
@@ -220,7 +235,7 @@ const AssistantMessage = () => {
 	const partsComponents = useMemo(
 		() => ({
 			Text: MarkdownText,
-			Reasoning: () => null,
+			Reasoning: ReasoningBlock,
 			generativeUI: {
 				components: generativeUIComponents,
 				Fallback: () => null,
@@ -242,8 +257,8 @@ const AssistantMessage = () => {
 					className={uiClassTokens.threadReasoningStatus}
 					data-slot="aui_safe-reasoning-status"
 				>
-					<summary className="cursor-pointer select-none" aria-label="Показать ход выполнения">
-						Ход выполнения
+					<summary className="cursor-pointer select-none" aria-label="Показать рассуждение">
+						Рассуждение
 					</summary>
 					<div role="status" aria-live="polite">{children}</div>
 				</details>

@@ -6,7 +6,7 @@ export function SidebarBrand() {
 		>
 			<div className="flex min-w-0 items-center">
 				<span className="truncate text-[17px] font-semibold tracking-[-0.02em]">
-					Колибри
+					Птичка
 				</span>
 			</div>
 		</div>

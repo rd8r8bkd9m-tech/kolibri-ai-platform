@@ -98,7 +98,28 @@ def require_same_origin(request: Request) -> str:
     """Reject browser mutations unless their Origin is explicitly allowlisted."""
 
     raw_origin = request.headers.get("origin")
-    if not raw_origin or len(raw_origin) > 2_048:
+    settings: Settings = request.app.state.settings
+    if raw_origin == "null" or not raw_origin:
+        # Sandboxed first-party iframes (the Codex desktop in-app browser)
+        # send ``Origin: null`` on every mutation. Accept that only when the
+        # double-submit CSRF cookie and header are both present and equal;
+        # the real session-bound HMAC is still verified by ``require_csrf``
+        # immediately afterwards, so a cross-site attacker gains nothing.
+        cookie_token = request.cookies.get(settings.csrf_cookie_name)
+        header_token = request.headers.get("x-csrf-token")
+        if (
+            cookie_token
+            and header_token
+            and len(cookie_token) <= 512
+            and len(header_token) <= 512
+            and hmac.compare_digest(cookie_token, header_token)
+        ):
+            return raw_origin or ""
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="origin is not allowed",
+        )
+    if len(raw_origin) > 2_048:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="allowed Origin header required",
@@ -110,7 +131,6 @@ def require_same_origin(request: Request) -> str:
             status_code=status.HTTP_403_FORBIDDEN,
             detail="origin is not allowed",
         ) from exc
-    settings: Settings = request.app.state.settings
     if origin not in settings.allowed_origins:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

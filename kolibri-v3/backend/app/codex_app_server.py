@@ -192,6 +192,9 @@ class CodexAppServerRuntime:
         self._state_lock = threading.Lock()
         self._bundled_catalog_lock = threading.Lock()
         self._bundled_models: tuple[CodexModel, ...] | None = None
+        self._configured_catalog_lock = threading.Lock()
+        self._configured_models: tuple[CodexModel, ...] | None = None
+        self._api_key_login: bool | None = None
 
     @property
     def is_running(self) -> bool:
@@ -313,16 +316,59 @@ class CodexAppServerRuntime:
         """Return the current account's visible, server-advertised models."""
 
         self.start()
-        self._require_account(timeout=min(timeout, 10.0))
-        response = self._request(
-            "model/list",
-            {
-                "cursor": None,
-                "includeHidden": False,
-                "limit": 100,
-            },
-            timeout=timeout,
-        )
+        advertised: tuple[CodexModel, ...] = ()
+        try:
+            self._require_account(timeout=min(timeout, 10.0))
+            response = self._request(
+                "model/list",
+                {
+                    "cursor": None,
+                    "includeHidden": False,
+                    "limit": 100,
+                },
+                timeout=timeout,
+            )
+            advertised = self._parse_live_models(response)
+        except (CodexAppServerError, TypeError, ValueError):
+            # API-key logins (DeepSeek and friends) cannot query the
+            # ChatGPT-authenticated model picker. The CLI's own executable
+            # catalog is authoritative for exactly the configured provider.
+            advertised = self._list_configured_models(
+                timeout=min(timeout, 10.0),
+            )
+        try:
+            bundled_models = self._list_bundled_models(
+                timeout=min(timeout, 10.0),
+            )
+        except Exception:
+            bundled_models = ()
+        merged_by_id: dict[str, CodexModel] = {}
+        for model in (
+            *_AUTHENTICATED_PREVIEW_MODELS,
+            *bundled_models,
+            *advertised,
+        ):
+            merged_by_id[model.id] = model
+        merged_models: list[CodexModel] = []
+        merged_seen: set[str] = set()
+        for model in (
+            *_AUTHENTICATED_PREVIEW_MODELS,
+            *bundled_models,
+            *advertised,
+        ):
+            if model.id in merged_seen:
+                continue
+            merged_models.append(merged_by_id[model.id])
+            merged_seen.add(model.id)
+        if not merged_models:
+            raise CodexAppServerError(
+                "Codex app-server returned an empty model catalog."
+            )
+        return tuple(merged_models)
+
+    def _parse_live_models(self, response: object) -> tuple[CodexModel, ...]:
+        """Parse the ChatGPT-authenticated ``model/list`` projection."""
+
         if not isinstance(response, dict) or not isinstance(
             response.get("data"),
             list,
@@ -430,35 +476,7 @@ class CodexAppServerRuntime:
                 )
             )
             seen.add(model_id)
-        try:
-            bundled_models = self._list_bundled_models(
-                timeout=min(timeout, 10.0),
-            )
-        except Exception:
-            bundled_models = ()
-        merged_by_id: dict[str, CodexModel] = {}
-        for model in (
-            *_AUTHENTICATED_PREVIEW_MODELS,
-            *bundled_models,
-            *models,
-        ):
-            merged_by_id[model.id] = model
-        merged_models: list[CodexModel] = []
-        merged_seen: set[str] = set()
-        for model in (
-            *_AUTHENTICATED_PREVIEW_MODELS,
-            *bundled_models,
-            *models,
-        ):
-            if model.id in merged_seen:
-                continue
-            merged_models.append(merged_by_id[model.id])
-            merged_seen.add(model.id)
-        if not merged_models:
-            raise CodexAppServerError(
-                "Codex app-server returned an empty model catalog."
-            )
-        return tuple(merged_models)
+        return tuple(models)
 
     def _list_bundled_models(
         self,
@@ -476,156 +494,232 @@ class CodexAppServerRuntime:
         with self._bundled_catalog_lock:
             if self._bundled_models is not None:
                 return self._bundled_models
-            executable = self._command[0]
-            if Path(executable).name not in {"codex", "codex.exe"}:
-                self._bundled_models = ()
-                return self._bundled_models
+            payload = self._run_cli_catalog(("--bundled",), timeout=timeout)
+            self._bundled_models = self._parse_cli_model_catalog(payload)
+            return self._bundled_models
+
+    def _list_configured_models(
+        self,
+        *,
+        timeout: float,
+    ) -> tuple[CodexModel, ...]:
+        """Read the CLI's active catalog for the configured provider.
+
+        ``codex debug models`` (without ``--bundled``) returns exactly the
+        models the CLI can execute under the configured provider, which is
+        the authoritative catalog for API-key logins such as DeepSeek.
+        """
+
+        with self._configured_catalog_lock:
+            if self._configured_models is not None:
+                return self._configured_models
+            payload = self._run_cli_catalog((), timeout=timeout)
+            parsed = self._parse_cli_model_catalog(payload)
+            if not parsed:
+                raise CodexAppServerError(
+                    "Codex CLI returned an empty configured model catalog."
+                )
+            self._configured_models = parsed
+            return self._configured_models
+
+    def _run_cli_catalog(
+        self,
+        extra_args: tuple[str, ...],
+        *,
+        timeout: float,
+    ) -> object:
+        executable = self._command[0]
+        if Path(executable).name not in {"codex", "codex.exe"}:
+            raise CodexAppServerError(
+                "Codex CLI executable is unavailable for the catalog."
+            )
+        environment = self._subprocess_environment()
+        try:
+            completed = subprocess.run(
+                (executable, "debug", "models", *extra_args),
+                cwd=self._runtime_root,
+                env=environment,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                text=True,
+                encoding="utf-8",
+                timeout=timeout,
+                check=False,
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
+            raise CodexAppServerError(
+                "Codex CLI catalog query failed."
+            ) from exc
+        if (
+            completed.returncode != 0
+            or len(completed.stdout) > 2 * 1024 * 1024
+        ):
+            raise CodexAppServerError(
+                "Codex CLI returned an invalid model catalog."
+            )
+        try:
+            return json.loads(completed.stdout)
+        except (TypeError, ValueError) as exc:
+            raise CodexAppServerError(
+                "Codex CLI returned an invalid model catalog."
+            ) from exc
+
+    def _parse_cli_model_catalog(
+        self,
+        payload: object,
+    ) -> tuple[CodexModel, ...]:
+        raw_models = (
+            payload.get("models")
+            if isinstance(payload, dict)
+            else None
+        )
+        if not isinstance(raw_models, list):
+            return ()
+
+        parsed: list[CodexModel] = []
+        seen: set[str] = set()
+        for raw in raw_models[:100]:
+            if (
+                not isinstance(raw, dict)
+                or raw.get("visibility") != "list"
+                or raw.get("supported_in_api") is not True
+            ):
+                continue
+            model_id = self._bounded_catalog_text(raw.get("slug"), 120)
+            display_name = self._bounded_catalog_text(
+                raw.get("display_name"),
+                120,
+            )
+            default_effort = self._bounded_catalog_text(
+                raw.get("default_reasoning_level"),
+                32,
+            )
+            if (
+                model_id is None
+                or display_name is None
+                or default_effort is None
+                or model_id in seen
+            ):
+                continue
+
+            efforts: list[tuple[str, str]] = []
+            raw_efforts = raw.get("supported_reasoning_levels")
+            if isinstance(raw_efforts, list):
+                for raw_effort in raw_efforts[:16]:
+                    if not isinstance(raw_effort, dict):
+                        continue
+                    effort_id = self._bounded_catalog_text(
+                        raw_effort.get("effort"),
+                        32,
+                    )
+                    if effort_id is None:
+                        continue
+                    description = (
+                        self._bounded_catalog_text(
+                            raw_effort.get("description"),
+                            240,
+                        )
+                        or ""
+                    )
+                    if effort_id not in {item[0] for item in efforts}:
+                        efforts.append((effort_id, description))
+            if default_effort not in {item[0] for item in efforts}:
+                continue
+
+            service_tiers: list[tuple[str, str, str]] = []
+            raw_tiers = raw.get("service_tiers")
+            if isinstance(raw_tiers, list):
+                for raw_tier in raw_tiers[:8]:
+                    if not isinstance(raw_tier, dict):
+                        continue
+                    tier_id = self._bounded_catalog_text(
+                        raw_tier.get("id"),
+                        32,
+                    )
+                    tier_name = self._bounded_catalog_text(
+                        raw_tier.get("name"),
+                        80,
+                    )
+                    if (
+                        tier_id is None
+                        or _SERVICE_TIER_ID_PATTERN.fullmatch(tier_id)
+                        is None
+                        or tier_name is None
+                    ):
+                        continue
+                    tier_description = (
+                        self._bounded_catalog_text(
+                            raw_tier.get("description"),
+                            240,
+                        )
+                        or ""
+                    )
+                    if tier_id not in {item[0] for item in service_tiers}:
+                        service_tiers.append(
+                            (tier_id, tier_name, tier_description)
+                        )
+            parsed.append(
+                CodexModel(
+                    id=model_id,
+                    display_name=display_name,
+                    description=(
+                        self._bounded_catalog_text(
+                            raw.get("description"),
+                            500,
+                        )
+                        or ""
+                    ),
+                    supported_reasoning_efforts=tuple(efforts),
+                    default_reasoning_effort=default_effort,
+                    is_default=False,
+                    supports_personality=(
+                        raw.get("supports_personality") is True
+                    ),
+                    service_tiers=tuple(service_tiers),
+                    upgrade=self._bounded_catalog_text(
+                        raw.get("upgrade"),
+                        120,
+                    ),
+                )
+            )
+            seen.add(model_id)
+        return tuple(parsed)
+
+    def _has_api_key_login(self) -> bool:
+        with self._lifecycle_lock:
+            if self._api_key_login is not None:
+                return self._api_key_login
+        executable = self._command[0]
+        api_key_login = False
+        if Path(executable).name in {"codex", "codex.exe"}:
             environment = self._subprocess_environment()
             try:
                 completed = subprocess.run(
-                    (executable, "debug", "models", "--bundled"),
+                    (executable, "login", "status"),
                     cwd=self._runtime_root,
                     env=environment,
                     stdin=subprocess.DEVNULL,
                     stdout=subprocess.PIPE,
-                    stderr=subprocess.DEVNULL,
+                    stderr=subprocess.PIPE,
                     text=True,
                     encoding="utf-8",
-                    timeout=timeout,
+                    timeout=10.0,
                     check=False,
                 )
             except (OSError, subprocess.SubprocessError):
-                self._bundled_models = ()
-                return self._bundled_models
+                completed = None
             if (
-                completed.returncode != 0
-                or len(completed.stdout) > 2 * 1024 * 1024
+                completed is not None
+                and completed.returncode == 0
+                and "API key" in (
+                    (completed.stdout or "") + (completed.stderr or "")
+                )
             ):
-                self._bundled_models = ()
-                return self._bundled_models
-            try:
-                payload = json.loads(completed.stdout)
-            except (TypeError, ValueError):
-                self._bundled_models = ()
-                return self._bundled_models
-            raw_models = (
-                payload.get("models")
-                if isinstance(payload, dict)
-                else None
-            )
-            if not isinstance(raw_models, list):
-                self._bundled_models = ()
-                return self._bundled_models
-
-            parsed: list[CodexModel] = []
-            seen: set[str] = set()
-            for raw in raw_models[:100]:
-                if (
-                    not isinstance(raw, dict)
-                    or raw.get("visibility") != "list"
-                    or raw.get("supported_in_api") is not True
-                ):
-                    continue
-                model_id = self._bounded_catalog_text(raw.get("slug"), 120)
-                display_name = self._bounded_catalog_text(
-                    raw.get("display_name"),
-                    120,
-                )
-                default_effort = self._bounded_catalog_text(
-                    raw.get("default_reasoning_level"),
-                    32,
-                )
-                if (
-                    model_id is None
-                    or display_name is None
-                    or default_effort is None
-                    or model_id in seen
-                ):
-                    continue
-
-                efforts: list[tuple[str, str]] = []
-                raw_efforts = raw.get("supported_reasoning_levels")
-                if isinstance(raw_efforts, list):
-                    for raw_effort in raw_efforts[:16]:
-                        if not isinstance(raw_effort, dict):
-                            continue
-                        effort_id = self._bounded_catalog_text(
-                            raw_effort.get("effort"),
-                            32,
-                        )
-                        if effort_id is None:
-                            continue
-                        description = (
-                            self._bounded_catalog_text(
-                                raw_effort.get("description"),
-                                240,
-                            )
-                            or ""
-                        )
-                        if effort_id not in {item[0] for item in efforts}:
-                            efforts.append((effort_id, description))
-                if default_effort not in {item[0] for item in efforts}:
-                    continue
-
-                service_tiers: list[tuple[str, str, str]] = []
-                raw_tiers = raw.get("service_tiers")
-                if isinstance(raw_tiers, list):
-                    for raw_tier in raw_tiers[:8]:
-                        if not isinstance(raw_tier, dict):
-                            continue
-                        tier_id = self._bounded_catalog_text(
-                            raw_tier.get("id"),
-                            32,
-                        )
-                        tier_name = self._bounded_catalog_text(
-                            raw_tier.get("name"),
-                            80,
-                        )
-                        if (
-                            tier_id is None
-                            or _SERVICE_TIER_ID_PATTERN.fullmatch(tier_id)
-                            is None
-                            or tier_name is None
-                        ):
-                            continue
-                        tier_description = (
-                            self._bounded_catalog_text(
-                                raw_tier.get("description"),
-                                240,
-                            )
-                            or ""
-                        )
-                        if tier_id not in {item[0] for item in service_tiers}:
-                            service_tiers.append(
-                                (tier_id, tier_name, tier_description)
-                            )
-                parsed.append(
-                    CodexModel(
-                        id=model_id,
-                        display_name=display_name,
-                        description=(
-                            self._bounded_catalog_text(
-                                raw.get("description"),
-                                500,
-                            )
-                            or ""
-                        ),
-                        supported_reasoning_efforts=tuple(efforts),
-                        default_reasoning_effort=default_effort,
-                        is_default=False,
-                        supports_personality=(
-                            raw.get("supports_personality") is True
-                        ),
-                        service_tiers=tuple(service_tiers),
-                        upgrade=self._bounded_catalog_text(
-                            raw.get("upgrade"),
-                            120,
-                        ),
-                    )
-                )
-                seen.add(model_id)
-            self._bundled_models = tuple(parsed)
-            return self._bundled_models
+                api_key_login = True
+        with self._lifecycle_lock:
+            self._api_key_login = api_key_login
+        return api_key_login
 
     @staticmethod
     def _bounded_catalog_text(value: object, limit: int) -> str | None:
@@ -1066,6 +1160,14 @@ class CodexAppServerRuntime:
         with self._lifecycle_lock:
             if self._account_ready:
                 return
+        if self._has_api_key_login():
+            # API-key logins (DeepSeek and friends) have no ChatGPT account;
+            # the CLI executes directly against the configured provider.
+            logger.info(
+                "Codex app-server is authenticated with an API key; "
+                "ChatGPT account endpoints are not required."
+            )
+            return
         response = self._request(
             "account/read",
             {"refreshToken": False},

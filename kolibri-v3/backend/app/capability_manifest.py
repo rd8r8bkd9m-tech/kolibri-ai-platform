@@ -129,10 +129,29 @@ def build_capability_manifest(
     construction_enabled = (
         ESTIMATES_WORKSPACE_CAPABILITY_ID in identity.product_capabilities
     )
+    settings = getattr(request.app.state, "settings", None)
+    developer_runtime_present = (
+        registry is not None
+        and any(
+            "developer" in item.capabilities.modes
+            for item in registry.descriptors()
+        )
+    )
+    only_deepseek_devmode = bool(
+        getattr(settings, "developer_agent_enabled", False)
+        and database.execute(
+            """
+            SELECT 1
+            FROM platform_models
+            WHERE is_enabled = 1 AND is_default = 1
+            LIMIT 1
+            """
+        ).fetchone()
+        is not None
+    )
     developer_enabled = bool(
         identity.is_platform_owner
-        and registry is not None
-        and any("developer" in item.capabilities.modes for item in registry.descriptors())
+        and (developer_runtime_present or only_deepseek_devmode)
     )
     capabilities = [
         _capability(

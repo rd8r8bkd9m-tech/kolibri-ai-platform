@@ -23,13 +23,49 @@ export const hydrateProductChatMessages = (
 			id: message.id,
 			role: message.role,
 			content: message.content,
-		})),
-		{ showThinking: false },
+	})),
+		{ showThinking: true },
 	);
 
 	if (converted.length !== page.messages.length) {
 		throw new Error("Product Chat history could not be reconstructed.");
 	}
+
+	// The server persists reasoning as a content part of the assistant
+	// message. assistant-ui's snapshot converter keeps only text parts, so
+	// re-inject the reasoning part to render one bubble: collapsed
+	// «Рассуждение» on top, then the always-visible answer.
+	type HistoricalPair = {
+		message: ThreadMessageLike;
+		historical: ProductChatMessagePage["messages"][number];
+	};
+	const pairs: HistoricalPair[] = converted.map((message, index) => ({
+		message,
+		historical: page.messages[index]!,
+	}));
+	const mergedPairs: HistoricalPair[] = pairs.map(
+		({ message, historical }) => {
+			if (message.role !== "assistant") return { message, historical };
+			const reasoningPart = historical.content.find(
+				(part): part is { type: "reasoning"; text: string } =>
+					part.type === "reasoning" &&
+					typeof (part as { text?: unknown }).text === "string",
+			);
+			if (!reasoningPart) return { message, historical };
+			return {
+				message: {
+					...message,
+					content: [
+						reasoningPart,
+						...(Array.isArray(message.content)
+							? message.content
+							: []),
+					],
+				},
+				historical,
+			};
+		},
+	);
 
 	const branchableMessages: Array<{
 		message: ThreadMessageLike;
@@ -37,8 +73,7 @@ export const hydrateProductChatMessages = (
 	}> = [];
 	const importedIds = new Set<string>();
 	let parentId: string | null = null;
-	for (const [index, message] of converted.entries()) {
-		const historical = page.messages[index]!;
+	for (const { message, historical } of mergedPairs) {
 		const hydratedId = historical.id;
 		const hydrated: ThreadMessageLike = {
 			...message,
