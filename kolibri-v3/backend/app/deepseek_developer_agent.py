@@ -15,7 +15,6 @@ import logging
 import os
 import re
 import subprocess
-import threading
 import time
 from pathlib import Path
 from typing import Any, Callable, Mapping
@@ -697,7 +696,7 @@ def execute_deepseek_developer_agent(
             )
         try:
             value = response.json()
-        except (TypeError, ValueError) as exc:
+        except (TypeError, ValueError):
             response.close()
             raise _responses_error(
                 "deepseek_response_invalid",

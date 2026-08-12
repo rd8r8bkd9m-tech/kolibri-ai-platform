@@ -2,8 +2,8 @@
 .kp-legal-page {
 	min-height: calc(100vh - 4.5rem);
 	background:
-		radial-gradient(circle at 82% 2%, rgb(47 198 189 / 13%), transparent 25rem),
-		linear-gradient(180deg, #eef8eb 0, var(--kp-paper) 24rem);
+		radial-gradient(circle at 82% 2%, rgb(160 215 209 / 10%), transparent 26rem),
+		var(--kp-bg);
 }
 
 .kp-page-heading,
@@ -16,8 +16,8 @@
 	margin: 0;
 	font-size: clamp(2.8rem, 6vw, 5.3rem);
 	font-weight: 620;
-	letter-spacing: -0.065em;
-	line-height: 0.98;
+	letter-spacing: -0.055em;
+	line-height: 1.02;
 }
 
 .kp-page-heading > p:last-child,
@@ -71,8 +71,8 @@
 	height: 2rem;
 	place-items: center;
 	border-radius: 0.65rem;
-	background: rgb(47 198 189 / 14%);
-	color: #08776f;
+	background: rgb(160 215 209 / 14%);
+	color: var(--kp-teal);
 	font-size: 0.72rem;
 	font-weight: 800;
 }
@@ -87,7 +87,7 @@
 }
 
 .kp-pricing-notes li strong {
-	color: var(--kp-ink);
+	color: var(--kp-text);
 }
 
 .kp-pricing-notes > p {
@@ -97,7 +97,7 @@
 
 .kp-pricing-notes a,
 .kp-legal-content a {
-	color: #08776f !important;
+	color: var(--kp-teal) !important;
 	font-weight: 700;
 	text-decoration: underline;
 	text-underline-offset: 0.18rem;
@@ -119,15 +119,15 @@
 }
 
 .kp-legal-status.is-ready {
-	border-color: rgb(35 122 86 / 25%);
-	background: rgb(97 203 115 / 8%);
-	color: #155b3c;
+	border-color: rgb(117 224 167 / 28%);
+	background: rgb(117 224 167 / 8%);
+	color: var(--kp-leaf);
 }
 
 .kp-legal-status.is-warning {
 	border-color: rgb(255 139 104 / 35%);
 	background: rgb(255 139 104 / 8%);
-	color: #7e3623;
+	color: var(--kp-coral);
 }
 
 .kp-legal-content {
@@ -147,6 +147,7 @@
 	margin: 0;
 	font-size: 0.9rem;
 	letter-spacing: -0.01em;
+	color: var(--kp-text-soft);
 }
 
 .kp-legal-content p {
@@ -161,7 +162,7 @@
 	border-left: 0.2rem solid var(--kp-coral);
 	background: rgb(255 139 104 / 7%);
 	padding: 1rem;
-	color: #70311f !important;
+	color: var(--kp-coral) !important;
 }
 
 .kp-legal-facts {
@@ -175,12 +176,12 @@
 .kp-legal-facts div {
 	border: 1px solid var(--kp-line);
 	border-radius: 0.7rem;
-	background: rgb(255 255 255 / 60%);
+	background: var(--kp-surface);
 	padding: 0.75rem;
 }
 
 .kp-legal-facts dt {
-	color: var(--kp-muted);
+	color: var(--kp-faint);
 	font-size: 0.66rem;
 }
 
@@ -208,19 +209,19 @@
 	align-items: flex-start;
 	border: 1px solid var(--kp-line);
 	border-radius: 1rem;
-	background: rgb(255 255 255 / 70%);
+	background: var(--kp-surface);
 	padding: 1.1rem;
 }
 
 .kp-contact-grid svg {
 	width: 1.15rem;
 	height: 1.15rem;
-	color: #078c82;
+	color: var(--kp-teal);
 }
 
 .kp-contact-grid span {
 	margin-top: auto;
-	color: var(--kp-muted);
+	color: var(--kp-faint);
 	font-size: 0.68rem;
 }
 

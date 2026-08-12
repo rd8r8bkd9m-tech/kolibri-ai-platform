@@ -49,17 +49,16 @@ export function CommerceSection() {
 			<div className="kp-container kp-commerce-grid">
 				<div>
 					<div className="kp-section-heading">
-						<p className="kp-eyebrow kp-eyebrow-dark"><span /> Доступ и оплата</p>
-						<h2 id="commerce-title">Понятный путь от выбора тарифа до доступа.</h2>
+						<p className="kp-eyebrow"><span /> Тарифы и оплата</p>
+						<h2 id="commerce-title">Один понятный тариф на старте.</h2>
 						<p>
-							Все переходы происходят через защищённый платёжный шлюз
-							Т‑Банка. Ниже — схема, которую уже можно проверить на вашем
-							домене после активации.
+							Название, стоимость и срок доступа загружаются из серверного
+							каталога биллинга. Оплата проходит на защищённой странице Т‑Банка.
 						</p>
 					</div>
-						<div className="kp-commerce-points">
+					<div className="kp-commerce-points">
 						<div><CreditCard /><p><strong>Оплата в Т‑Банке</strong><span>КолИ не получает данные банковской карты.</span></p></div>
-						<div><KeyRound /><p><strong>Цифровой доступ</strong><span>Активируется только после статуса CONFIRMED.</span></p></div>
+						<div><KeyRound /><p><strong>Цифровой доступ</strong><span>Активируется после статуса CONFIRMED.</span></p></div>
 						<div><RefreshCcw /><p><strong>Отмена и возврат</strong><span>Порядок обращения опубликован отдельной страницей.</span></p></div>
 						<div><ShieldCheck /><p><strong>Серверный каталог</strong><span>Название, срок и цена тарифа приходят из биллинга.</span></p></div>
 					</div>
@@ -67,30 +66,13 @@ export function CommerceSection() {
 						<p className={`kp-badge is-${payment.status}`}>{payment.label}</p>
 						<h3>Как подключаем оплату по Т‑Банку</h3>
 						<p className="kp-commerce-subtitle">
-							Требования: публичная оферта/реквизиты, контактный блок, оформленный
-							чеклист юридических требований и прохождение тестовых сценариев.
+							Требования: публичная оферта и реквизиты, контактный блок,
+							оформленный чеклист юридических требований и прохождение тестовых сценариев.
 						</p>
-							<div className="kp-commerce-compliance" aria-label="Проверка требований Т-Банка">
-								{requirements.map((item) => (
-									<div key={item.label} className={`kp-commerce-check ${item.ok ? "is-ok" : "is-warn"}`}>
-									{item.ok ? (
-										<CheckCircle2 aria-hidden="true" />
-									) : (
-										<CircleAlert aria-hidden="true" />
-									)}
-									<span>
-										<strong>{item.label}</strong>
-										<small>{item.detail}</small>
-									</span>
-								</div>
-							))}
-						</div>
-						<div className="kp-commerce-actions">
+						<div className="kp-commerce-actions" aria-label="Статус платёжной интеграции">
 							<div>
 								<p><BookOpenText aria-hidden="true" /> Режим интеграции</p>
-								<strong>
-									{payment.mode ? payment.mode.toUpperCase() : "OFF"}
-								</strong>
+								<strong>{payment.mode ? payment.mode.toUpperCase() : "OFF"}</strong>
 							</div>
 							<div>
 								<p><Receipt aria-hidden="true" /> Квитанции</p>
@@ -109,6 +91,21 @@ export function CommerceSection() {
 							<summary>
 								Список обязательных шагов для активации <ChevronRight aria-hidden="true" />
 							</summary>
+							<div className="kp-commerce-compliance" aria-label="Проверка требований Т-Банка">
+								{requirements.map((item) => (
+									<div key={item.label} className={`kp-commerce-check ${item.ok ? "is-ok" : "is-warn"}`}>
+										{item.ok ? (
+											<CheckCircle2 aria-hidden="true" />
+										) : (
+											<CircleAlert aria-hidden="true" />
+										)}
+										<span>
+											<strong>{item.label}</strong>
+											<small>{item.detail}</small>
+										</span>
+									</div>
+								))}
+							</div>
 							<ol>
 								<li>Зарегистрировать/привязать магазин с типом <strong>Интернет-магазин</strong>.</li>
 								<li>Заполнить контакты продавца и разместить оферту, возвраты, контакты в открытом виде.</li>
@@ -123,7 +120,7 @@ export function CommerceSection() {
 					</Link>
 				</div>
 				<PublicPlanCatalog compact />
-				</div>
-			</section>
+			</div>
+		</section>
 	);
 }

@@ -1,4 +1,5 @@
 import { CommerceSection } from "./commerce";
+import { FaqSection } from "./faq";
 import { FeatureGrid } from "./features";
 import { LandingHero } from "./hero";
 import { PlatformSection } from "./platform-section";
@@ -18,6 +19,7 @@ export function LandingPage() {
 			<FeatureGrid />
 			<WorkflowSection />
 			<CommerceSection />
+			<FaqSection />
 			<PlatformSection />
 		</>
 	);

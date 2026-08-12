@@ -57,6 +57,20 @@ export function PublicShell({
 						<PublicNavigationLink href="/pricing">Тарифы</PublicNavigationLink>
 					</nav>
 					<div className="kp-header-actions">
+						<details className="kp-mobile-nav">
+							<summary aria-label="Открыть меню сайта">
+								<span />
+								<span />
+								<span />
+							</summary>
+							<div className="kp-mobile-nav-panel">
+								<PublicNavigationLink href="/#features">Возможности</PublicNavigationLink>
+								<PublicNavigationLink href="/#workflow">Как работает</PublicNavigationLink>
+								<PublicNavigationLink href="/#pricing">Тарифы</PublicNavigationLink>
+								<PublicNavigationLink href="/#faq">Вопросы</PublicNavigationLink>
+								<PublicNavigationLink href="/app">Войти</PublicNavigationLink>
+							</div>
+						</details>
 						<Link className="kp-login-link" href="/app" prefetch>
 							Войти
 						</Link>
@@ -76,8 +90,20 @@ export function PublicShell({
 					<div className="kp-footer-brand">
 						<PublicBrand />
 						<p>AI-рабочая среда для смет, проектов и связанных документов.</p>
+						<span className="kp-footer-note">
+							© {new Date().getFullYear()} КолИ
+						</span>
 					</div>
+					<nav aria-label="Продукт">
+						<strong>Продукт</strong>
+						<PublicNavigationLink href="/#features">Возможности</PublicNavigationLink>
+						<PublicNavigationLink href="/#workflow">Как работает</PublicNavigationLink>
+						<PublicNavigationLink href="/pricing">Тарифы</PublicNavigationLink>
+						<PublicNavigationLink href="/app">Приложение</PublicNavigationLink>
+					</nav>
 					<nav aria-label="Документы и контакты">
+						<strong>Компания</strong>
+						<PublicNavigationLink href="/contacts">Контакты</PublicNavigationLink>
 						<PublicNavigationLink href="/legal/offer">Публичная оферта</PublicNavigationLink>
 						<PublicNavigationLink href="/legal/privacy">
 							Конфиденциальность
@@ -98,7 +124,6 @@ export function PublicShell({
 								Реквизиты готовятся к публикации
 							</span>
 						)}
-						<span>© {new Date().getFullYear()} КолИ</span>
 					</div>
 				</div>
 			</footer>
