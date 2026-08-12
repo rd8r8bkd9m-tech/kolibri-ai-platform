@@ -69,10 +69,10 @@
 	display: grid;
 	grid-template-columns: 1fr auto 1fr;
 	align-items: center;
-	gap: 2rem;
+	gap: 2.5rem;
 	margin-inline: auto;
 	width: min(calc(100% - 3rem), var(--klp-max));
-	min-height: 4rem;
+	min-height: 4.25rem;
 	border-bottom: 1px solid transparent;
 	background: transparent;
 }
@@ -152,9 +152,10 @@
 	border: 0;
 	border-radius: 999px;
 	background: transparent;
-	padding: 0.45rem 0.7rem;
+	padding: 0.55rem 0.85rem;
 	color: #c4c0b9;
-	font-size: 0.86rem;
+	font-size: 0.88rem;
+	line-height: 1.2;
 	cursor: pointer;
 	transition: color 0.15s ease, background-color 0.15s ease;
 }
@@ -183,14 +184,25 @@
 	position: absolute;
 	top: calc(100% + 0.65rem);
 	left: 0;
-	width: 17rem;
+	width: 17.5rem;
 	border: 1px solid var(--klp-line-strong);
 	border-radius: 1.1rem;
 	background: rgb(26 24 23 / 94%);
 	box-shadow: 0 40px 90px -34px rgb(0 0 0 / 80%), inset 0 1px 0 rgb(255 255 255 / 8%);
-	padding: 0.45rem;
+	padding: 0.55rem;
 	backdrop-filter: blur(18px) saturate(150%);
 	animation: klp-pop 0.16s var(--klp-ease) both;
+}
+
+/* Прозрачный «мост» между кнопкой и панелью: мышь не выходит из
+   hover-зоны навигации и панель не закрывается при переходе. */
+.klp-nav-panel::before {
+	position: absolute;
+	top: -0.65rem;
+	right: 0;
+	left: 0;
+	height: 0.65rem;
+	content: "";
 }
 
 @keyframes klp-pop {
@@ -201,7 +213,7 @@
 .klp-nav-link {
 	display: block;
 	border-radius: 0.65rem;
-	padding: 0.55rem 0.7rem;
+	padding: 0.7rem 0.85rem;
 	transition: background-color 0.15s ease;
 }
 
@@ -212,15 +224,15 @@
 .klp-nav-link strong {
 	display: block;
 	color: var(--klp-text);
-	font-size: 0.84rem;
+	font-size: 0.88rem;
 	font-weight: 600;
 }
 
 .klp-nav-link span {
 	display: block;
-	margin-top: 0.15rem;
+	margin-top: 0.25rem;
 	color: var(--klp-faint);
-	font-size: 0.72rem;
+	font-size: 0.74rem;
 }
 
 .klp-nav-actions {
@@ -232,9 +244,9 @@
 
 .klp-nav-login {
 	border-radius: 999px;
-	padding: 0.45rem 0.7rem;
+	padding: 0.55rem 0.85rem;
 	color: #c4c0b9;
-	font-size: 0.86rem;
+	font-size: 0.88rem;
 	transition: color 0.15s ease;
 }
 
@@ -249,8 +261,8 @@
 	border-radius: 999px;
 	background: var(--klp-cta);
 	color: var(--klp-cta-ink) !important;
-	padding: 0.6rem 1rem;
-	font-size: 0.86rem;
+	padding: 0.7rem 1.2rem;
+	font-size: 0.88rem;
 	font-weight: 600;
 	transition: transform 0.15s ease, background-color 0.15s ease;
 }
@@ -324,7 +336,7 @@
 .klp-hero {
 	position: relative;
 	overflow: hidden;
-	padding: clamp(7.5rem, 14vw, 11rem) 1.5rem clamp(4rem, 8vw, 6rem);
+	padding: clamp(8.5rem, 16vw, 12rem) 1.5rem clamp(4.5rem, 9vw, 7rem);
 	background:
 		radial-gradient(50% 42% at 76% 18%, rgb(160 215 209 / 13%), transparent 62%),
 		radial-gradient(44% 38% at 14% 10%, rgb(123 220 241 / 9%), transparent 58%),
@@ -382,8 +394,8 @@
 	flex-wrap: wrap;
 	align-items: center;
 	justify-content: center;
-	gap: 1.5rem;
-	margin-top: 2.2rem;
+	gap: 1.75rem;
+	margin-top: 2.6rem;
 }
 
 .klp-hero-link {
@@ -391,7 +403,7 @@
 	align-items: center;
 	gap: 0.45rem;
 	color: var(--klp-text);
-	font-size: 0.9rem;
+	font-size: 0.95rem;
 	text-decoration: underline;
 	text-underline-offset: 0.25rem;
 }
@@ -399,8 +411,8 @@
 /* Чат-стейдж в hero */
 .klp-hero-stage {
 	position: relative;
-	margin: clamp(2.5rem, 6vw, 4.5rem) auto 0;
-	width: min(100%, 56rem);
+	margin: clamp(3rem, 7vw, 5rem) auto 0;
+	width: min(100%, 58rem);
 }
 
 .klp-stage {
@@ -429,7 +441,7 @@
 .klp-stage-content {
 	position: relative;
 	z-index: 1;
-	padding: clamp(1.2rem, 3vw, 2rem);
+	padding: clamp(1.5rem, 3.5vw, 2.75rem);
 }
 
 .klp-stage-topbar {
@@ -437,9 +449,9 @@
 	align-items: center;
 	justify-content: space-between;
 	gap: 1rem;
-	margin-bottom: 1.2rem;
+	margin-bottom: 1.4rem;
 	color: var(--klp-faint);
-	font-size: 0.72rem;
+	font-size: 0.74rem;
 }
 
 .klp-stage-dots {
@@ -511,7 +523,7 @@
 .klp-chat {
 	display: flex;
 	flex-direction: column;
-	gap: 0.9rem;
+	gap: 1.15rem;
 }
 
 .klp-msg {
@@ -529,9 +541,9 @@
 	border-radius: 1rem;
 	border-top-left-radius: 0.15rem;
 	background: var(--klp-surface);
-	padding: 0.7rem 0.9rem;
-	font-size: 0.92rem;
-	line-height: 1.5;
+	padding: 0.85rem 1.05rem;
+	font-size: 0.95rem;
+	line-height: 1.55;
 	overflow-wrap: anywhere;
 }
 
@@ -570,24 +582,24 @@
 	display: block;
 	margin: 0.2rem 0 0.55rem;
 	color: var(--klp-text);
-	font-size: 0.98rem;
-	line-height: 1.45;
+	font-size: 1.02rem;
+	line-height: 1.5;
 }
 
 .klp-ai-body ul {
 	display: grid;
-	gap: 0.35rem;
+	gap: 0.45rem;
 	margin: 0 0 0.6rem;
 	padding-left: 1.1rem;
 	color: var(--klp-muted);
-	font-size: 0.88rem;
+	font-size: 0.92rem;
 }
 
 .klp-ai-body p {
 	margin: 0;
 	color: var(--klp-muted);
-	font-size: 0.88rem;
-	line-height: 1.55;
+	font-size: 0.92rem;
+	line-height: 1.6;
 }
 
 .klp-file-card {
@@ -598,7 +610,8 @@
 	border: 1px solid var(--klp-line);
 	border-radius: 0.8rem;
 	background: var(--klp-bg);
-	padding: 0.8rem 1rem;
+	min-height: 4.5rem;
+	padding: 0.9rem 1.1rem;
 }
 
 .klp-file-icon {
@@ -647,7 +660,7 @@
 	border: 1px solid var(--klp-line-strong);
 	border-radius: 999px;
 	background: var(--klp-surface);
-	padding: 0.35rem 0.4rem 0.35rem 1rem;
+	padding: 0.45rem 0.5rem 0.45rem 1.15rem;
 }
 
 .klp-composer input {
@@ -656,7 +669,7 @@
 	border: 0;
 	background: transparent;
 	color: var(--klp-text);
-	font-size: 0.88rem;
+	font-size: 0.92rem;
 	outline: none;
 }
 
@@ -666,8 +679,8 @@
 
 .klp-send {
 	display: grid;
-	width: 2.4rem;
-	height: 2.4rem;
+	width: 2.6rem;
+	height: 2.6rem;
 	flex: 0 0 auto;
 	place-items: center;
 	border-radius: 999px;
@@ -697,7 +710,7 @@
 	border-radius: 0.9rem;
 	background: rgb(32 30 29 / 92%);
 	box-shadow: 0 18px 50px rgb(0 0 0 / 45%), inset 0 1px 0 rgb(255 255 255 / 8%);
-	padding: 0.6rem 0.8rem;
+	padding: 0.7rem 0.9rem;
 	backdrop-filter: blur(14px) saturate(140%);
 }
 
@@ -722,14 +735,14 @@
 	flex-direction: column;
 	margin: 0;
 	color: var(--klp-text);
-	font-size: 0.68rem;
+	font-size: 0.72rem;
 	font-weight: 600;
 	line-height: 1.3;
 }
 
 .klp-float-pill small {
 	color: var(--klp-faint);
-	font-size: 0.62rem;
+	font-size: 0.66rem;
 	font-weight: 400;
 }
 
@@ -740,7 +753,7 @@
 /* Пиллары */
 .klp-pillars {
 	position: relative;
-	padding: clamp(4rem, 9vw, 7rem) 1.5rem;
+	padding: clamp(5rem, 10vw, 8rem) 1.5rem;
 	background: var(--klp-bg);
 }
 
@@ -748,7 +761,7 @@
 	display: grid;
 	grid-template-columns: 17.5rem minmax(0, 1fr);
 	align-items: center;
-	gap: clamp(3rem, 7vw, 6rem);
+	gap: clamp(4rem, 8vw, 7rem);
 	margin-inline: auto;
 	width: min(100%, 75rem);
 }
@@ -764,7 +777,7 @@
 	border: 0;
 	border-top: 1px solid var(--klp-line);
 	background: transparent;
-	padding: 1.4rem 0;
+	padding: 1.6rem 0;
 	text-align: left;
 	cursor: pointer;
 }
@@ -787,7 +800,7 @@
 .klp-pillar-title {
 	display: block;
 	color: var(--klp-faint);
-	font-size: 1.55rem;
+	font-size: 1.6rem;
 	font-weight: 600;
 	letter-spacing: -0.03em;
 	transition: color 0.3s ease, transform 0.3s var(--klp-ease);
@@ -801,14 +814,14 @@
 .klp-pillar-desc {
 	display: block;
 	overflow: hidden;
-	margin-top: 0.7rem;
+	margin-top: 0.85rem;
 	color: var(--klp-muted);
-	font-size: 0.82rem;
-	line-height: 1.55;
+	font-size: 0.86rem;
+	line-height: 1.6;
 }
 
 .klp-pillar-stage {
-	min-height: 31rem;
+	min-height: 34rem;
 	border-radius: 1.5rem;
 	overflow: hidden;
 }
@@ -829,7 +842,7 @@
 /* Роли */
 .klp-roles {
 	overflow: hidden;
-	padding: clamp(4.5rem, 9vw, 7.5rem) 1.5rem;
+	padding: clamp(5rem, 10vw, 8.5rem) 1.5rem;
 	background: var(--klp-bg);
 }
 
@@ -842,7 +855,7 @@
 .klp-roles-head h2 {
 	margin: 0;
 	color: var(--klp-text);
-	font-size: clamp(2rem, 5vw, 3.5rem);
+	font-size: clamp(2.2rem, 5.4vw, 3.7rem);
 	font-weight: 600;
 	letter-spacing: -0.045em;
 	line-height: 1.08;
@@ -851,8 +864,8 @@
 .klp-roles-arrows {
 	display: flex;
 	justify-content: center;
-	gap: 0.7rem;
-	margin-top: 1.8rem;
+	gap: 0.8rem;
+	margin-top: 2.2rem;
 }
 
 .klp-arrow {
@@ -882,7 +895,7 @@
 	display: block;
 	width: 7.5rem;
 	height: 0.2rem;
-	margin: 1.4rem auto 0;
+	margin: 1.6rem auto 0;
 	overflow: hidden;
 	border-radius: 999px;
 	background: var(--klp-surface);
@@ -898,8 +911,8 @@
 
 .klp-roles-track {
 	display: flex;
-	gap: 1rem;
-	margin: 2.5rem auto 0;
+	gap: 1.25rem;
+	margin: 3rem auto 0;
 	width: min(100%, var(--klp-max));
 	overflow-x: auto;
 	overscroll-behavior-x: contain;
@@ -916,26 +929,26 @@
 	position: relative;
 	display: flex;
 	flex: 0 0 auto;
-	width: min(85vw, 23.1rem);
-	height: 36rem;
+	width: min(85vw, 23.5rem);
+	height: 37rem;
 	flex-direction: column;
 	overflow: hidden;
 	scroll-snap-align: start;
 	border: 1px solid var(--klp-line);
-	border-radius: 1.1rem;
+	border-radius: 1.3rem;
 	background: var(--klp-bg-soft);
 }
 
 .klp-role-card-head {
 	position: relative;
 	z-index: 1;
-	padding: 1.6rem 1.7rem 0;
+	padding: 1.8rem 1.9rem 0;
 }
 
 .klp-role-card-head h3 {
 	margin: 0;
 	color: var(--klp-text);
-	font-size: 1.45rem;
+	font-size: 1.55rem;
 	font-weight: 600;
 	letter-spacing: -0.03em;
 }
@@ -943,8 +956,8 @@
 .klp-role-card-head p {
 	margin: 0.55rem 0 0;
 	color: var(--klp-muted);
-	font-size: 0.84rem;
-	line-height: 1.6;
+	font-size: 0.9rem;
+	line-height: 1.65;
 }
 
 .klp-role-demo {
@@ -957,7 +970,7 @@
 
 .klp-role-demo-panel {
 	position: absolute;
-	inset: 1.25rem 1.25rem 0;
+	inset: 1.5rem 1.5rem 0;
 	display: flex;
 	flex-direction: column;
 	overflow: hidden;
@@ -973,7 +986,7 @@
 	justify-content: space-between;
 	gap: 0.8rem;
 	border-bottom: 1px solid var(--klp-line);
-	padding: 0.7rem 1rem;
+	padding: 0.8rem 1.1rem;
 }
 
 .klp-role-demo-bar strong {
@@ -1010,7 +1023,7 @@
 	gap: 0.7rem;
 	width: 100%;
 	border-radius: 0.6rem;
-	padding: 0.6rem 0.65rem;
+	padding: 0.7rem 0.75rem;
 	text-align: left;
 	transition: background-color 0.15s ease;
 }
@@ -1021,8 +1034,8 @@
 
 .klp-connector-icon {
 	display: grid;
-	width: 2.3rem;
-	height: 2.3rem;
+	width: 2.5rem;
+	height: 2.5rem;
 	flex: 0 0 auto;
 	place-items: center;
 	border-radius: 0.55rem;
@@ -1228,7 +1241,7 @@
 
 /* Тарифы */
 .klp-pricing {
-	padding: clamp(4.5rem, 9vw, 7.5rem) 1.5rem;
+	padding: clamp(5rem, 10vw, 8rem) 1.5rem;
 	background: var(--klp-bg-soft);
 	border-block: 1px solid var(--klp-line-soft);
 }
@@ -1264,7 +1277,7 @@
 .klp-pricing-toggle {
 	display: inline-flex;
 	gap: 0.25rem;
-	margin-top: 1.8rem;
+	margin-top: 2.2rem;
 	border: 1px solid var(--klp-line);
 	border-radius: 999px;
 	background: var(--klp-bg);
@@ -1273,15 +1286,15 @@
 
 .klp-pricing-toggle button {
 	display: inline-flex;
-	min-height: 2.6rem;
+	min-height: 2.75rem;
 	align-items: center;
 	gap: 0.45rem;
 	border: 0;
 	border-radius: 999px;
 	background: transparent;
-	padding: 0.45rem 0.95rem;
+	padding: 0.5rem 1.05rem;
 	color: var(--klp-faint);
-	font-size: 0.82rem;
+	font-size: 0.85rem;
 	cursor: pointer;
 	transition: background-color 0.15s ease, color 0.15s ease;
 }
@@ -1307,8 +1320,8 @@
 .klp-pricing-grid {
 	display: grid;
 	grid-template-columns: repeat(4, minmax(0, 1fr));
-	gap: 1rem;
-	margin-top: 2.5rem;
+	gap: 1.25rem;
+	margin-top: 3rem;
 }
 
 .klp-price-card {
@@ -1316,9 +1329,9 @@
 	display: flex;
 	flex-direction: column;
 	border: 1px solid var(--klp-line);
-	border-radius: 1.2rem;
+	border-radius: 1.3rem;
 	background: var(--klp-bg);
-	padding: 1.4rem;
+	padding: clamp(1.5rem, 3vw, 1.8rem);
 }
 
 .klp-price-card.is-featured {
@@ -1332,7 +1345,7 @@
 	align-items: center;
 	gap: 0.5rem;
 	color: var(--klp-text);
-	font-size: 1rem;
+	font-size: 1.05rem;
 	font-weight: 600;
 }
 
@@ -1347,17 +1360,17 @@
 }
 
 .klp-price-sub {
-	min-height: 2.6rem;
+	min-height: 3rem;
 	margin: 0.45rem 0 0;
 	color: var(--klp-muted);
-	font-size: 0.78rem;
-	line-height: 1.45;
+	font-size: 0.82rem;
+	line-height: 1.55;
 }
 
 .klp-price-value {
 	margin-top: 1.1rem;
 	color: var(--klp-text);
-	font-size: 2.35rem;
+	font-size: 2.6rem;
 	font-weight: 600;
 	letter-spacing: -0.05em;
 	line-height: 1;
@@ -1367,7 +1380,7 @@
 	margin-top: 0.4rem;
 	color: var(--klp-faint);
 	font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
-	font-size: 0.66rem;
+	font-size: 0.7rem;
 	letter-spacing: 0.12em;
 	text-transform: uppercase;
 }
@@ -1381,8 +1394,8 @@
 	border: 1px solid var(--klp-line-strong);
 	background: transparent;
 	color: var(--klp-text);
-	padding: 0.7rem 1rem;
-	font-size: 0.84rem;
+	padding: 0.8rem 1rem;
+	font-size: 0.86rem;
 	font-weight: 600;
 	transition: transform 0.15s ease, background-color 0.15s ease;
 }
@@ -1405,10 +1418,10 @@
 
 .klp-price-features {
 	display: grid;
-	gap: 0.65rem;
-	margin-top: 1.3rem;
+	gap: 0.75rem;
+	margin-top: 1.4rem;
 	border-top: 1px solid var(--klp-line);
-	padding-top: 1.3rem;
+	padding-top: 1.4rem;
 	list-style: none;
 }
 
@@ -1417,8 +1430,8 @@
 	align-items: flex-start;
 	gap: 0.55rem;
 	color: var(--klp-text-soft);
-	font-size: 0.78rem;
-	line-height: 1.45;
+	font-size: 0.82rem;
+	line-height: 1.55;
 }
 
 .klp-price-features svg {
@@ -1442,13 +1455,13 @@
 	flex-direction: column;
 	align-items: center;
 	gap: 0.4rem;
-	padding: 3.5rem 1rem;
+	padding: 4rem 1rem;
 	text-align: center;
 }
 
 .klp-stat strong {
 	color: var(--klp-text);
-	font-size: clamp(2rem, 4vw, 3rem);
+	font-size: clamp(2.2rem, 4.4vw, 3.2rem);
 	font-weight: 650;
 	letter-spacing: -0.05em;
 	line-height: 1;
@@ -1456,12 +1469,12 @@
 
 .klp-stat span {
 	color: var(--klp-faint);
-	font-size: 0.78rem;
+	font-size: 0.82rem;
 }
 
 /* Кейсы */
 .klp-cases {
-	padding: clamp(4.5rem, 9vw, 7rem) 1.5rem;
+	padding: clamp(5rem, 10vw, 8rem) 1.5rem;
 	background: var(--klp-bg);
 }
 
@@ -1493,18 +1506,18 @@
 .klp-cases-grid {
 	display: grid;
 	grid-template-columns: repeat(3, 1fr);
-	gap: 1rem;
-	margin-top: 2.5rem;
+	gap: 1.25rem;
+	margin-top: 3rem;
 }
 
 .klp-case-card {
 	display: flex;
-	min-height: 13rem;
+	min-height: 14rem;
 	flex-direction: column;
 	border: 1px solid var(--klp-line);
-	border-radius: 1.1rem;
+	border-radius: 1.2rem;
 	background: var(--klp-bg-soft);
-	padding: 1.3rem;
+	padding: 1.5rem;
 	transition: border-color 0.15s ease, transform 0.15s ease;
 }
 
@@ -1522,15 +1535,15 @@
 .klp-case-card h3 {
 	margin: 1.4rem 0 0;
 	color: var(--klp-text);
-	font-size: 1rem;
+	font-size: 1.05rem;
 	letter-spacing: -0.02em;
 }
 
 .klp-case-card p {
 	margin: 0.6rem 0 0;
 	color: var(--klp-muted);
-	font-size: 0.8rem;
-	line-height: 1.6;
+	font-size: 0.84rem;
+	line-height: 1.65;
 }
 
 .klp-case-meta {

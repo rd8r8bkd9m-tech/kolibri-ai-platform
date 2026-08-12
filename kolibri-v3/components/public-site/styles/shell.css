@@ -172,13 +172,13 @@
 	border-top: 1px solid var(--kp-line-soft);
 	background: #120f0c;
 	color: var(--kp-text);
-	padding-block: 3.5rem;
+	padding-block: 4.5rem 3.5rem;
 }
 
 .kp-footer-grid {
 	display: grid;
 	grid-template-columns: 1.3fr 0.9fr 0.9fr 0.9fr 1fr;
-	gap: 3rem;
+	gap: 3.5rem;
 }
 
 .kp-footer-brand p {

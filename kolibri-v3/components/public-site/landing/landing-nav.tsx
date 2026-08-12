@@ -76,11 +76,28 @@ function NavDropdown({ group }: { group: NavGroup }) {
 			ref={root}
 			onMouseEnter={() => setOpen(true)}
 			onMouseLeave={() => setOpen(false)}
+			onFocus={(event) => {
+				if (root.current?.contains(event.target as Node)) {
+					setOpen(true);
+				}
+			}}
+			onBlur={(event) => {
+				if (!root.current?.contains(event.relatedTarget as Node)) {
+					setOpen(false);
+				}
+			}}
+			onKeyDown={(event) => {
+				if (event.key === "Escape") {
+					setOpen(false);
+					root.current?.querySelector<HTMLButtonElement>(".klp-nav-btn")?.focus();
+				}
+			}}
 		>
 			<button
 				type="button"
 				className="klp-nav-btn"
 				aria-expanded={open}
+				onFocus={() => setOpen(true)}
 				onClick={() => setOpen((value) => !value)}
 			>
 				{group.label} <ChevronDown aria-hidden="true" />

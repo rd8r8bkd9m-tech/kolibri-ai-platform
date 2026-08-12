@@ -121,7 +121,7 @@ function DevDemo() {
 				<strong><i /> Интеграция · ФГИС ЦС</strong>
 				<span>нормативы и цены</span>
 			</div>
-			<div className="klp-role-demo-body" style={{ padding: "1rem" }}>
+			<div className="klp-role-demo-body" style={{ padding: "1.25rem" }}>
 				<div className="klp-chat">
 					<div className="klp-msg klp-msg-user">
 						<div className="klp-bubble">

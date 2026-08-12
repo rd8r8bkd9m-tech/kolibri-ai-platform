@@ -15,7 +15,7 @@ function ChatDemo({ prompt, summary, fileTitle, fileType }: {
 	fileType: string;
 }) {
 	return (
-		<div className="klp-role-demo-body" style={{ padding: "1rem" }}>
+		<div className="klp-role-demo-body" style={{ padding: "1.25rem" }}>
 			<div className="klp-chat">
 				<div className="klp-msg klp-msg-user">
 					<div className="klp-bubble">{prompt}</div>
@@ -44,7 +44,7 @@ function DocumentsDemo() {
 		{ title: "Акт выполненных работ", type: "PDF", state: "в работе" },
 	];
 	return (
-		<div className="klp-role-demo-body" style={{ padding: "1rem" }}>
+		<div className="klp-role-demo-body" style={{ padding: "1.25rem" }}>
 			<div className="klp-chat">
 				<div className="klp-msg klp-msg-user">
 					<div className="klp-bubble">Сделай пакет документов по версии 3</div>
@@ -81,7 +81,7 @@ const connectors = [
 
 function NormativesDemo() {
 	return (
-		<div className="klp-role-demo-body" style={{ padding: "0.75rem" }}>
+		<div className="klp-role-demo-body" style={{ padding: "1rem" }}>
 			{connectors.map(({ bg, fg, mark, meta, name }) => (
 				<div className="klp-connector" key={name}>
 					<span
@@ -109,7 +109,7 @@ function VersionsDemo() {
 		["Собрал версию 4 и документы", "3s"],
 	] as const;
 	return (
-		<div className="klp-role-demo-body" style={{ padding: "1rem" }}>
+		<div className="klp-role-demo-body" style={{ padding: "1.25rem" }}>
 			<ul className="klp-timeline">
 				{steps.map(([text, time]) => (
 					<li key={text}><span>{text}<i>{time}</i></span></li>
@@ -126,7 +126,7 @@ function ExportDemo() {
 		{ title: "Пакет документов", type: "DOCX" },
 	];
 	return (
-		<div className="klp-role-demo-body" style={{ padding: "1rem" }}>
+		<div className="klp-role-demo-body" style={{ padding: "1.25rem" }}>
 			<div className="klp-chat">
 				<div className="klp-msg klp-msg-user">
 					<div className="klp-bubble">Выгрузи смету и документы клиенту</div>
