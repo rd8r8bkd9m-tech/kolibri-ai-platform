@@ -85,6 +85,23 @@
 		box-shadow 0.25s ease;
 }
 
+.klp-scroll-progress {
+	position: absolute;
+	right: 0;
+	bottom: 0;
+	left: 0;
+	height: 2px;
+	overflow: hidden;
+	pointer-events: none;
+}
+
+.klp-scroll-progress i {
+	display: block;
+	height: 100%;
+	background: linear-gradient(90deg, var(--klp-r0), var(--klp-r1), var(--klp-r2), var(--klp-r3));
+	transition: width 0.1s linear;
+}
+
 .klp-nav.is-scrolled {
 	border-bottom: 1px solid var(--klp-line-soft);
 	background: rgb(26 24 23 / 82%);
@@ -320,9 +337,11 @@
 }
 
 .klp-cta-pill {
+	position: relative;
 	display: inline-flex;
 	align-items: center;
 	gap: 0.5rem;
+	overflow: hidden;
 	border-radius: 999px;
 	background: var(--klp-cta);
 	color: var(--klp-cta-ink) !important;
@@ -340,6 +359,23 @@
 .klp-cta-pill svg {
 	width: 0.9rem;
 	height: 0.9rem;
+}
+
+.klp-cta-pill::after {
+	position: absolute;
+	top: 0;
+	bottom: 0;
+	left: -60%;
+	width: 40%;
+	background: linear-gradient(100deg, transparent, rgb(255 255 255 / 55%), transparent);
+	content: "";
+	transform: skewX(-20deg);
+	animation: klp-shine 4.5s ease-in-out infinite;
+}
+
+@keyframes klp-shine {
+	0%, 55% { left: -60%; }
+	85%, 100% { left: 130%; }
 }
 
 .klp-mobile-menu {
@@ -564,7 +600,7 @@
 	height: 100%;
 	border-radius: 999px;
 	background: linear-gradient(90deg, var(--klp-mint), var(--klp-sky));
-	animation: klp-scene-progress 7s linear forwards;
+	animation: klp-scene-progress 8.5s linear forwards;
 }
 
 .klp-scene-progress.is-paused i {
@@ -614,6 +650,38 @@
 	display: flex;
 	flex-direction: column;
 	gap: 1.15rem;
+	min-height: 20rem;
+}
+
+.klp-typing {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.32rem;
+	border-radius: 1rem;
+	border-top-left-radius: 0.15rem;
+	background: var(--klp-surface);
+	padding: 0.95rem 1.15rem;
+}
+
+.klp-typing i {
+	width: 0.42rem;
+	height: 0.42rem;
+	border-radius: 999px;
+	background: var(--klp-faint);
+	animation: klp-typing-dot 1.2s ease-in-out infinite;
+}
+
+.klp-typing i:nth-child(2) {
+	animation-delay: 0.15s;
+}
+
+.klp-typing i:nth-child(3) {
+	animation-delay: 0.3s;
+}
+
+@keyframes klp-typing-dot {
+	0%, 60%, 100% { opacity: 0.35; transform: translateY(0); }
+	30% { opacity: 1; transform: translateY(-3px); }
 }
 
 .klp-msg {
@@ -1009,6 +1077,11 @@
 	scroll-snap-type: x mandatory;
 	scrollbar-width: none;
 	padding-bottom: 0.5rem;
+	cursor: grab;
+}
+
+.klp-roles-track:active {
+	cursor: grabbing;
 }
 
 .klp-roles-track::-webkit-scrollbar {
@@ -1803,6 +1876,10 @@
 		max-width: 86%;
 	}
 
+	.klp-chat {
+		min-height: 15rem;
+	}
+
 	.klp-pillar-stage {
 		min-height: 22rem;
 	}
@@ -1828,6 +1905,11 @@
 
 	.klp-nav-logo .klp-pet,
 	.klp-topbar-pet {
+		animation: none !important;
+	}
+
+	.klp-typing i,
+	.klp-cta-pill::after {
 		animation: none !important;
 	}
 

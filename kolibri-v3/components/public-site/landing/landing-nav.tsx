@@ -132,17 +132,29 @@ function MobileLinks() {
 
 export function LandingNav() {
 	const [scrolled, setScrolled] = useState(false);
+	const [progress, setProgress] = useState(0);
 	const pathname = usePathname();
 
 	useEffect(() => {
-		const update = () => setScrolled(window.scrollY > 8);
+		const update = () => {
+			setScrolled(window.scrollY > 8);
+			const max = document.documentElement.scrollHeight - window.innerHeight;
+			setProgress(max > 0 ? Math.min(100, (window.scrollY / max) * 100) : 0);
+		};
 		update();
 		window.addEventListener("scroll", update, { passive: true });
-		return () => window.removeEventListener("scroll", update);
+		window.addEventListener("resize", update);
+		return () => {
+			window.removeEventListener("scroll", update);
+			window.removeEventListener("resize", update);
+		};
 	}, []);
 
 	return (
 		<nav className={`klp-nav${scrolled ? " is-scrolled" : ""}`} aria-label="Основная навигация">
+			<div className="klp-scroll-progress" aria-hidden="true">
+				<i style={{ width: `${progress}%` }} />
+			</div>
 			<div className="klp-nav-inner">
 				<Link className="klp-nav-logo" href="/" aria-label="КолИ — на главную">
 					<LandingPet interactive width={30} />

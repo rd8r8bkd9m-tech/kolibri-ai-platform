@@ -182,6 +182,7 @@ const roles = [
 export function RolesSection() {
 	const track = useRef<HTMLDivElement>(null);
 	const [progress, setProgress] = useState(0);
+	const dragState = useRef({ active: false, startX: 0, scrollLeft: 0 });
 
 	const updateProgress = () => {
 		const node = track.current;
@@ -212,7 +213,30 @@ export function RolesSection() {
 					<i style={{ width: `${progress}%` }} />
 				</span>
 			</div>
-			<div className="klp-roles-track" ref={track} onScroll={updateProgress}>
+			<div
+				className="klp-roles-track"
+				ref={track}
+				onScroll={updateProgress}
+				onPointerDown={(event) => {
+					dragState.current = {
+						active: true,
+						startX: event.clientX,
+						scrollLeft: track.current?.scrollLeft ?? 0,
+					};
+				}}
+				onPointerMove={(event) => {
+					if (!dragState.current.active) return;
+					const node = track.current;
+					if (!node) return;
+					node.scrollLeft = dragState.current.scrollLeft - (event.clientX - dragState.current.startX);
+				}}
+				onPointerUp={() => {
+					dragState.current.active = false;
+				}}
+				onPointerLeave={() => {
+					dragState.current.active = false;
+				}}
+			>
 				{roles.map((role, index) => (
 					<Reveal delay={index * 80} key={role.title}>
 						<article className="klp-role-card">
