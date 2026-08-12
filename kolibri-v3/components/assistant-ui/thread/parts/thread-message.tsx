@@ -1,14 +1,10 @@
 "use client";
 
 import {
-	ChainOfThoughtByIndicesProvider,
-	ChainOfThoughtPrimitive,
 	MessagePrimitive,
-	type ReasoningMessagePartComponent,
 	type ToolCallMessagePartComponent,
 	useAuiState,
 } from "@assistant-ui/react";
-import { BrainIcon } from "lucide-react";
 import {
 	createElement,
 	type ComponentProps,
@@ -45,22 +41,10 @@ import {
 	UserMessage,
 } from "./thread-message-primitives";
 import { THREAD_UI_CLASS } from "../thread-ui-constants";
+import { AgentRunFeed } from "@/components/assistant-ui/agent-run-feed";
 
 export const AssistantActionBarWithTools: ComponentType = () => {
 	return <AssistantActionBar />;
-};
-
-const ReasoningBlock: ReasoningMessagePartComponent = ({ text }) => {
-	const content = text?.trim();
-	if (!content) return null;
-	return (
-		<div
-			data-slot="reasoning-part"
-			className="text-muted-foreground max-h-64 overflow-y-auto px-3 py-2 text-[13px] leading-5 whitespace-pre-wrap"
-		>
-			{content}
-		</div>
-	);
 };
 
 const AssistantMessage = () => {
@@ -228,28 +212,6 @@ const AssistantMessage = () => {
 		},
 		[],
 	);
-	const chainToolRenderer = useMemo<ToolCallMessagePartComponent>(
-		() => (props) => {
-			const byName: Record<string, ToolCallMessagePartComponent | undefined> = {
-				generate_image: withApproval(GeneratedImageToolUI),
-				get_weather: withApproval(weatherRenderer),
-				developer_command: withApproval(DeveloperCommandToolUI),
-				developer_file_change: withApproval(DeveloperFileChangeToolUI),
-				create_estimate_document_pack: documentPackRenderer,
-				present: withApproval(presentRenderer),
-			};
-			const renderer = byName[props.toolName];
-			if (renderer) return createElement(renderer, props);
-			return <ToolFallbackComponent {...props} />;
-		},
-		[
-			withApproval,
-			weatherRenderer,
-			documentPackRenderer,
-			presentRenderer,
-			ToolFallbackComponent,
-		],
-	);
 	const chainIndices = useMemo(() => {
 		const indices: number[] = [];
 		messageContent.forEach((part, index) => {
@@ -262,11 +224,10 @@ const AssistantMessage = () => {
 			end: indices.length > 0 ? indices[indices.length - 1]! : -1,
 		};
 	}, [messageContent]);
-	const chainCollapsed = useAuiState((state) => state.chainOfThought.collapsed);
 	const partsComponents = useMemo(
 		() => ({
 			Text: MarkdownText,
-			Reasoning: ReasoningBlock,
+			Reasoning: () => null,
 			generativeUI: {
 				components: generativeUIComponents,
 				Fallback: () => null,
@@ -309,25 +270,10 @@ const AssistantMessage = () => {
 				className={uiClassTokens.threadAssistantMessageContent}
 			>
 					{chainIndices.start >= 0 ? (
-						<ChainOfThoughtByIndicesProvider
+						<AgentRunFeed
 							startIndex={chainIndices.start}
 							endIndex={chainIndices.end}
-						>
-							<ChainOfThoughtPrimitive.Root className="my-2">
-								<ChainOfThoughtPrimitive.AccordionTrigger className="text-muted-foreground hover:text-foreground flex items-center gap-2 px-1 py-1.5 text-sm transition-colors">
-									<BrainIcon className="size-4 shrink-0" aria-hidden="true" />
-									<span>Ход работы</span>
-								</ChainOfThoughtPrimitive.AccordionTrigger>
-								{!chainCollapsed ? (
-									<ChainOfThoughtPrimitive.Parts
-										components={{
-											Reasoning: ReasoningBlock,
-											tools: { Fallback: chainToolRenderer },
-										}}
-									/>
-								) : null}
-							</ChainOfThoughtPrimitive.Root>
-						</ChainOfThoughtByIndicesProvider>
+						/>
 					) : null}
 					<MessagePrimitive.Parts components={partsComponents} />
 					<MessageError />
