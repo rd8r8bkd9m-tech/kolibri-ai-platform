@@ -25,6 +25,12 @@ const reportOnlyCspDirectives =
         "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
       )
     : strictCspDirectives;
+const extraDevOrigins = (
+  process.env.KOLIBRI_NEXT_ALLOWED_DEV_ORIGINS ?? ""
+)
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
 const enforcedCspDirectives = strictCspDirectives.replace(
   "script-src 'self'",
   // Next emits bounded inline bootstrap scripts. Keep the strict policy in
@@ -48,7 +54,13 @@ const cspHeaders = enforceCsp
     ];
 
 const nextConfig: NextConfig = {
-  allowedDevOrigins: ["127.0.0.1", "127.0.0.2", "localhost", "dev.kolibriai.ru"],
+  allowedDevOrigins: [
+    "127.0.0.1",
+    "127.0.0.2",
+    "localhost",
+    "dev.kolibriai.ru",
+    ...extraDevOrigins,
+  ],
   devIndicators: false,
   experimental: {
     webpackMemoryOptimizations: true,

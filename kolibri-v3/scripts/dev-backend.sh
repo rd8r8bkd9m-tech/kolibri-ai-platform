@@ -70,7 +70,13 @@ export KOLIBRI_V3_DEVELOPER_AGENT_MAX_ITERATIONS=60
 export KOLIBRI_V3_DEVELOPER_WORKSPACE_ROOT="${v3_root}"
 export KOLIBRI_V3_PROVIDER_EXECUTION_ENABLED=false
 export KOLIBRI_V3_COOKIE_SECURE=false
-export KOLIBRI_V3_ALLOWED_ORIGINS='http://127.0.0.1:3103,http://localhost:3103,http://127.0.0.1:3104,http://localhost:3104,http://127.0.0.1:4104,http://localhost:4104'
+base_allowed_origins='http://127.0.0.1:3103,http://localhost:3103,http://127.0.0.1:3104,http://localhost:3104,http://127.0.0.1:4104,http://localhost:4104'
+extra_allowed_origins="${KOLIBRI_V3_ALLOWED_ORIGINS_EXTRA:-}"
+if [[ -n "$extra_allowed_origins" ]]; then
+  export KOLIBRI_V3_ALLOWED_ORIGINS="${base_allowed_origins},${extra_allowed_origins}"
+else
+  export KOLIBRI_V3_ALLOWED_ORIGINS="${base_allowed_origins}"
+fi
 export KOLIBRI_V3_SESSION_COOKIE_NAME='kolibri_v3_session'
 export KOLIBRI_V3_CSRF_COOKIE_NAME='kolibri_v3_csrf'
 unset KOLIBRI_V3_CSRF_SECRET
