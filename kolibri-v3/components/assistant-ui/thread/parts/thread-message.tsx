@@ -22,7 +22,6 @@ import { MarkdownText } from "@/components/assistant-ui/markdown-text";
 import { kolibriGenerativeUILibrary } from "@/components/assistant-ui/generative-ui-library";
 import { GeneratedImageToolUI } from "@/components/assistant-ui/generated-image-tool";
 import {
-	DeveloperActivityGroup,
 	DeveloperCommandToolUI,
 	DeveloperFileChangeToolUI,
 } from "@/components/assistant-ui/developer-activity-tool";
@@ -229,6 +228,40 @@ const AssistantMessage = () => {
 		},
 		[],
 	);
+	const chainToolRenderer = useMemo<ToolCallMessagePartComponent>(
+		() => (props) => {
+			const byName: Record<string, ToolCallMessagePartComponent | undefined> = {
+				generate_image: withApproval(GeneratedImageToolUI),
+				get_weather: withApproval(weatherRenderer),
+				developer_command: withApproval(DeveloperCommandToolUI),
+				developer_file_change: withApproval(DeveloperFileChangeToolUI),
+				create_estimate_document_pack: documentPackRenderer,
+				present: withApproval(presentRenderer),
+			};
+			const renderer = byName[props.toolName];
+			if (renderer) return createElement(renderer, props);
+			return <ToolFallbackComponent {...props} />;
+		},
+		[
+			withApproval,
+			weatherRenderer,
+			documentPackRenderer,
+			presentRenderer,
+			ToolFallbackComponent,
+		],
+	);
+	const chainIndices = useMemo(() => {
+		const indices: number[] = [];
+		messageContent.forEach((part, index) => {
+			if (part.type === "reasoning" || part.type === "tool-call") {
+				indices.push(index);
+			}
+		});
+		return {
+			start: indices.length > 0 ? indices[0]! : -1,
+			end: indices.length > 0 ? indices[indices.length - 1]! : -1,
+		};
+	}, [messageContent]);
 	const partsComponents = useMemo(
 		() => ({
 			Text: MarkdownText,
@@ -248,33 +281,17 @@ const AssistantMessage = () => {
 				},
 				Fallback: ToolFallbackComponent,
 			},
-			ToolGroup: DeveloperActivityGroup,
-			ReasoningGroup: ({
-				startIndex,
-				endIndex,
-			}: {
-				startIndex: number;
-				endIndex: number;
-			}) => {
-				return (
-					<ChainOfThoughtByIndicesProvider
-						startIndex={startIndex}
-						endIndex={endIndex}
-					>
-						<ChainOfThoughtPrimitive.Root className="my-2">
-							<ChainOfThoughtPrimitive.AccordionTrigger className="text-muted-foreground hover:text-foreground flex items-center gap-2 px-1 py-1.5 text-sm transition-colors">
-								<BrainIcon className="size-4 shrink-0" aria-hidden="true" />
-								<span>Ход работы</span>
-							</ChainOfThoughtPrimitive.AccordionTrigger>
-							<ChainOfThoughtPrimitive.Parts
-								components={{ Reasoning: ReasoningBlock }}
-							/>
-						</ChainOfThoughtPrimitive.Root>
-					</ChainOfThoughtByIndicesProvider>
-				);
-			},
+			ToolGroup: () => null,
+			ReasoningGroup: () => null,
 		}),
-		[generativeUIComponents, presentRenderer, weatherRenderer, documentPackRenderer, ToolFallbackComponent, withApproval],
+		[
+			generativeUIComponents,
+			presentRenderer,
+			weatherRenderer,
+			documentPackRenderer,
+			ToolFallbackComponent,
+			withApproval,
+		],
 	);
 
 	if (!hasVisibleContent || !hasRenderableContent) return null;
@@ -289,6 +306,25 @@ const AssistantMessage = () => {
 				data-slot="aui_assistant-message-content"
 				className={uiClassTokens.threadAssistantMessageContent}
 			>
+					{chainIndices.start >= 0 ? (
+						<ChainOfThoughtByIndicesProvider
+							startIndex={chainIndices.start}
+							endIndex={chainIndices.end}
+						>
+							<ChainOfThoughtPrimitive.Root className="my-2">
+								<ChainOfThoughtPrimitive.AccordionTrigger className="text-muted-foreground hover:text-foreground flex items-center gap-2 px-1 py-1.5 text-sm transition-colors">
+									<BrainIcon className="size-4 shrink-0" aria-hidden="true" />
+									<span>Ход работы</span>
+								</ChainOfThoughtPrimitive.AccordionTrigger>
+								<ChainOfThoughtPrimitive.Parts
+									components={{
+										Reasoning: ReasoningBlock,
+										tools: { Fallback: chainToolRenderer },
+									}}
+								/>
+							</ChainOfThoughtPrimitive.Root>
+						</ChainOfThoughtByIndicesProvider>
+					) : null}
 					<MessagePrimitive.Parts components={partsComponents} />
 				<MessageError />
 			</div>
