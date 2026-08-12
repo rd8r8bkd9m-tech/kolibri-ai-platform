@@ -2970,6 +2970,8 @@ def _finish_error(
     settings: Settings,
     accepted: AcceptedRunLike,
     error: DirectModelError,
+    *,
+    text_stream: _TextRunStream | None = None,
 ) -> None:
     database = connect_database(settings.database_url)
     now = utc_now()
@@ -2996,6 +2998,60 @@ def _finish_error(
                     now_text=now,
                 )
             sequence = int(run["last_event_sequence"]) + 1
+            if text_stream is not None and (
+                text_stream.started or text_stream.reasoning_started
+            ):
+                streamed_reasoning = text_stream.reasoning
+                streamed_text = text_stream.text
+                message_id = text_stream.message_id
+                content_json = json.dumps(
+                    (
+                        [
+                            {"type": "reasoning", "text": streamed_reasoning},
+                            {"type": "text", "text": streamed_text},
+                        ]
+                        if streamed_reasoning
+                        else [{"type": "text", "text": streamed_text}]
+                    ),
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                    allow_nan=False,
+                )
+                database.execute(
+                    """
+                    INSERT INTO chat_messages (
+                        tenant_id, id, project_id, thread_id, sequence,
+                        client_message_id, run_id, role, content_text,
+                        content_json, created_by_user_id, created_at
+                    ) VALUES (?, ?, ?, ?, ?, NULL, ?, 'assistant', ?, ?, NULL, ?)
+                    """,
+                    (
+                        accepted.tenant_id,
+                        message_id,
+                        accepted.project_id,
+                        accepted.thread_id,
+                        sequence,
+                        accepted.run_id,
+                        streamed_text,
+                        content_json,
+                        now,
+                    ),
+                )
+                sequence += 1
+            if text_stream is not None and text_stream.reasoning_started:
+                _insert_event(
+                    database,
+                    tenant_id=accepted.tenant_id,
+                    run_id=accepted.run_id,
+                    sequence=sequence,
+                    event={
+                        "type": "REASONING_MESSAGE_END",
+                        "messageId": text_stream.reasoning_message_id,
+                    },
+                    created_at=now,
+                )
+                sequence += 1
             _insert_event(
                 database,
                 tenant_id=accepted.tenant_id,
@@ -7875,7 +7931,13 @@ def execute_direct_run(
             try:
                 result = runtime.execute(request)
             except AgentRuntimeError as exc:
-                raise DirectModelError(exc.code, exc.message) from None
+                _finish_error(
+                    settings,
+                    accepted,
+                    DirectModelError(exc.code, exc.message),
+                    text_stream=text_stream,
+                )
+                return
             _finish_success(
                 settings,
                 accepted,
@@ -8290,7 +8352,7 @@ def execute_direct_run(
                 ),
             )
     except DirectModelError as exc:
-        _finish_error(settings, accepted, exc)
+        _finish_error(settings, accepted, exc, text_stream=text_stream)
         return
 
     if turn.tool_call is not None:
