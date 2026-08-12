@@ -20,10 +20,20 @@ import {
 	createWebBillingIdempotencyKey,
 	createWebBillingPayment,
 	getWebBillingPlans,
+	getWebBillingPayment,
 	getWebBillingSubscriptions,
 	setWebBillingAutoRenew,
 } from "@/src/billing/client";
 import { useMobileSession } from "@/src/auth/mobile-session";
+
+const TERMINAL_PAYMENT_STATUSES = new Set([
+	"succeeded",
+	"failed",
+	"canceled",
+	"partially_refunded",
+	"refunded",
+]);
+const MAX_POLL_ATTEMPTS = 100;
 
 const formatMoney = (amountMinor: number) =>
 	new Intl.NumberFormat("ru-RU", {
@@ -60,6 +70,7 @@ export function NativeBillingSettings() {
 	const [checkoutPlan, setCheckoutPlan] = useState<string | null>(null);
 	const [polling, setPolling] = useState(false);
 	const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+	const pollAttemptsRef = useRef(0);
 
 	const load = useCallback(async () => {
 		setStatus("loading");
@@ -98,6 +109,7 @@ export function NativeBillingSettings() {
 		if (checkoutPlan) return;
 		haptics.selection();
 		setCheckoutPlan(plan.code);
+		setPolling(true);
 		setMessage("");
 		try {
 			const payment = await createWebBillingPayment(
@@ -108,39 +120,81 @@ export function NativeBillingSettings() {
 			if (!payment.paymentUrl) {
 				throw new Error("Платёжная ссылка не получена.");
 			}
-			setPolling(true);
+			pollAttemptsRef.current = 0;
 			await Linking.openURL(payment.paymentUrl);
 			// The bank app/browser owns the flow now; poll the server until the
-			// subscription activates or the user cancels.
-			pollForSubscription();
+			// exact intent reaches a terminal state. A pre-existing active
+			// subscription must never count as success for this checkout.
+			pollForPayment(payment.id);
 		} catch (reason) {
-			setMessage(
+			stopPolling(
 				reason instanceof Error ? reason.message : "Не удалось начать оплату.",
 			);
 			haptics.error();
-			setCheckoutPlan(null);
-			setPolling(false);
 		}
 	};
 
-	const pollForSubscription = () => {
+	const stopPolling = (message?: string) => {
+		if (pollTimerRef.current) {
+			clearTimeout(pollTimerRef.current);
+			pollTimerRef.current = null;
+		}
+		setPolling(false);
+		setCheckoutPlan(null);
+		if (message) setMessage(message);
+	};
+
+	const pollForPayment = (intentId: string) => {
 		const attempt = async () => {
+			pollAttemptsRef.current += 1;
 			try {
-				const next = await getWebBillingSubscriptions(
+				const payment = await getWebBillingPayment(
 					session.authorizedFetch,
+					intentId,
 				);
-				setSubscriptions(next);
-				if (next.some((subscription) => subscription.status === "active")) {
-					setPolling(false);
-					setCheckoutPlan(null);
-					haptics.success();
-					await session.refreshProfile();
+				if (TERMINAL_PAYMENT_STATUSES.has(payment.status)) {
+					if (payment.status === "succeeded") {
+						const next = await getWebBillingSubscriptions(
+							session.authorizedFetch,
+						);
+						setSubscriptions(next);
+						const activated = next.some(
+							(subscription) =>
+								subscription.paymentIntentId === intentId &&
+								subscription.status === "active",
+						);
+						stopPolling(
+							activated
+								? undefined
+								: "Оплата подтверждена, доступ активируется. Обновите раздел через несколько секунд.",
+						);
+						if (activated) {
+							haptics.success();
+							await session.refreshProfile();
+						}
+					} else {
+						stopPolling("Оплата не завершена. Доступ не изменён.");
+						haptics.error();
+					}
 					return;
 				}
+				if (pollAttemptsRef.current >= MAX_POLL_ATTEMPTS) {
+					stopPolling(
+						"Банк не подтвердил оплату вовремя. Проверьте статус в разделе оплаты.",
+					);
+					return;
+				}
+				pollTimerRef.current = setTimeout(attempt, 3_000);
 			} catch {
 				// keep polling; the provider may be mid-redirect
+				if (pollAttemptsRef.current >= MAX_POLL_ATTEMPTS) {
+					stopPolling(
+						"Не удалось проверить оплату. Проверьте статус в разделе оплаты.",
+					);
+					return;
+				}
+				pollTimerRef.current = setTimeout(attempt, 3_000);
 			}
-			pollTimerRef.current = setTimeout(attempt, 3_000);
 		};
 		void attempt();
 	};

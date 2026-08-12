@@ -197,7 +197,11 @@ test("mobile chat sends the canonical V1 AG-UI standard payload", () => {
   assert.match(provider, /state: null/);
   assert.match(provider, /tools: \[\]/);
   assert.match(provider, /context: \[\]/);
-  assert.match(provider, /executionMode: "standard"/);
+  assert.match(provider, /executionMode:/);
+  assert.match(provider, /"standard" as const/);
+  assert.match(provider, /"developer" as const/);
+  assert.match(provider, /accessMode: developerMode/);
+  assert.doesNotMatch(provider, /accessMode:\s*"standard"/);
   assert.match(provider, /agentProfile: normalizeAgentProfile\(agentProfile\)/);
   assert.doesNotMatch(
     provider,

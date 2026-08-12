@@ -83,7 +83,7 @@ runtime_ports_free() {
   ! lsof -nP -iTCP:8002 -sTCP:LISTEN >/dev/null 2>&1 &&
     ! lsof -nP -iTCP:3103 -sTCP:LISTEN >/dev/null 2>&1 &&
     ! lsof -nP -iTCP:3104 -sTCP:LISTEN >/dev/null 2>&1 &&
-    ! lsof -nP -iTCP:4103 -sTCP:LISTEN >/dev/null 2>&1
+    ! lsof -nP -iTCP:4104 -sTCP:LISTEN >/dev/null 2>&1
 }
 
 session_process_group() {
@@ -120,9 +120,9 @@ start_runtime() {
   if lsof -nP -iTCP:8002 -sTCP:LISTEN >/dev/null 2>&1 ||
     lsof -nP -iTCP:3103 -sTCP:LISTEN >/dev/null 2>&1 ||
     lsof -nP -iTCP:3104 -sTCP:LISTEN >/dev/null 2>&1 ||
-    lsof -nP -iTCP:4103 -sTCP:LISTEN >/dev/null 2>&1; then
+    lsof -nP -iTCP:4104 -sTCP:LISTEN >/dev/null 2>&1; then
     printf '%s\n' \
-      "V3 ports 8002/3103/3104/4103 are occupied outside the persistent V3 session." >&2
+      "V3 ports 8002/3103/3104/4104 are occupied outside the persistent V3 session." >&2
     exit 1
   fi
 

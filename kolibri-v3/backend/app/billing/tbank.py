@@ -178,6 +178,15 @@ class TBankStateResult:
     amount_minor: int | None
 
 
+@dataclass(frozen=True, slots=True)
+class TBankRefundResult:
+    success: bool
+    error_code: str
+    status: str | None
+    payment_id: str
+    amount_minor: int
+
+
 def _provider_string(
     value: object,
     *,
@@ -375,4 +384,77 @@ class TBankGateway:
             payment_id=payment_id,
             order_id=order_id,
             amount_minor=raw_amount,
+        )
+
+    def refund_payment(
+        self,
+        payment_id: str,
+        amount_minor: int,
+    ) -> TBankRefundResult:
+        """Request a full provider refund for a confirmed payment.
+
+        The request is signed server-side and each operation is executed
+        exactly once per call by the caller. Only full refunds are supported:
+        partial refunds are finalised by the bank webhook when applicable.
+        """
+
+        if _PAYMENT_ID.fullmatch(payment_id) is None:
+            raise TBankProtocolError("T-Bank payment identifier is invalid")
+        if (
+            not isinstance(amount_minor, int)
+            or isinstance(amount_minor, bool)
+            or not 1 <= amount_minor <= 9_999_999_999
+        ):
+            raise TBankProtocolError("T-Bank refund amount is invalid")
+        assert self.settings.terminal_key is not None
+        response = self._post(
+            "Refund",
+            {
+                "TerminalKey": self.settings.terminal_key,
+                "PaymentId": payment_id,
+                "Amount": amount_minor,
+            },
+        )
+        success = _provider_success(response.get("Success"))
+        error_code = _provider_string(
+            response.get("ErrorCode"), maximum=32, required=True
+        )
+        response_payment_id = _provider_string(
+            response.get("PaymentId"), maximum=20, required=True
+        )
+        response_amount = _minor_amount(response.get("Amount"), required=True)
+        terminal_key = _provider_string(response.get("TerminalKey"), maximum=64)
+        status = _provider_string(response.get("Status"), maximum=48)
+        assert error_code is not None and response_payment_id is not None
+        assert response_amount is not None
+        if not hmac.compare_digest(response_payment_id, payment_id):
+            raise TBankProtocolError("T-Bank refund response is mismatched")
+        if terminal_key is not None and not hmac.compare_digest(
+            terminal_key, self.settings.terminal_key or ""
+        ):
+            raise TBankProtocolError("T-Bank refund terminal is mismatched")
+        if response_amount != amount_minor:
+            raise TBankProtocolError("T-Bank refund amount is mismatched")
+        if not success:
+            return TBankRefundResult(
+                success=False,
+                error_code=error_code,
+                status=status.upper() if status else None,
+                payment_id=payment_id,
+                amount_minor=amount_minor,
+            )
+        if (
+            error_code != "0"
+            or status not in {"REFUNDING", "PARTIAL_REFUNDED", "REFUNDED"}
+            or terminal_key is None
+        ):
+            raise TBankProtocolError(
+                "T-Bank successful refund response is inconsistent"
+            )
+        return TBankRefundResult(
+            success=True,
+            error_code=error_code,
+            status=status,
+            payment_id=payment_id,
+            amount_minor=amount_minor,
         )

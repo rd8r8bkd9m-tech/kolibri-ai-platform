@@ -25,9 +25,12 @@ from .service import (
     create_payment,
     payment_view,
     plan_views,
+    reconcile_payments,
+    refund_payment,
     run_due_renewals,
     set_subscription_auto_renew,
     subscription_views,
+    user_payment_views,
     verified_return,
 )
 from .tbank import (
@@ -135,10 +138,15 @@ class PaymentIntentView(APIModel):
     payment_url: str | None = Field(default=None, alias="paymentUrl")
     created_at: int = Field(alias="createdAt")
     updated_at: int = Field(alias="updatedAt")
+    paid_at: int | None = Field(default=None, alias="paidAt")
 
 
 class PaymentIntentAdminView(PaymentIntentView):
     payment_url: None = Field(default=None, alias="paymentUrl", exclude=True)
+
+
+class PaymentHistoryListView(APIModel):
+    items: list[PaymentIntentAdminView]
 
 
 class SubscriptionView(APIModel):
@@ -175,6 +183,12 @@ class RenewalRunView(APIModel):
     already_in_flight: int = Field(alias="alreadyInFlight")
     failed: int
     disabled: int
+
+
+class ReconcileRunView(APIModel):
+    scanned: int
+    reconciled: int
+    failed: int
 
 
 class AdminPaymentListView(APIModel):
@@ -377,6 +391,25 @@ def get_payment(
         )
     except BillingError as exc:
         raise _error(exc) from exc
+
+
+@router.get(
+    "/v1/billing/payments",
+    response_model=PaymentHistoryListView,
+)
+def get_payment_history(
+    response: Response,
+    database: DatabaseDependency,
+    identity: IdentityDependency,
+) -> dict[str, object]:
+    _no_store(response)
+    return {
+        "items": user_payment_views(
+            database,
+            tenant_id=identity.tenant_id,
+            user_id=identity.user_id,
+        )
+    }
 
 
 @router.get("/v1/billing/subscriptions", response_model=SubscriptionListView)
@@ -583,6 +616,53 @@ def run_admin_billing_renewals(
         "failed": summary.failed,
         "disabled": summary.disabled,
     }
+
+
+@router.post(
+    "/v1/platform-admin/billing/reconcile",
+    response_model=ReconcileRunView,
+)
+def run_admin_billing_reconcile(
+    response: Response,
+    database: DatabaseDependency,
+    request: Request,
+    _owner: OwnerDependency,
+    _mutation: MutationDependency,
+) -> dict[str, Any]:
+    """Synchronise non-terminal intents with the provider via GetState."""
+
+    _no_store(response)
+    summary = reconcile_payments(database, gateway=_gateway(request))
+    return {
+        "scanned": summary.scanned,
+        "reconciled": summary.reconciled,
+        "failed": summary.failed,
+    }
+
+
+@router.post(
+    "/v1/platform-admin/billing/payments/{intent_id}/refund",
+    response_model=PaymentIntentAdminView,
+)
+def refund_admin_billing_payment(
+    intent_id: str,
+    response: Response,
+    database: DatabaseDependency,
+    request: Request,
+    _owner: OwnerDependency,
+    _mutation: MutationDependency,
+) -> dict[str, Any]:
+    """Full provider refund of one confirmed payment, owner-initiated only."""
+
+    _no_store(response)
+    try:
+        return refund_payment(
+            database,
+            intent_id=_validated_intent_id(intent_id),
+            gateway=_gateway(request),
+        )
+    except BillingError as exc:
+        raise _error(exc) from exc
 
 
 @router.get(

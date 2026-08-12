@@ -4,14 +4,17 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
 	BillingApiError,
 	type BillingPaymentIntent,
+	type BillingPaymentRecord,
 	type BillingPlan,
 	type BillingReturnSurface,
 	type BillingSubscription,
 	createBillingIdempotencyKey,
 	createBillingPayment,
 	getBillingPayment,
+	getBillingPayments,
 	getBillingPlans,
 	getBillingSubscriptions,
+	setBillingAutoRenew,
 } from "@/lib/billing/client";
 
 const DRAFT_KEY = "kolibri.billing.checkout.v1";
@@ -107,6 +110,7 @@ export function useBillingAccount(options: BillingAccountOptions = {}) {
 	const returnSurface = options.returnSurface ?? detectReturnSurface();
 	const checkoutInFlight = useRef(false);
 	const [plans, setPlans] = useState<BillingPlan[]>([]);
+	const [payments, setPayments] = useState<BillingPaymentRecord[]>([]);
 	const [subscriptions, setSubscriptions] = useState<BillingSubscription[]>([]);
 	const [loading, setLoading] = useState(true);
 	const [loadError, setLoadError] = useState<string | null>(null);
@@ -121,12 +125,14 @@ export function useBillingAccount(options: BillingAccountOptions = {}) {
 		setLoading(true);
 		setLoadError(null);
 		try {
-			const [nextPlans, nextSubscriptions] = await Promise.all([
+			const [nextPlans, nextSubscriptions, nextPayments] = await Promise.all([
 				getBillingPlans(signal),
 				getBillingSubscriptions(signal),
+				getBillingPayments(signal),
 			]);
 			setPlans(nextPlans);
 			setSubscriptions(nextSubscriptions);
+			setPayments(nextPayments);
 		} catch (error) {
 			if (signal?.aborted) return;
 			setLoadError(errorMessage(error));
@@ -251,6 +257,18 @@ export function useBillingAccount(options: BillingAccountOptions = {}) {
 		}
 	}, []);
 
+	const updateAutoRenew = useCallback(async (
+		subscriptionId: string,
+		enabled: boolean,
+	) => {
+		const next = await setBillingAutoRenew(subscriptionId, enabled);
+		setSubscriptions((current) =>
+			current.map((entry) =>
+				entry.id === next.id ? next : entry,
+			),
+		);
+	}, []);
+
 	return {
 		beginPayment,
 		checkingPayment,
@@ -258,11 +276,13 @@ export function useBillingAccount(options: BillingAccountOptions = {}) {
 		creatingPlan,
 		loadError,
 		loading,
+		payments,
 		payment,
 		paymentError,
 		plans,
 		refreshAccount: () => void loadAccount(),
 		refreshPayment: () => setPollGeneration((value) => value + 1),
 		subscriptions,
+		updateAutoRenew,
 	};
 }

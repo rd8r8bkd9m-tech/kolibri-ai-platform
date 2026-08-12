@@ -15,6 +15,10 @@ test("billing BFF exposes only the canonical bounded V3 routes", () => {
       "app/api/v3/billing/payment-intents/[intentId]/route.ts",
     ),
     subscriptions: read("app/api/v3/billing/subscriptions/route.ts"),
+    payments: read("app/api/v3/billing/payments/route.ts"),
+    autoRenew: read(
+      "app/api/v3/billing/subscriptions/[subscriptionId]/auto-renew/route.ts",
+    ),
     notification: read(
       "app/api/v3/billing/tbank/notifications/route.ts",
     ),
@@ -26,6 +30,12 @@ test("billing BFF exposes only the canonical bounded V3 routes", () => {
     adminPayments: read("app/api/superadmin/billing/payments/route.ts"),
     adminSubscriptions: read(
       "app/api/superadmin/billing/subscriptions/route.ts",
+    ),
+    adminRefund: read(
+      "app/api/superadmin/billing/payments/[intentId]/refund/route.ts",
+    ),
+    adminReconcile: read(
+      "app/api/superadmin/billing/reconcile/route.ts",
     ),
     adminAudit: read("app/api/superadmin/billing/audit/route.ts"),
   };
@@ -45,6 +55,15 @@ test("billing BFF exposes only the canonical bounded V3 routes", () => {
     routes.subscriptions,
     /["']\/v1\/billing\/subscriptions["']/,
   );
+  assert.match(
+    routes.payments,
+    /\/v1\/billing\/payments/,
+  );
+  assert.match(
+    routes.autoRenew,
+    /\/v1\/billing\/subscriptions\/\$\{subscriptionId\}\/auto-renew/,
+  );
+  assert.match(routes.autoRenew, /method:\s*["']POST["']/);
   assert.match(
     routes.notification,
     /["']\/v1\/billing\/tbank\/notifications["']/,
@@ -74,6 +93,13 @@ test("billing BFF exposes only the canonical bounded V3 routes", () => {
     /platform-admin\/billing\/subscriptions/,
   );
   assert.match(routes.adminAudit, /platform-admin\/billing\/audit/);
+  assert.match(
+    routes.adminRefund,
+    /platform-admin\/billing\/payments\/\$\{intentId\}\/refund/,
+  );
+  assert.match(routes.adminRefund, /method:\s*["']POST["']/);
+  assert.match(routes.adminReconcile, /platform-admin\/billing\/reconcile/);
+  assert.match(routes.adminReconcile, /method:\s*["']POST["']/);
   for (const route of [
     routes.adminConfig,
     routes.adminPlans,
@@ -111,7 +137,8 @@ test("billing account UI follows the server-backed hosted checkout", () => {
 	assert.match(section, /Тариф готовится к публикации/);
 	assert.match(section, /Серверный каталог тарифов временно недоступен/);
 	assert.match(section, /Цена не подставляется вручную/);
-	assert.match(section, /без автоматического продления/);
+	assert.match(section, /История платежей/);
+	assert.match(section, /Автопродление/);
 	assert.match(section, /Данные карты не\s+передаются Kolibri/);
 	assert.match(profile, /<BillingAccountSection\s*\/>/);
 	assert.match(workspace, /destination\s*===\s*["']billing["']/);

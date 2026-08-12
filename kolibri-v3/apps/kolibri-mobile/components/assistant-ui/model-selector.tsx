@@ -32,10 +32,6 @@ export function ModelSelector() {
 
 	// Models and providers are platform-admin concerns. Regular users must not
 	// see provider names, model ids or connection state in the mobile UI.
-	if (session.user?.isPlatformOwner !== true) {
-		return null;
-	}
-
 	const client = useMemo(
 		() => new MobileModelClient(session.authorizedFetch, API_BASE_URL),
 		[session.authorizedFetch],
@@ -114,6 +110,12 @@ export function ModelSelector() {
 	};
 
 	const currentId = user?.preferredModel ?? "auto";
+
+	// Hooks above keep a stable order for every render; the ownership gate is
+	// applied only at the presentation boundary.
+	if (session.user?.isPlatformOwner !== true) {
+		return null;
+	}
 
 	return (
 		<>

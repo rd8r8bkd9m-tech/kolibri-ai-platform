@@ -128,3 +128,25 @@ def test_embedded_v3_developer_runtime_requires_complete_production_capability(
             _production_base(tmp_path / "incomplete.db"),
             embedded_developer_runtime_enabled=True,
         )
+
+
+def test_development_allowed_origins_match_canonical_runtime(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The canonical dev backend allows the 3103/3104/4104 origins only."""
+    monkeypatch.delenv("KOLIBRI_V3_ALLOWED_ORIGINS", raising=False)
+    settings = Settings.from_env()
+
+    assert "http://127.0.0.1:3103" in settings.allowed_origins
+    assert "http://127.0.0.1:3104" in settings.allowed_origins
+    assert "http://127.0.0.1:4104" in settings.allowed_origins
+    assert "http://localhost:4104" in settings.allowed_origins
+    assert not any("4103" in origin for origin in settings.allowed_origins)
+
+
+def test_settings_class_default_origins_retire_legacy_4103() -> None:
+    settings = Settings()
+
+    assert "http://127.0.0.1:3104" in settings.allowed_origins
+    assert "http://127.0.0.1:4104" in settings.allowed_origins
+    assert not any("4103" in origin for origin in settings.allowed_origins)

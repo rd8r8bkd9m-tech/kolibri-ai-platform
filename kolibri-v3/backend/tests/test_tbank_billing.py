@@ -402,7 +402,7 @@ def test_partial_reversal_is_not_misclassified_as_canceled(status: str) -> None:
         amount_minor=19900,
         event_digest="a" * 64,
     )
-    assert _target_status(notification) == "partially_refunded"
+    assert _target_status(notification.status) == "partially_refunded"
 
 
 def test_billing_migration_is_append_only_empty_catalog_and_fenced(
@@ -672,9 +672,18 @@ def test_hosted_payment_webhook_replay_refund_and_admin_contracts(
             assert database.execute(
                 "SELECT COUNT(*) FROM billing_subscriptions"
             ).fetchone()[0] == 1
+            # A retry with a changed extra signed field is still the same
+            # already applied provider event and must not create a second
+            # notification row or duplicate audit effect.
             assert database.execute(
                 "SELECT COUNT(*) FROM billing_notification_events"
-            ).fetchone()[0] == 3
+            ).fetchone()[0] == 2
+            assert database.execute(
+                """
+                SELECT COUNT(*) FROM billing_audit_events
+                WHERE action = 'payment.notification.applied'
+                """
+            ).fetchone()[0] == 2
             database.execute(
                 """
                 UPDATE billing_subscriptions
@@ -1222,3 +1231,451 @@ def test_auto_renew_toggle_and_admin_renewals_run(tmp_path: Path) -> None:
             "failed": 0,
             "disabled": 0,
         }
+
+
+def test_reconcile_getstate_owner_refund_and_payment_history(
+    tmp_path: Path,
+) -> None:
+    """A missed webhook is recovered via GetState and owner refund closes it."""
+
+    database_path = tmp_path / "reconcile-refund.db"
+    settings = Settings.for_testing(
+        database_url=database_path,
+        bootstrap_owner_email="owner@example.com",
+    )
+    provider_requests: list[dict[str, object]] = []
+    known_order_id: dict[str, str] = {}
+
+    def provider(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        assert isinstance(body, dict)
+        provider_requests.append(body)
+        method = request.url.path.rsplit("/", 1)[-1]
+        if method == "Init":
+            order_id = str(body["OrderId"])
+            known_order_id["order"] = order_id
+            return httpx.Response(
+                200,
+                json={
+                    "Success": True,
+                    "ErrorCode": "0",
+                    "TerminalKey": "TestMerchantTerminal",
+                    "Status": "NEW",
+                    "PaymentId": "reconcile-pay-1",
+                    "OrderId": order_id,
+                    "Amount": body["Amount"],
+                    "PaymentURL": (
+                        "https://securepayments.tinkoff.ru/session/reconcile"
+                    ),
+                },
+            )
+        if method == "GetState":
+            return httpx.Response(
+                200,
+                json={
+                    "Success": True,
+                    "ErrorCode": "0",
+                    "TerminalKey": "TestMerchantTerminal",
+                    "Status": "CONFIRMED",
+                    "PaymentId": "reconcile-pay-1",
+                    "OrderId": known_order_id.get("order", "kv3-missing"),
+                    "Amount": 199_00,
+                },
+            )
+        if method == "Refund":
+            return httpx.Response(
+                200,
+                json={
+                    "Success": True,
+                    "ErrorCode": "0",
+                    "TerminalKey": "TestMerchantTerminal",
+                    "Status": "REFUNDED",
+                    "PaymentId": "reconcile-pay-1",
+                    "OrderId": known_order_id.get("order", "kv3-missing"),
+                    "Amount": body["Amount"],
+                },
+            )
+        raise AssertionError(f"unexpected provider method: {method}")
+
+    gateway = TBankGateway(
+        TBankSettings.for_testing(recurring_enabled=False),
+        transport=httpx.MockTransport(provider),
+    )
+    app = create_app(settings)
+    app.state.tbank_gateway = gateway
+
+    with TestClient(app) as customer:
+        _seed_plans(database_path)
+        subject = _register(
+            customer,
+            email="reconcile@example.com",
+            name="Reconcile",
+        )
+        initialized = customer.post(
+            "/v1/billing/payment-intents",
+            headers=_mutation_headers(customer, key=f"{IDEMPOTENCY_KEY}-reconcile"),
+            json={"planCode": "kolibri.pro.monthly"},
+        )
+        assert initialized.status_code == 201, initialized.text
+        payment = initialized.json()
+        assert payment["status"] == "pending"
+        assert payment["paidAt"] is None
+
+        # A user-facing history endpoint is scoped to the subject and never
+        # exposes a hosted payment URL.
+        history = customer.get("/v1/billing/payments")
+        assert history.status_code == 200
+        assert len(history.json()["items"]) == 1
+        assert history.json()["items"][0]["id"] == payment["id"]
+        assert "paymentUrl" not in history.json()["items"][0]
+
+        # Refund of a non-confirmed payment must be rejected before any
+        # provider call.
+        assert len(provider_requests) == 1
+
+    with TestClient(app) as other:
+        _register(other, email="other-reconcile@example.com", name="Other")
+        hidden = other.get("/v1/billing/payments")
+        assert hidden.status_code == 200
+        assert hidden.json()["items"] == []
+
+    with TestClient(app) as owner:
+        _register(owner, email="owner@example.com", name="Owner")
+        promote_registered_owner(settings, email="owner@example.com")
+
+        early_refund = owner.post(
+            f"/v1/platform-admin/billing/payments/{payment['id']}/refund",
+            headers=_mutation_headers(owner, key=f"{IDEMPOTENCY_KEY}-early-refund"),
+            json={},
+        )
+        assert early_refund.status_code == 409
+        assert early_refund.json()["code"] == "billing_refund_state_invalid"
+
+        reconcile = owner.post(
+            "/v1/platform-admin/billing/reconcile",
+            headers=_mutation_headers(owner, key=f"{IDEMPOTENCY_KEY}-reconcile-run"),
+            json={},
+        )
+        assert reconcile.status_code == 200, reconcile.text
+        assert reconcile.json() == {"scanned": 1, "reconciled": 1, "failed": 0}
+
+        # Owner admin payments list is the correct redacted read model.
+        admin_payments = owner.get("/v1/platform-admin/billing/payments")
+        assert admin_payments.status_code == 200
+        [admin_payment] = admin_payments.json()["items"]
+        assert admin_payment["status"] == "succeeded"
+        assert admin_payment["paidAt"] is not None
+        assert "paymentUrl" not in admin_payment
+
+        refund = owner.post(
+            f"/v1/platform-admin/billing/payments/{payment['id']}/refund",
+            headers=_mutation_headers(owner, key=f"{IDEMPOTENCY_KEY}-refund"),
+            json={},
+        )
+        assert refund.status_code == 200, refund.text
+        assert refund.json()["status"] == "refunded"
+        assert refund.json()["providerStatus"] == "REFUNDED"
+
+        duplicate_refund = owner.post(
+            f"/v1/platform-admin/billing/payments/{payment['id']}/refund",
+            headers=_mutation_headers(owner, key=f"{IDEMPOTENCY_KEY}-refund-again"),
+            json={},
+        )
+        assert duplicate_refund.status_code == 409
+        assert duplicate_refund.json()["code"] == "billing_refund_already_refunded"
+
+    database = connect_database(database_path)
+    try:
+        grant = database.execute(
+            """
+            SELECT status, source
+            FROM product_entitlement_grants
+            WHERE tenant_id = ? AND user_id = ?
+            """,
+            (subject["tenantId"], subject["id"]),
+        ).fetchone()
+        assert tuple(grant) == ("revoked", "subscription_policy")
+        assert database.execute(
+            "SELECT COUNT(*) FROM billing_audit_events "
+            "WHERE action IN ('payment.reconcile.applied', "
+            "'payment.refund.completed')"
+        ).fetchone()[0] == 2
+    finally:
+        database.close()
+
+
+def test_refunded_renewal_revokes_the_parent_subscription(
+    tmp_path: Path,
+) -> None:
+    """A REFUNDED renewal notification closes the subscription it extended."""
+
+    database_path = tmp_path / "renewal-refund.db"
+    settings = Settings.for_testing(database_url=database_path)
+    provider_requests: list[dict[str, object]] = []
+
+    def provider(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        assert isinstance(body, dict)
+        provider_requests.append(body)
+        return httpx.Response(
+            200,
+            json={
+                "Success": True,
+                "ErrorCode": "0",
+                "TerminalKey": "TestMerchantTerminal",
+                "Status": "NEW",
+                "PaymentId": f"payment-{len(provider_requests)}",
+                "OrderId": body["OrderId"],
+                "Amount": body["Amount"],
+                "PaymentURL": (
+                    "https://securepayments.tinkoff.ru/session/renewal-refund"
+                ),
+                **(
+                    {"RebillId": "test-rebill-refund"}
+                    if body.get("Recurrent") == "Y"
+                    else {}
+                ),
+            },
+        )
+
+    gateway = TBankGateway(
+        TBankSettings.for_testing(recurring_enabled=True),
+        transport=httpx.MockTransport(provider),
+    )
+    app = create_app(settings)
+    app.state.tbank_gateway = gateway
+    with TestClient(app) as client:
+        _seed_plans(database_path)
+        subject = _register(
+            client,
+            email="renewal-refund@example.com",
+            name="Renewal Refund",
+        )
+        initialized = client.post(
+            "/v1/billing/payment-intents",
+            headers=_mutation_headers(
+                client,
+                key=f"{IDEMPOTENCY_KEY}-renewal-refund",
+            ),
+            json={"planCode": "kolibri.pro.monthly"},
+        )
+        assert initialized.status_code == 201, initialized.text
+        initial_order = str(provider_requests[0]["OrderId"])
+        assert client.post(
+            "/v1/billing/tbank/notifications",
+            json=_signed_notification(
+                gateway,
+                order_id=initial_order,
+                status="CONFIRMED",
+                payment_id="payment-1",
+            ),
+        ).status_code == 200
+
+        database = connect_database(database_path)
+        try:
+            database.execute(
+                """
+                UPDATE billing_subscriptions
+                SET current_period_start = unixepoch() - 7200,
+                    current_period_end = unixepoch() - 1
+                """
+            )
+            summary = run_due_renewals(database, gateway=gateway)
+            assert summary.created == 1
+            recurrent = database.execute(
+                "SELECT * FROM billing_payment_intents WHERE kind = 'recurrent'"
+            ).fetchone()
+            assert recurrent is not None
+            renewal_order = str(recurrent["order_id"])
+            subscription_id = str(
+                database.execute(
+                    "SELECT id FROM billing_subscriptions"
+                ).fetchone()[0]
+            )
+        finally:
+            database.close()
+
+        renewed = client.post(
+            "/v1/billing/tbank/notifications",
+            json=_signed_notification(
+                gateway,
+                order_id=renewal_order,
+                status="CONFIRMED",
+                payment_id="payment-2",
+            ),
+        )
+        assert renewed.status_code == 200
+        assert client.get("/v1/session").json()["user"]["entitlements"] == [
+            "construction.estimates.use"
+        ]
+
+        refunded = client.post(
+            "/v1/billing/tbank/notifications",
+            json=_signed_notification(
+                gateway,
+                order_id=renewal_order,
+                status="REFUNDED",
+                payment_id="payment-2",
+            ),
+        )
+        assert refunded.status_code == 200
+        subscriptions = client.get("/v1/billing/subscriptions").json()["items"]
+        assert [item["id"] for item in subscriptions] == [subscription_id]
+        assert subscriptions[0]["status"] == "refunded"
+        assert client.get("/v1/session").json()["user"]["entitlements"] == []
+
+    database = connect_database(database_path)
+    try:
+        grant = database.execute(
+            """
+            SELECT status, source
+            FROM product_entitlement_grants
+            WHERE tenant_id = ? AND user_id = ?
+            """,
+            (subject["tenantId"], subject["id"]),
+        ).fetchone()
+        assert tuple(grant) == ("revoked", "subscription_policy")
+        assert database.execute(
+            """
+            SELECT COUNT(*) FROM billing_audit_events
+            WHERE action = 'subscription.refunded'
+            """
+        ).fetchone()[0] == 1
+    finally:
+        database.close()
+
+
+def test_confirmed_renewal_reactivates_refunded_parent_subscription(
+    tmp_path: Path,
+) -> None:
+    """A CONFIRMED renewal must restore access even if the parent was refunded
+    while the renewal was already in flight (out-of-order webhooks)."""
+
+    database_path = tmp_path / "renewal-reactivating.db"
+    settings = Settings.for_testing(database_url=database_path)
+    provider_requests: list[dict[str, object]] = []
+
+    def provider(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        assert isinstance(body, dict)
+        provider_requests.append(body)
+        return httpx.Response(
+            200,
+            json={
+                "Success": True,
+                "ErrorCode": "0",
+                "TerminalKey": "TestMerchantTerminal",
+                "Status": "NEW",
+                "PaymentId": f"payment-{len(provider_requests)}",
+                "OrderId": body["OrderId"],
+                "Amount": body["Amount"],
+                "PaymentURL": (
+                    "https://securepayments.tinkoff.ru/session/renewal-reactivating"
+                ),
+                **(
+                    {"RebillId": "test-rebill-reactivating"}
+                    if body.get("Recurrent") == "Y"
+                    else {}
+                ),
+            },
+        )
+
+    gateway = TBankGateway(
+        TBankSettings.for_testing(recurring_enabled=True),
+        transport=httpx.MockTransport(provider),
+    )
+    app = create_app(settings)
+    app.state.tbank_gateway = gateway
+    with TestClient(app) as client:
+        _seed_plans(database_path)
+        subject = _register(
+            client,
+            email="renewal-reactivating@example.com",
+            name="Renewal Reactivating",
+        )
+        initialized = client.post(
+            "/v1/billing/payment-intents",
+            headers=_mutation_headers(
+                client,
+                key=f"{IDEMPOTENCY_KEY}-reactivating",
+            ),
+            json={"planCode": "kolibri.pro.monthly"},
+        )
+        assert initialized.status_code == 201, initialized.text
+        initial_order = str(provider_requests[0]["OrderId"])
+        assert client.post(
+            "/v1/billing/tbank/notifications",
+            json=_signed_notification(
+                gateway,
+                order_id=initial_order,
+                status="CONFIRMED",
+                payment_id="payment-1",
+            ),
+        ).status_code == 200
+
+        database = connect_database(database_path)
+        try:
+            database.execute(
+                """
+                UPDATE billing_subscriptions
+                SET current_period_start = unixepoch() - 7200,
+                    current_period_end = unixepoch() - 1
+                """
+            )
+            summary = run_due_renewals(database, gateway=gateway)
+            assert summary.created == 1
+            recurrent = database.execute(
+                "SELECT * FROM billing_payment_intents WHERE kind = 'recurrent'"
+            ).fetchone()
+            assert recurrent is not None
+            renewal_order = str(recurrent["order_id"])
+            subscription_id = str(
+                database.execute(
+                    "SELECT id FROM billing_subscriptions"
+                ).fetchone()[0]
+            )
+        finally:
+            database.close()
+
+        # The parent charge is refunded while the renewal is still in flight.
+        assert client.post(
+            "/v1/billing/tbank/notifications",
+            json=_signed_notification(
+                gateway,
+                order_id=initial_order,
+                status="REFUNDED",
+                payment_id="payment-1",
+            ),
+        ).status_code == 200
+        subscriptions = client.get("/v1/billing/subscriptions").json()["items"]
+        assert subscriptions[0]["status"] == "refunded"
+        assert client.get("/v1/session").json()["user"]["entitlements"] == []
+
+        # The renewal CONFIRMED arrives after the parent refund and must
+        # restore the paid period rather than be swallowed.
+        assert client.post(
+            "/v1/billing/tbank/notifications",
+            json=_signed_notification(
+                gateway,
+                order_id=renewal_order,
+                status="CONFIRMED",
+                payment_id="payment-2",
+            ),
+        ).status_code == 200
+        subscriptions = client.get("/v1/billing/subscriptions").json()["items"]
+        assert subscriptions[0]["id"] == subscription_id
+        assert subscriptions[0]["status"] == "active"
+        assert client.get("/v1/session").json()["user"]["entitlements"] == [
+            "construction.estimates.use"
+        ]
+
+    database = connect_database(database_path)
+    try:
+        row = database.execute(
+            "SELECT status FROM product_entitlement_grants "
+            "WHERE tenant_id = ? AND user_id = ?",
+            (subject["tenantId"], subject["id"]),
+        ).fetchone()
+        assert row["status"] == "active"
+    finally:
+        database.close()

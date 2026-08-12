@@ -194,6 +194,9 @@ def _payment_view(row: sqlite3.Row, *, include_payment_url: bool) -> dict[str, A
         ),
         "createdAt": int(row["created_at"]),
         "updatedAt": int(row["updated_at"]),
+        "paidAt": (
+            int(row["paid_at"]) if row["paid_at"] is not None else None
+        ),
     }
     if include_payment_url:
         value["paymentUrl"] = (
@@ -324,6 +327,32 @@ def payment_view(
         ),
         include_payment_url=True,
     )
+
+
+def user_payment_views(
+    database: sqlite3.Connection,
+    *,
+    tenant_id: str,
+    user_id: str,
+    limit: int = 50,
+) -> list[dict[str, Any]]:
+    """Read-only payment history for the signed-in subject.
+
+    The list never carries a hosted payment URL: a stale URL must not be
+    reused after the intent changed state. The current checkout draft already
+    has its own bounded recovery path on the client.
+    """
+
+    rows = database.execute(
+        """
+        SELECT * FROM billing_payment_intents
+        WHERE tenant_id = ? AND user_id = ?
+        ORDER BY created_at DESC, id DESC
+        LIMIT ?
+        """,
+        (tenant_id, user_id, limit),
+    ).fetchall()
+    return [_payment_view(row, include_payment_url=False) for row in rows]
 
 
 def _provider_payload(
@@ -760,8 +789,8 @@ def create_payment(
         )
 
 
-def _target_status(notification: VerifiedNotification) -> str | None:
-    provider_status = notification.status
+def _target_status(provider_status: str) -> str | None:
+    provider_status = provider_status.upper()
     if provider_status in _PENDING_PROVIDER_STATUSES:
         return "pending"
     if provider_status == "AUTHORIZED":
@@ -823,6 +852,60 @@ def _transition_allowed(
     return current not in {"succeeded", "partially_refunded", "refunded"}
 
 
+def _ensure_grant_active(
+    database: sqlite3.Connection,
+    *,
+    payment: sqlite3.Row,
+    now: int,
+) -> None:
+    """Activate the entitlement grant for a paid intent (idempotent)."""
+
+    grant = database.execute(
+        """
+        SELECT status, source
+        FROM product_entitlement_grants
+        WHERE tenant_id = ? AND user_id = ? AND entitlement_code = ?
+        LIMIT 1
+        """,
+        (
+            payment["tenant_id"],
+            payment["user_id"],
+            payment["entitlement_code"],
+        ),
+    ).fetchone()
+    if grant is None:
+        database.execute(
+            """
+            INSERT INTO product_entitlement_grants (
+                tenant_id, user_id, entitlement_code, status, grant_epoch,
+                source, created_at, updated_at
+            ) VALUES (?, ?, ?, 'active', 1, 'subscription_policy', ?, ?)
+            """,
+            (
+                payment["tenant_id"],
+                payment["user_id"],
+                payment["entitlement_code"],
+                now,
+                now,
+            ),
+        )
+    elif str(grant["status"]) == "revoked":
+        database.execute(
+            """
+            UPDATE product_entitlement_grants
+            SET status = 'active', grant_epoch = grant_epoch + 1,
+                source = 'subscription_policy', updated_at = ?
+            WHERE tenant_id = ? AND user_id = ? AND entitlement_code = ?
+            """,
+            (
+                now,
+                payment["tenant_id"],
+                payment["user_id"],
+                payment["entitlement_code"],
+            ),
+        )
+
+
 def _activate_subscription(
     database: sqlite3.Connection,
     *,
@@ -844,7 +927,8 @@ def _activate_subscription(
             database.execute(
                 """
                 UPDATE billing_subscriptions
-                SET current_period_start = ?,
+                SET status = 'active',
+                    current_period_start = ?,
                     current_period_end = ?,
                     rebill_id = COALESCE(?, rebill_id),
                     customer_key = COALESCE(?, customer_key),
@@ -865,6 +949,7 @@ def _activate_subscription(
                     parent["id"],
                 ),
             )
+            _ensure_grant_active(database, payment=payment, now=now)
             _audit(
                 database,
                 tenant_id=str(payment["tenant_id"]),
@@ -937,50 +1022,7 @@ def _activate_subscription(
             payment["provider_payment_id"],
         ),
     )
-    grant = database.execute(
-        """
-        SELECT status, source
-        FROM product_entitlement_grants
-        WHERE tenant_id = ? AND user_id = ? AND entitlement_code = ?
-        LIMIT 1
-        """,
-        (
-            payment["tenant_id"],
-            payment["user_id"],
-            payment["entitlement_code"],
-        ),
-    ).fetchone()
-    if grant is None:
-        database.execute(
-            """
-            INSERT INTO product_entitlement_grants (
-                tenant_id, user_id, entitlement_code, status, grant_epoch,
-                source, created_at, updated_at
-            ) VALUES (?, ?, ?, 'active', 1, 'subscription_policy', ?, ?)
-            """,
-            (
-                payment["tenant_id"],
-                payment["user_id"],
-                payment["entitlement_code"],
-                now,
-                now,
-            ),
-        )
-    elif str(grant["status"]) == "revoked":
-        database.execute(
-            """
-            UPDATE product_entitlement_grants
-            SET status = 'active', grant_epoch = grant_epoch + 1,
-                source = 'subscription_policy', updated_at = ?
-            WHERE tenant_id = ? AND user_id = ? AND entitlement_code = ?
-            """,
-            (
-                now,
-                payment["tenant_id"],
-                payment["user_id"],
-                payment["entitlement_code"],
-            ),
-        )
+    _ensure_grant_active(database, payment=payment, now=now)
     database.execute(
         """
         UPDATE platform_tenant_policies
@@ -1017,13 +1059,21 @@ def _refund_subscription(
     payment: sqlite3.Row,
     now: int,
 ) -> None:
+    # A renewal intent does not own the subscription row: the row is bound to
+    # the original (parent) intent. Match either the charged intent or its
+    # recurrent parent so a REFUNDED renewal actually closes the access.
+    intent_ids = [str(payment["id"])]
+    if str(payment["kind"]) == "recurrent" and payment["recurrent_parent_id"]:
+        intent_ids.append(str(payment["recurrent_parent_id"]))
+    placeholders = ",".join("?" for _ in intent_ids)
     subscription = database.execute(
-        """
+        f"""
         SELECT * FROM billing_subscriptions
-        WHERE payment_intent_id = ?
+        WHERE payment_intent_id IN ({placeholders})
+        ORDER BY created_at DESC, id DESC
         LIMIT 1
         """,
-        (payment["id"],),
+        intent_ids,
     ).fetchone()
     if subscription is None or str(subscription["status"]) == "refunded":
         return
@@ -1147,6 +1197,115 @@ def _record_renewal_failure(
     )
 
 
+def _apply_verified_provider_state(
+    database: sqlite3.Connection,
+    *,
+    payment: sqlite3.Row,
+    provider_payment_id: str,
+    provider_status: str,
+    success: bool,
+    error_code: str,
+    amount_minor: int,
+    expected_terminal_fingerprint: str,
+) -> tuple[str, bool]:
+    """Apply one signature-verified provider state transition.
+
+    Returns ``(outcome, applied)``. The caller keeps the operation inside the
+    same immediate transaction and persists its own event/audit trail, so a
+    webhook and a GetState reconciliation share exactly one state authority.
+    """
+
+    if not hmac.compare_digest(
+        str(payment["terminal_fingerprint"]),
+        expected_terminal_fingerprint,
+    ):
+        raise BillingError(
+            409,
+            "billing_notification_terminal_conflict",
+            "Уведомление относится к другому терминалу.",
+        )
+    if int(payment["amount_minor"]) != amount_minor:
+        raise BillingError(
+            409,
+            "billing_notification_amount_conflict",
+            "Сумма уведомления не совпадает с заказом.",
+        )
+    existing_payment_id = payment["provider_payment_id"]
+    if existing_payment_id is not None and not hmac.compare_digest(
+        str(existing_payment_id), provider_payment_id
+    ):
+        raise BillingError(
+            409,
+            "billing_notification_payment_conflict",
+            "Идентификатор уведомления не совпадает с заказом.",
+        )
+
+    normalized_status = provider_status.upper()
+    target = _target_status(normalized_status)
+    now = _now(database)
+    if target is None:
+        return "ignored_unknown_status", False
+    success_required = normalized_status in (
+        _SUCCESS_PROVIDER_STATUSES | _REFUND_PROVIDER_STATUSES
+    )
+    if success_required and (not success or error_code != "0"):
+        raise BillingError(
+            409,
+            "billing_notification_result_conflict",
+            "Статус уведомления не согласован с результатом.",
+        )
+    allowed = _transition_allowed(
+        current=str(payment["status"]),
+        target=target,
+        stored_provider_status=(
+            str(payment["provider_status"])
+            if payment["provider_status"] is not None
+            else None
+        ),
+        incoming_provider_status=normalized_status,
+    )
+    if not allowed:
+        return "ignored_out_of_order", False
+
+    database.execute(
+        """
+        UPDATE billing_payment_intents
+        SET provider_payment_id = COALESCE(provider_payment_id, ?),
+            status = ?, provider_status = ?, provider_error_code = ?,
+            paid_at = CASE
+                WHEN ? = 'succeeded' AND ? = 'CONFIRMED'
+                    THEN COALESCE(paid_at, ?)
+                ELSE paid_at
+            END,
+            version = version + 1, updated_at = ?
+        WHERE id = ?
+        """,
+        (
+            provider_payment_id,
+            target,
+            normalized_status,
+            error_code,
+            target,
+            normalized_status,
+            now,
+            now,
+            payment["id"],
+        ),
+    )
+    payment = database.execute(
+        "SELECT * FROM billing_payment_intents WHERE id = ?",
+        (payment["id"],),
+    ).fetchone()
+    assert payment is not None
+    if target == "succeeded" and normalized_status == "CONFIRMED":
+        _activate_subscription(database, payment=payment, now=now)
+    elif target == "refunded":
+        _refund_subscription(database, payment=payment, now=now)
+    elif str(payment["kind"]) == "recurrent" and target in {"failed", "canceled"}:
+        _record_renewal_failure(database, payment=payment, now=now)
+    return "applied", True
+
+
 def apply_notification(
     database: sqlite3.Connection,
     *,
@@ -1188,91 +1347,45 @@ def apply_notification(
                 "billing_notification_order_not_found",
                 "Платёж для уведомления не найден.",
             )
-        if not hmac.compare_digest(
-            str(payment["terminal_fingerprint"]),
-            gateway.settings.terminal_fingerprint,
-        ):
-            raise BillingError(
-                409,
-                "billing_notification_terminal_conflict",
-                "Уведомление относится к другому терминалу.",
-            )
-        if int(payment["amount_minor"]) != notification.amount_minor:
-            raise BillingError(
-                409,
-                "billing_notification_amount_conflict",
-                "Сумма уведомления не совпадает с заказом.",
-            )
-        existing_payment_id = payment["provider_payment_id"]
-        if existing_payment_id is not None and not hmac.compare_digest(
-            str(existing_payment_id), notification.payment_id
-        ):
-            raise BillingError(
-                409,
-                "billing_notification_payment_conflict",
-                "Идентификатор уведомления не совпадает с заказом.",
+
+        # The digest already prevents exact replays; this second key ignores
+        # retries whose payload changed an unsigned/extra signed field while
+        # still representing the same already-applied provider event.
+        applied_duplicate = database.execute(
+            """
+            SELECT 1
+            FROM billing_notification_events
+            WHERE payment_intent_id = ?
+              AND provider_payment_id = ?
+              AND provider_status = ?
+              AND outcome = 'applied'
+            LIMIT 1
+            """,
+            (payment["id"], notification.payment_id, notification.status),
+        ).fetchone()
+        if applied_duplicate is not None:
+            current = database.execute(
+                "SELECT status FROM billing_payment_intents WHERE id = ?",
+                (payment["id"],),
+            ).fetchone()
+            assert current is not None
+            return NotificationOutcome(
+                payment_intent_id=str(payment["id"]),
+                status=str(current["status"]),
+                outcome="ignored_duplicate",
             )
 
-        target = _target_status(notification)
+        outcome, _applied = _apply_verified_provider_state(
+            database,
+            payment=payment,
+            provider_payment_id=notification.payment_id,
+            provider_status=notification.status,
+            success=notification.success,
+            error_code=notification.error_code,
+            amount_minor=notification.amount_minor,
+            expected_terminal_fingerprint=gateway.settings.terminal_fingerprint,
+        )
         now = _now(database)
-        if target is None:
-            outcome = "ignored_unknown_status"
-        else:
-            success_required = notification.status in (
-                _SUCCESS_PROVIDER_STATUSES | _REFUND_PROVIDER_STATUSES
-            )
-            if success_required and (
-                not notification.success or notification.error_code != "0"
-            ):
-                raise BillingError(
-                    409,
-                    "billing_notification_result_conflict",
-                    "Статус уведомления не согласован с результатом.",
-                )
-            allowed = _transition_allowed(
-                current=str(payment["status"]),
-                target=target,
-                stored_provider_status=(
-                    str(payment["provider_status"])
-                    if payment["provider_status"] is not None
-                    else None
-                ),
-                incoming_provider_status=notification.status,
-            )
-            outcome = "applied" if allowed else "ignored_out_of_order"
-            if allowed:
-                database.execute(
-                    """
-                    UPDATE billing_payment_intents
-                    SET provider_payment_id = COALESCE(provider_payment_id, ?),
-                        status = ?, provider_status = ?, provider_error_code = ?,
-                        version = version + 1, updated_at = ?
-                    WHERE id = ?
-                    """,
-                    (
-                        notification.payment_id,
-                        target,
-                        notification.status,
-                        notification.error_code,
-                        now,
-                        payment["id"],
-                    ),
-                )
-                payment = database.execute(
-                    "SELECT * FROM billing_payment_intents WHERE id = ?",
-                    (payment["id"],),
-                ).fetchone()
-                assert payment is not None
-                if target == "succeeded" and notification.status == "CONFIRMED":
-                    _activate_subscription(database, payment=payment, now=now)
-                elif target == "refunded":
-                    _refund_subscription(database, payment=payment, now=now)
-                elif (
-                    str(payment["kind"]) == "recurrent"
-                    and target in {"failed", "canceled"}
-                ):
-                    _record_renewal_failure(database, payment=payment, now=now)
-
         database.execute(
             """
             INSERT INTO billing_notification_events (
@@ -1362,6 +1475,290 @@ def verified_return(
         },
         200 if terminal else 202,
     )
+
+
+_RECONCILABLE_STATUSES = frozenset(
+    {"initializing", "pending", "unknown", "authorized"}
+)
+
+
+@dataclass(frozen=True, slots=True)
+class ReconcileSummary:
+    scanned: int
+    reconciled: int
+    failed: int
+
+
+def reconcile_payments(
+    database: sqlite3.Connection,
+    *,
+    gateway: TBankGateway,
+    limit: int = 50,
+) -> ReconcileSummary:
+    """Restore intent state from the provider when a webhook was missed.
+
+    GetState is only queried for intents that already have a provider
+    PaymentId and are not terminal locally. Every provider response is bound
+    to the stored terminal, amount, order and payment id before a transition
+    is applied through the same state authority as webhooks.
+    """
+
+    rows = database.execute(
+        """
+        SELECT * FROM billing_payment_intents
+        WHERE provider = 'tbank'
+          AND provider_payment_id IS NOT NULL
+          AND status IN ('initializing', 'pending', 'unknown', 'authorized')
+        ORDER BY updated_at ASC, id ASC
+        LIMIT ?
+        """,
+        (limit,),
+    ).fetchall()
+    summary = ReconcileSummary(scanned=len(rows), reconciled=0, failed=0)
+
+    def bumped(*, failed: int = 0, reconciled: int = 0) -> ReconcileSummary:
+        return ReconcileSummary(
+            scanned=summary.scanned,
+            reconciled=summary.reconciled + reconciled,
+            failed=summary.failed + failed,
+        )
+
+    for payment in rows:
+        try:
+            state = gateway.get_state(str(payment["provider_payment_id"]))
+        except (TBankTransportError, TBankProtocolError):
+            # Transient provider outage: leave the intent for the next run.
+            summary = bumped(failed=1)
+            continue
+        if state.order_id is not None and not hmac.compare_digest(
+            state.order_id, str(payment["order_id"])
+        ):
+            _audit(
+                database,
+                tenant_id=str(payment["tenant_id"]),
+                user_id=str(payment["user_id"]),
+                actor_type="system",
+                action="payment.reconcile.conflict",
+                payment_intent_id=str(payment["id"]),
+                details={
+                    "providerStatus": state.status,
+                    "reason": "order_mismatch",
+                },
+                now=_now(database),
+            )
+            summary = bumped(failed=1)
+            continue
+        if (
+            state.amount_minor is not None
+            and state.amount_minor != int(payment["amount_minor"])
+        ):
+            _audit(
+                database,
+                tenant_id=str(payment["tenant_id"]),
+                user_id=str(payment["user_id"]),
+                actor_type="system",
+                action="payment.reconcile.conflict",
+                payment_intent_id=str(payment["id"]),
+                details={
+                    "providerStatus": state.status,
+                    "reason": "amount_mismatch",
+                },
+                now=_now(database),
+            )
+            summary = bumped(failed=1)
+            continue
+        if state.status is None:
+            summary = bumped(failed=1)
+            continue
+
+        with transaction(database, immediate=True):
+            current = database.execute(
+                "SELECT * FROM billing_payment_intents WHERE id = ?",
+                (payment["id"],),
+            ).fetchone()
+            assert current is not None
+            if str(current["status"]) not in _RECONCILABLE_STATUSES:
+                continue
+            outcome, applied = _apply_verified_provider_state(
+                database,
+                payment=current,
+                provider_payment_id=str(payment["provider_payment_id"]),
+                provider_status=state.status,
+                success=state.success,
+                error_code=state.error_code,
+                amount_minor=state.amount_minor or int(payment["amount_minor"]),
+                expected_terminal_fingerprint=gateway.settings.terminal_fingerprint,
+            )
+            _audit(
+                database,
+                tenant_id=str(payment["tenant_id"]),
+                user_id=str(payment["user_id"]),
+                actor_type="system",
+                action=(
+                    "payment.reconcile.applied"
+                    if applied
+                    else "payment.reconcile.unchanged"
+                ),
+                payment_intent_id=str(payment["id"]),
+                details={
+                    "providerStatus": state.status,
+                    "outcome": outcome,
+                },
+                now=_now(database),
+            )
+        if applied:
+            summary = bumped(reconciled=1)
+    return summary
+
+
+def refund_payment(
+    database: sqlite3.Connection,
+    *,
+    intent_id: str,
+    gateway: TBankGateway,
+) -> dict[str, Any]:
+    """Full provider refund of a confirmed payment, owner-initiated only."""
+
+    with transaction(database, immediate=True):
+        payment = database.execute(
+            "SELECT * FROM billing_payment_intents WHERE id = ?",
+            (intent_id,),
+        ).fetchone()
+        if payment is None:
+            raise BillingError(
+                404,
+                "billing_refund_not_found",
+                "Платёж для возврата не найден.",
+            )
+        status = str(payment["status"])
+        if status == "refunded":
+            raise BillingError(
+                409,
+                "billing_refund_already_refunded",
+                "Возврат по этому платежу уже выполнен.",
+            )
+        if status not in {"succeeded", "partially_refunded"}:
+            raise BillingError(
+                409,
+                "billing_refund_state_invalid",
+                "Возврат возможен только для подтверждённого платежа.",
+            )
+        if payment["provider_payment_id"] is None:
+            raise BillingError(
+                409,
+                "billing_refund_unavailable",
+                "У платежа нет подтверждённого идентификатора банка.",
+            )
+        provider_payment_id = str(payment["provider_payment_id"])
+        amount_minor = int(payment["amount_minor"])
+
+    try:
+        result = gateway.refund_payment(provider_payment_id, amount_minor)
+    except (TBankTransportError, TBankProtocolError) as exc:
+        _audit(
+            database,
+            tenant_id=str(payment["tenant_id"]),
+            user_id=str(payment["user_id"]),
+            actor_type="platform_owner",
+            action="payment.refund.failed",
+            payment_intent_id=intent_id,
+            details={"reason": "provider_unavailable"},
+            now=_now(database),
+        )
+        raise BillingError(
+            502,
+            "billing_refund_unavailable",
+            "Банк не подтвердил возврат. Повторите позже.",
+        ) from exc
+
+    if not result.success:
+        _audit(
+            database,
+            tenant_id=str(payment["tenant_id"]),
+            user_id=str(payment["user_id"]),
+            actor_type="platform_owner",
+            action="payment.refund.rejected",
+            payment_intent_id=intent_id,
+            details={"providerErrorCode": result.error_code},
+            now=_now(database),
+        )
+        raise BillingError(
+            409,
+            "billing_refund_rejected",
+            "Банк отклонил возврат.",
+        )
+
+    with transaction(database, immediate=True):
+        current = database.execute(
+            "SELECT * FROM billing_payment_intents WHERE id = ?",
+            (intent_id,),
+        ).fetchone()
+        assert current is not None
+        if str(current["status"]) not in {"succeeded", "partially_refunded"}:
+            # A concurrent webhook already finalised the payment; the refund
+            # itself succeeded and the returned view reflects the final state.
+            return _payment_view(current, include_payment_url=False)
+        now = _now(database)
+        assert result.status is not None
+        if result.status == "REFUNDED":
+            database.execute(
+                """
+                UPDATE billing_payment_intents
+                SET status = 'refunded', provider_status = ?,
+                    provider_error_code = '0', version = version + 1,
+                    updated_at = ?
+                WHERE id = ?
+                """,
+                (result.status, now, intent_id),
+            )
+            updated = database.execute(
+                "SELECT * FROM billing_payment_intents WHERE id = ?",
+                (intent_id,),
+            ).fetchone()
+            assert updated is not None
+            _refund_subscription(database, payment=updated, now=now)
+            _audit(
+                database,
+                tenant_id=str(payment["tenant_id"]),
+                user_id=str(payment["user_id"]),
+                actor_type="platform_owner",
+                action="payment.refund.completed",
+                payment_intent_id=intent_id,
+                details={"providerStatus": result.status},
+                now=now,
+            )
+        else:
+            next_status = (
+                "partially_refunded"
+                if result.status == "PARTIAL_REFUNDED"
+                else "succeeded"
+            )
+            database.execute(
+                """
+                UPDATE billing_payment_intents
+                SET status = ?, provider_status = ?,
+                    provider_error_code = '0', version = version + 1,
+                    updated_at = ?
+                WHERE id = ?
+                """,
+                (next_status, result.status, now, intent_id),
+            )
+            _audit(
+                database,
+                tenant_id=str(payment["tenant_id"]),
+                user_id=str(payment["user_id"]),
+                actor_type="platform_owner",
+                action="payment.refund.initiated",
+                payment_intent_id=intent_id,
+                details={"providerStatus": result.status},
+                now=now,
+            )
+        final = database.execute(
+            "SELECT * FROM billing_payment_intents WHERE id = ?",
+            (intent_id,),
+        ).fetchone()
+        assert final is not None
+        return _payment_view(final, include_payment_url=False)
 
 
 def subscription_views(

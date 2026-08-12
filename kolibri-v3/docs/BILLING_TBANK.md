@@ -34,20 +34,23 @@ Kolibri использует банковскую hosted-форму только
 продаж. Приложение не принимает и не хранит PAN, CVV, срок действия карты или
 3-D Secure данные.
 
-MVP — только разовая покупка фиксированного периода с ручным продлением и
-`PayType=O`. Запрос не содержит `Recurrent=Y`, `CustomerKey` или `RebillId`.
-Автосписания требуют отдельного согласия пользователя, cancel/dunning UX,
-повторных чеков и включения MIT COF менеджером банка; это отдельная phase 2.
+Основной сценарий — разовая покупка фиксированного периода с `PayType=O`.
+Поверх него реализовано автопродление: первый успешный платёж сохраняет
+`RebillId`/`CustomerKey`, периодический executor (`app.billing.renewals` или
+owner-endpoint `/v1/platform-admin/billing/renewals/run`) создаёт idempotent
+recurrent-заряд на один период подписки, а `CONFIRMED`-уведомление продлевает
+ту же строку подписки. Включение автосписаний остаётся пользовательским
+согласием (toggle в аккаунте), а выпуск MIT COF согласуется с банком.
 
-Native iOS/Android не должны жестко вести пользователя в T‑Кассу для digital
-SaaS. Будущий phase 2 добавит проверенные StoreKit/Google Play events как
-provider adapters к общей server-owned entitlement authority. Клиентское
-подтверждение покупки никогда не является authority.
+Native iOS/Android открывают hosted-форму во внешнем браузере и после возврата
+проверяют серверный статус именно созданного payment intent; ранее активная
+подписка не считается успехом нового чекаута. StoreKit/Google Play остаются
+отдельными provider adapters к общей server-owned entitlement authority.
+Клиентское подтверждение покупки никогда не является authority.
 
 Тип авторизации не определяет surface: Expo web/PWA может законно использовать
-bearer. T‑Касса выбирается web checkout BFF и UI конкретной сборки; native
-iOS/Android UI этот способ не показывает. Это продуктовая/store policy, а не
-security boundary токена.
+bearer. T‑Касса выбирается web checkout BFF и UI конкретной сборки. Это
+продуктовая/store policy, а не security boundary токена.
 
 ## Каноническая архитектура
 
@@ -68,6 +71,10 @@ security boundary токена.
 5. `billing_subscriptions` — фиксированный период доступа, созданный только после валидного
    `CONFIRMED`.
 6. `billing_audit_events` — безопасный журнал intent/init/webhook/subscription.
+
+`billing_payment_intents.paid_at` фиксирует серверно подтверждённый момент
+`CONFIRMED` в той же транзакции, что активирует подписку; история платежей
+читается из серверного списка без hosted payment URL.
 
 Секрет терминала находится только в `KOLIBRI_V3_TBANK_PASSWORD`. В БД хранится
 лишь 16-символьный SHA-256 fingerprint идентификатора терминала; сам пароль,
@@ -100,8 +107,11 @@ entitlement не активен.
 
 Неоднозначный timeout `Init` не повторяется автоматически: intent становится
 `unknown`, чтобы сетевой retry не мог создать второе списание. Сверка такого
-случая — отдельная операторская процедура; адаптер `GetState` подготовлен для
-будущего reconciler, но клиент не может вызвать его произвольно.
+случая — owner-операция `/v1/platform-admin/billing/reconcile`: GetState
+проверяется только для intent с полученным `PaymentId` и не терминальным
+локальным статусом, каждый ответ привязывается к терминалу, сумме, order и
+payment id, затем применяется та же state authority, что и для webhook.
+Клиент не может вызвать GetState произвольно.
 
 ## HTTP-контракты
 
@@ -112,6 +122,8 @@ entitlement не активен.
 - `POST /api/v3/billing/payment-intents`;
 - `GET /api/v3/billing/payment-intents/{intentId}`;
 - `GET /api/v3/billing/subscriptions`;
+- `GET /api/v3/billing/payments` — история платежей субъекта;
+- `POST /api/v3/billing/subscriptions/{subscriptionId}/auto-renew`;
 - `POST /api/v3/billing/tbank/notifications` — raw JSON bank callback;
 - `GET /api/v3/billing/tbank/return/{intentId}`.
 
@@ -129,6 +141,8 @@ entitlement не активен.
   web/PWA-клиента;
 - `GET /v1/billing/payment-intents/{intentId}` — строго свой tenant/user;
 - `GET /v1/billing/subscriptions`;
+- `GET /v1/billing/payments` — история платежей субъекта без payment URL;
+- `POST /v1/billing/subscriptions/{subscriptionId}/auto-renew` — свой tenant/user;
 - `POST /v1/billing/tbank/notifications` — публичный callback с обязательной
   подписью;
 - `GET /v1/billing/tbank/return/{intentId}` — read-only проверка server state.
@@ -140,11 +154,16 @@ Platform owner получает redacted read models (payment URL исключе
   неактивные тарифы, текущие ревизии и состояние entitlement (только чтение);
 - `GET /v1/platform-admin/billing/payments`;
 - `GET /v1/platform-admin/billing/subscriptions`;
-- `GET /v1/platform-admin/billing/audit`.
+- `GET /v1/platform-admin/billing/audit`;
+- `POST /v1/platform-admin/billing/reconcile` — GetState-сверка до 50 intent;
+- `POST /v1/platform-admin/billing/payments/{intentId}/refund` — полный возврат
+  подтверждённого платежа через `/v2/Refund` с серверной подписью.
 
-Endpoint отмены/возврата намеренно отсутствует. Это исключает случайную
-финансовую мутацию из UI или агента. Входящее подписанное уведомление о реально
-сделанном в банке полном возврате корректно закрывает локальный доступ.
+Отмена (`CANCELED`/`REVERSED`) обрабатывается только подписанным уведомлением
+банка. Полный возврат доступен владельцу платформы через отдельный endpoint с
+owner+CSRF гейтом: случайная финансовая мутация из UI пользователя или агента
+невозможна. `REFUNDING` и `PARTIAL_REFUNDED` не отзывают доступ автоматически;
+финальное `REFUNDED` закрывает grant и переводит intent в `refunded`.
 
 ## Переменные окружения
 
@@ -211,8 +230,8 @@ server-provided hosted `paymentUrl` и проверяет server status/subscrip
 внутренние пути. После `CONFIRMED` PWA повторно получает server-owned профиль,
 поэтому entitlement обновляется без повторного входа. До утверждения тарифов
 интерфейс показывает «Оплата пока не подключена», а не подставляет тестовую
-цену. Platform-specific native component возвращает `null`: iOS/Android
-account этот способ оплаты не показывает.
+цену. Native iOS/Android открывают hosted-форму во внешнем браузере и
+возвращают пользователя к серверному статусу именно этого intent.
 
 ## Проверка без сети
 

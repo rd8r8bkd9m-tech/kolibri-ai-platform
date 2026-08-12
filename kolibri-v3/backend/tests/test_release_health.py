@@ -40,6 +40,7 @@ def test_development_health_is_unversioned_without_release_environment(
 ) -> None:
     monkeypatch.delenv("KOLIBRI_RELEASE_ID", raising=False)
     monkeypatch.delenv("KOLIBRI_RELEASE_COMMIT", raising=False)
+    monkeypatch.delenv("KOLIBRI_V3_DEV_INSTANCE_ID", raising=False)
     with TestClient(
         create_app(_settings(tmp_path / "dev.db", environment="development"))
     ) as client:
@@ -54,6 +55,32 @@ def test_development_health_is_unversioned_without_release_environment(
     }
     assert response.headers["X-Kolibri-Release"] == "unversioned"
     assert response.headers["X-Request-ID"].startswith("req_")
+
+
+def test_development_health_reports_exact_dev_instance_id(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Development health must surface the exact instance ID of this dev run.
+
+    The canonical runtime (AGENTS.md) requires a non-empty development
+    instance ID on /v1/health so the supervisor can fence stale backends.
+    """
+    monkeypatch.delenv("KOLIBRI_RELEASE_ID", raising=False)
+    monkeypatch.delenv("KOLIBRI_RELEASE_COMMIT", raising=False)
+    monkeypatch.setenv("KOLIBRI_V3_DEV_INSTANCE_ID", "dev-instance-abc123")
+    with TestClient(
+        create_app(_settings(tmp_path / "dev-instance.db", environment="development"))
+    ) as client:
+        response = client.get("/v1/health")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "ok"
+    assert response.json()["instanceId"] == "dev-instance-abc123"
+    assert response.json()["sourceRoot"] == str(
+        Path(__file__).resolve().parents[2]
+    )
+    assert response.headers["X-Kolibri-Release"] == "unversioned"
 
 
 def test_liveness_does_not_depend_on_database_or_release_readiness(

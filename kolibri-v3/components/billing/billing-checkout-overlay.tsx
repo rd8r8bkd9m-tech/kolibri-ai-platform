@@ -144,16 +144,28 @@ export function BillingCheckoutOverlay({
 				</div>
 				<div className="flex items-center justify-between gap-2 px-4 py-3 text-xs text-muted-foreground">
 					<span>Состояние платежа синхронизируется через webhook банка.</span>
-					<Button
-						type="button"
-						variant="outline"
-						size="sm"
-						onClick={onClose}
-						className="h-8"
-					>
-						<X className="size-3.5" aria-hidden="true" />
-						Закрыть
-					</Button>
+					<div className="flex items-center gap-2">
+						<Button
+							type="button"
+							variant="outline"
+							size="sm"
+							onClick={tryPopup}
+							className="h-8"
+						>
+							<ExternalLink className="size-3.5" aria-hidden="true" />
+							Открыть в новой вкладке
+						</Button>
+						<Button
+							type="button"
+							variant="outline"
+							size="sm"
+							onClick={onClose}
+							className="h-8"
+						>
+							<X className="size-3.5" aria-hidden="true" />
+							Закрыть
+						</Button>
+					</div>
 				</div>
 			</DialogContent>
 		</Dialog>

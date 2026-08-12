@@ -5,8 +5,8 @@ import {
 	CircleAlert,
 	Clock3,
 	CreditCard,
+	History,
 	LoaderCircle,
-	Play,
 	RefreshCw,
 	ShieldCheck,
 } from "lucide-react";
@@ -15,7 +15,9 @@ import { BillingPaymentState } from "@/components/billing/billing-payment-state"
 import { BillingCheckoutOverlay } from "@/components/billing/billing-checkout-overlay";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Switch } from "@/components/ui/switch";
 import type {
+	BillingPaymentRecord,
 	BillingPlan,
 	BillingSubscription,
 } from "@/lib/billing/client";
@@ -56,13 +58,18 @@ function dateLabel(timestamp: number) {
 }
 
 function SubscriptionCard({
+	autoRenewBusy,
+	onAutoRenewChange,
 	plan,
 	subscription,
 }: {
+	autoRenewBusy: boolean;
+	onAutoRenewChange: (subscriptionId: string, enabled: boolean) => void;
 	plan?: BillingPlan;
 	subscription: BillingSubscription;
 }) {
 	const scheduled = subscription.currentPeriodStart > Date.now() / 1_000;
+	const canAutoRenew = subscription.rebillConfigured;
 	const periodCopy = scheduled
 		? `Оплачено с ${dateLabel(subscription.currentPeriodStart)} до ${dateLabel(subscription.currentPeriodEnd)}.`
 		: `Сметы и рабочие инструменты доступны до ${dateLabel(subscription.currentPeriodEnd)}.`;
@@ -88,16 +95,87 @@ function SubscriptionCard({
 					{periodCopy}
 				</p>
 			</div>
-			<div className="flex shrink-0 items-center gap-2 text-[12px] font-medium">
-				<CalendarClock className="size-4 text-muted-foreground" aria-hidden="true" />
-				<time
-					dateTime={new Date(
-						subscription.currentPeriodEnd * 1_000,
-					).toISOString()}
-				>
-					{dateLabel(subscription.currentPeriodEnd)}
-				</time>
+			<div className="flex shrink-0 flex-col items-start gap-2 min-[560px]:items-end">
+				<div className="flex items-center gap-2 text-[12px] font-medium">
+					<CalendarClock className="size-4 text-muted-foreground" aria-hidden="true" />
+					<time
+						dateTime={new Date(
+							subscription.currentPeriodEnd * 1_000,
+						).toISOString()}
+					>
+						{dateLabel(subscription.currentPeriodEnd)}
+					</time>
+				</div>
+				<div className="flex items-center gap-2 text-[12px] text-muted-foreground">
+					<Switch
+						checked={subscription.autoRenew}
+						disabled={!canAutoRenew || autoRenewBusy}
+						aria-label="Автопродление подписки"
+						onCheckedChange={(checked) =>
+							onAutoRenewChange(subscription.id, checked === true)
+						}
+					/>
+					<span>
+						{canAutoRenew ? "Автопродление" : "Автопродление недоступно"}
+					</span>
+				</div>
 			</div>
+		</div>
+	);
+}
+
+function PaymentHistory({ payments }: { payments: BillingPaymentRecord[] }) {
+	const labels: Record<BillingPaymentRecord["status"], string> = {
+		initializing: "Создан",
+		pending: "Ожидает оплату",
+		unknown: "Требует проверки",
+		authorized: "Авторизован",
+		succeeded: "Оплачен",
+		failed: "Отклонён",
+		canceled: "Отменён",
+		partially_refunded: "Частично возвращён",
+		refunded: "Возвращён",
+	};
+	return (
+		<div className="divide-y overflow-hidden rounded-2xl border bg-card">
+			{payments.length > 0 ? (
+				payments.map((payment) => (
+					<div
+						key={payment.id}
+						className="flex items-center justify-between gap-3 px-5 py-3"
+					>
+						<div className="min-w-0">
+							<p className="truncate text-[13px] font-medium">
+								{payment.planName}
+							</p>
+							<p className="mt-0.5 text-[11px] text-muted-foreground">
+								{dateLabel(payment.createdAt)} · {payment.id.slice(-8)}
+							</p>
+						</div>
+						<div className="shrink-0 text-right">
+							<p className="text-[13px] font-semibold">
+								{rubles.format(payment.amountMinor / 100)}
+							</p>
+							<p className="mt-0.5 text-[11px] text-muted-foreground">
+								{labels[payment.status]}
+							</p>
+						</div>
+					</div>
+				))
+			) : (
+				<div className="flex items-start gap-3 px-5 py-4">
+					<History
+						className="mt-0.5 size-5 text-muted-foreground"
+						aria-hidden="true"
+					/>
+					<div>
+						<p className="text-[14px] font-medium">Платежей пока нет</p>
+						<p className="mt-1 text-[12px] leading-5 text-muted-foreground">
+							Оплаченные и отменённые попытки появятся здесь после первого платежа.
+						</p>
+					</div>
+				</div>
+			)}
 		</div>
 	);
 }
@@ -147,53 +225,11 @@ function PlanCard({
 	);
 }
 
-function RuntimeCheckCard({
-	busy,
-	disabled,
-	onRun,
-	plan,
-}: {
-	busy: boolean;
-	disabled: boolean;
-	onRun: () => void;
-	plan: BillingPlan;
-}) {
-	return (
-		<article className="flex min-h-40 flex-col rounded-2xl border bg-card p-5 shadow-[0_10px_30px_rgb(15_23_42_/_0.04)]">
-			<div>
-				<p className="text-[14px] font-semibold">Runtime-check оплаты</p>
-				<p className="mt-2 text-[12px] text-muted-foreground">
-					Короткий проход: создаём intent по тарифу «{plan.name}», открываем
-					платежную страницу T‑Банка и после возврата проверяем `paymentUrl`
-					и статус в том же чате кабинета.
-				</p>
-			</div>
-			<div className="mt-auto pt-6">
-				<Button
-					type="button"
-					disabled={disabled}
-					onClick={onRun}
-					variant="outline"
-					className="min-h-11 w-full rounded-xl"
-				>
-					{busy ? (
-						<LoaderCircle className="size-4 animate-spin" aria-hidden="true" />
-					) : (
-						<Play className="size-4" aria-hidden="true" />
-					)}
-					Запустить runtime-check в один проход
-				</Button>
-				<p className="mt-3 text-center text-[10px] leading-4 text-muted-foreground">
-					После возврата статус оплаченного intent появляется в блоке ниже.
-				</p>
-			</div>
-		</article>
-	);
-}
-
 export function BillingAccountSection() {
 	const account = useBillingAccount();
 	const [checkoutUrl, setCheckoutUrl] = useState<string | null>(null);
+	const [autoRenewBusy, setAutoRenewBusy] = useState<string | null>(null);
+	const [autoRenewError, setAutoRenewError] = useState<string | null>(null);
 	const paidSubscriptions = account.subscriptions.filter(
 		(subscription) =>
 			subscription.status === "active" &&
@@ -210,6 +246,25 @@ export function BillingAccountSection() {
 		if (nextPaymentUrl) setCheckoutUrl(nextPaymentUrl);
 	};
 
+	const changeAutoRenew = async (
+		subscriptionId: string,
+		enabled: boolean,
+	) => {
+		setAutoRenewBusy(subscriptionId);
+		setAutoRenewError(null);
+		try {
+			await account.updateAutoRenew(subscriptionId, enabled);
+		} catch (error) {
+			setAutoRenewError(
+				error instanceof Error
+					? error.message
+					: "Не удалось изменить автопродление.",
+			);
+		} finally {
+			setAutoRenewBusy(null);
+		}
+	};
+
 	return (
 		<section data-slot="billing-account-section">
 			<div data-slot="settings-section-heading">
@@ -220,9 +275,18 @@ export function BillingAccountSection() {
 					</h2>
 				</div>
 				<p className="mt-2 max-w-2xl text-[13px] leading-5 text-muted-foreground">
-					Текущий доступ и разовые платежи без автоматического продления.
+					Текущий доступ, история платежей и управление продлением.
 				</p>
 			</div>
+
+			{autoRenewError ? (
+				<div
+					className="mt-4 rounded-2xl border border-destructive/25 bg-destructive/[0.04] px-4 py-3 text-[12px] leading-5 text-destructive"
+					role="alert"
+				>
+					{autoRenewError}
+				</div>
+			) : null}
 
 				<BillingPaymentState
 					checking={account.checkingPayment}
@@ -231,14 +295,6 @@ export function BillingAccountSection() {
 					onRefresh={account.refreshPayment}
 					payment={account.payment}
 				/>
-				{account.plans.length > 0 ? (
-					<RuntimeCheckCard
-						busy={Boolean(account.creatingPlan)}
-						disabled={account.creatingPlan !== null}
-						plan={account.plans[0]}
-						onRun={() => void startPlanPayment(account.plans[0].code)}
-					/>
-				) : null}
 
 			{account.loading ? (
 				<div
@@ -289,7 +345,11 @@ export function BillingAccountSection() {
 							{paidSubscriptions.length > 0 ? (
 								paidSubscriptions.map((subscription) => (
 									<SubscriptionCard
+										autoRenewBusy={autoRenewBusy === subscription.id}
 										key={subscription.id}
+										onAutoRenewChange={(id, enabled) =>
+											void changeAutoRenew(id, enabled)
+										}
 										subscription={subscription}
 										plan={account.plans.find(
 											(plan) => plan.code === subscription.planCode,
@@ -313,6 +373,13 @@ export function BillingAccountSection() {
 								</div>
 							)}
 						</div>
+					</section>
+
+					<section className="mt-8">
+						<h3 className="mb-3 text-[15px] font-semibold">
+							История платежей
+						</h3>
+						<PaymentHistory payments={account.payments} />
 					</section>
 
 					<section className="mt-8">
