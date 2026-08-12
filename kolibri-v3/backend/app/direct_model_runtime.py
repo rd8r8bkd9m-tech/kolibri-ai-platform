@@ -1098,6 +1098,7 @@ class _TextRunStream:
                     {
                         "type": "REASONING_MESSAGE_START",
                         "messageId": self.reasoning_message_id,
+                        "role": "reasoning",
                     }
                 )
             events.append(
