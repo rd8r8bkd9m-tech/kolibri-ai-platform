@@ -420,6 +420,26 @@ export async function getBillingPayment(
 	return payment;
 }
 
+export async function refreshBillingPayment(intentId: string) {
+	if (!PAYMENT_INTENT_ID.test(intentId)) {
+		throw new BillingApiError(404, "billing_payment_not_found", "Платёж не найден.");
+	}
+	const payment = sanitizePayment(
+		await requestJson(
+			`/api/v3/billing/payment-intents/${encodeURIComponent(intentId)}/refresh`,
+			{ method: "POST" },
+		),
+	);
+	if (!payment) {
+		throw new BillingApiError(
+			502,
+			"billing_contract_invalid",
+			"Сервис оплаты вернул некорректный платёж.",
+		);
+	}
+	return payment;
+}
+
 export function createBillingIdempotencyKey() {
 	return `billing-web-${crypto.randomUUID()}`;
 }

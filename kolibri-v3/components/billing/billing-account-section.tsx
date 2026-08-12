@@ -420,8 +420,11 @@ export function BillingAccountSection() {
 			)}
 			{checkoutUrl ? (
 				<BillingCheckoutOverlay
+					checking={account.checkingPayment}
 					open
+					onRefresh={() => void account.refreshPayment()}
 					paymentUrl={checkoutUrl}
+					payment={account.payment}
 					onClose={() => setCheckoutUrl(null)}
 				/>
 			) : null}

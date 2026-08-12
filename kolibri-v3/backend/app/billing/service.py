@@ -1306,6 +1306,46 @@ def _apply_verified_provider_state(
     return "applied", True
 
 
+def _apply_getstate_result(
+    database: sqlite3.Connection,
+    *,
+    payment: sqlite3.Row,
+    state: Any,
+    gateway: TBankGateway,
+) -> tuple[str, bool]:
+    """Bind one GetState response and apply it through the shared authority."""
+
+    if state.order_id is not None and not hmac.compare_digest(
+        state.order_id, str(payment["order_id"])
+    ):
+        raise BillingError(
+            409,
+            "billing_state_order_conflict",
+            "Статус банка относится к другому заказу.",
+        )
+    if (
+        state.amount_minor is not None
+        and state.amount_minor != int(payment["amount_minor"])
+    ):
+        raise BillingError(
+            409,
+            "billing_state_amount_conflict",
+            "Сумма статуса банка не совпадает с заказом.",
+        )
+    if state.status is None:
+        return "ignored_unknown_status", False
+    return _apply_verified_provider_state(
+        database,
+        payment=payment,
+        provider_payment_id=str(payment["provider_payment_id"]),
+        provider_status=state.status,
+        success=state.success,
+        error_code=state.error_code,
+        amount_minor=state.amount_minor or int(payment["amount_minor"]),
+        expected_terminal_fingerprint=gateway.settings.terminal_fingerprint,
+    )
+
+
 def apply_notification(
     database: sqlite3.Connection,
     *,
@@ -1530,43 +1570,6 @@ def reconcile_payments(
             # Transient provider outage: leave the intent for the next run.
             summary = bumped(failed=1)
             continue
-        if state.order_id is not None and not hmac.compare_digest(
-            state.order_id, str(payment["order_id"])
-        ):
-            _audit(
-                database,
-                tenant_id=str(payment["tenant_id"]),
-                user_id=str(payment["user_id"]),
-                actor_type="system",
-                action="payment.reconcile.conflict",
-                payment_intent_id=str(payment["id"]),
-                details={
-                    "providerStatus": state.status,
-                    "reason": "order_mismatch",
-                },
-                now=_now(database),
-            )
-            summary = bumped(failed=1)
-            continue
-        if (
-            state.amount_minor is not None
-            and state.amount_minor != int(payment["amount_minor"])
-        ):
-            _audit(
-                database,
-                tenant_id=str(payment["tenant_id"]),
-                user_id=str(payment["user_id"]),
-                actor_type="system",
-                action="payment.reconcile.conflict",
-                payment_intent_id=str(payment["id"]),
-                details={
-                    "providerStatus": state.status,
-                    "reason": "amount_mismatch",
-                },
-                now=_now(database),
-            )
-            summary = bumped(failed=1)
-            continue
         if state.status is None:
             summary = bumped(failed=1)
             continue
@@ -1579,16 +1582,29 @@ def reconcile_payments(
             assert current is not None
             if str(current["status"]) not in _RECONCILABLE_STATUSES:
                 continue
-            outcome, applied = _apply_verified_provider_state(
-                database,
-                payment=current,
-                provider_payment_id=str(payment["provider_payment_id"]),
-                provider_status=state.status,
-                success=state.success,
-                error_code=state.error_code,
-                amount_minor=state.amount_minor or int(payment["amount_minor"]),
-                expected_terminal_fingerprint=gateway.settings.terminal_fingerprint,
-            )
+            try:
+                outcome, applied = _apply_getstate_result(
+                    database,
+                    payment=current,
+                    state=state,
+                    gateway=gateway,
+                )
+            except BillingError:
+                _audit(
+                    database,
+                    tenant_id=str(payment["tenant_id"]),
+                    user_id=str(payment["user_id"]),
+                    actor_type="system",
+                    action="payment.reconcile.conflict",
+                    payment_intent_id=str(payment["id"]),
+                    details={
+                        "providerStatus": state.status,
+                        "reason": "state_conflict",
+                    },
+                    now=_now(database),
+                )
+                summary = bumped(failed=1)
+                continue
             _audit(
                 database,
                 tenant_id=str(payment["tenant_id"]),
@@ -1609,6 +1625,88 @@ def reconcile_payments(
         if applied:
             summary = bumped(reconciled=1)
     return summary
+
+
+def refresh_payment_state(
+    database: sqlite3.Connection,
+    *,
+    identity: UserSession,
+    intent_id: str,
+    gateway: TBankGateway,
+) -> dict[str, Any]:
+    """Ask the provider for the current state of the subject's own intent.
+
+    This is the client-side fallback for a blocked or missed return redirect:
+    the app polls this endpoint after payment, and the backend verifies the
+    provider response against the stored terminal, order, amount and payment
+    id before applying the same state authority as webhooks.
+    """
+
+    payment = _load_payment_by_subject(
+        database,
+        tenant_id=identity.tenant_id,
+        user_id=identity.user_id,
+        intent_id=intent_id,
+    )
+    if str(payment["status"]) in {
+        "succeeded",
+        "failed",
+        "canceled",
+        "partially_refunded",
+        "refunded",
+    } or payment["provider_payment_id"] is None:
+        return _payment_view(payment, include_payment_url=True)
+    try:
+        state = gateway.get_state(str(payment["provider_payment_id"]))
+    except (TBankTransportError, TBankProtocolError) as exc:
+        raise BillingError(
+            502,
+            "billing_state_unavailable",
+            "Банк временно недоступен. Повторите проверку через несколько секунд.",
+        ) from exc
+    with transaction(database, immediate=True):
+        current = database.execute(
+            "SELECT * FROM billing_payment_intents WHERE id = ?",
+            (payment["id"],),
+        ).fetchone()
+        assert current is not None
+        if str(current["status"]) in {
+            "succeeded",
+            "failed",
+            "canceled",
+            "partially_refunded",
+            "refunded",
+        }:
+            return _payment_view(current, include_payment_url=True)
+        outcome, applied = _apply_getstate_result(
+            database,
+            payment=current,
+            state=state,
+            gateway=gateway,
+        )
+        _audit(
+            database,
+            tenant_id=identity.tenant_id,
+            user_id=identity.user_id,
+            actor_type="user",
+            action=(
+                "payment.state.refreshed"
+                if applied
+                else "payment.state.unchanged"
+            ),
+            payment_intent_id=intent_id,
+            details={
+                "providerStatus": state.status,
+                "outcome": outcome,
+            },
+            now=_now(database),
+        )
+        final = database.execute(
+            "SELECT * FROM billing_payment_intents WHERE id = ?",
+            (payment["id"],),
+        ).fetchone()
+        assert final is not None
+        return _payment_view(final, include_payment_url=True)
 
 
 def refund_payment(

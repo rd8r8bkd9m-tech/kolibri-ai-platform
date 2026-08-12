@@ -31,6 +31,7 @@ from .service import (
     payment_view,
     plan_views,
     reconcile_payments,
+    refresh_payment_state,
     refund_payment,
     run_due_renewals,
     set_subscription_auto_renew,
@@ -456,6 +457,32 @@ def get_payment_history(
             user_id=identity.user_id,
         )
     }
+
+
+@router.post(
+    "/v1/billing/payment-intents/{intent_id}/refresh",
+    response_model=PaymentIntentView,
+)
+def refresh_payment(
+    intent_id: str,
+    response: Response,
+    database: DatabaseDependency,
+    identity: IdentityDependency,
+    request: Request,
+    _mutation: MutationDependency,
+) -> dict[str, Any]:
+    """Fallback status check: ask the provider directly for this payment."""
+
+    _no_store(response)
+    try:
+        return refresh_payment_state(
+            database,
+            identity=identity,
+            intent_id=_validated_intent_id(intent_id),
+            gateway=_gateway(request, database),
+        )
+    except BillingError as exc:
+        raise _error(exc) from exc
 
 
 @router.get("/v1/billing/subscriptions", response_model=SubscriptionListView)

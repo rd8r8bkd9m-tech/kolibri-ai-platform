@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { AlertCircle, ExternalLink, LoaderCircle, X } from "lucide-react";
+import { CheckCircle2, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
 	Dialog,
@@ -9,9 +10,14 @@ import {
 	DialogDescription,
 	DialogTitle,
 } from "@/components/ui/dialog";
+import type { BillingPaymentIntent } from "@/lib/billing/client";
+import { cn } from "@/lib/utils";
 
 type BillingCheckoutOverlayProps = {
+	checking?: boolean;
+	onRefresh?: () => void;
 	paymentUrl: string;
+	payment?: BillingPaymentIntent | null;
 	onClose: () => void;
 	open: boolean;
 };
@@ -29,8 +35,11 @@ function openInNewTab(url: string) {
 }
 
 export function BillingCheckoutOverlay({
+	checking = false,
 	open,
+	onRefresh,
 	onClose,
+	payment,
 	paymentUrl,
 }: BillingCheckoutOverlayProps) {
 	const [iframeState, setIframeState] = useState<"loading" | "ready" | "blocked">(
@@ -90,83 +99,159 @@ export function BillingCheckoutOverlay({
 		}
 	};
 
+	const terminalStatus = payment?.status;
+	const succeeded = terminalStatus === "succeeded";
+	const failed =
+		terminalStatus === "failed" ||
+		terminalStatus === "canceled" ||
+		terminalStatus === "refunded";
+
 	return (
 		<Dialog open={open} onOpenChange={(nextOpen) => !nextOpen && onClose()}>
 			<DialogContent className="w-[min(980px,calc(100%-1.5rem))] max-w-[calc(100%-1.5rem)] gap-0 overflow-hidden p-0 sm:max-w-[min(980px,calc(100%-1.5rem))]">
-				<div className="p-4 pb-3">
-					<DialogTitle>Оплата через T‑Банк</DialogTitle>
-					<DialogDescription>
-						Форма банка открыта внутри приложения. Если встраивание заблокировано,
-						переключитесь на новую вкладку.
-					</DialogDescription>
-				</div>
-				<div className="border-y border-border/60">
-					{showFallback ? null : (
-						<div className="relative h-[min(68vh,620px)] w-full">
-							<iframe
-								className="h-full w-full border-0 bg-white"
-								src={paymentUrl}
-								title="Форма оплаты"
-								onLoad={markLoaded}
-								onError={markBlocked}
-							/>
-							{iframeState === "loading" ? (
-								<div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-background/95">
-									<LoaderCircle
-										className="size-4 animate-spin text-muted-foreground"
-										aria-hidden="true"
+				{succeeded || failed ? (
+					<>
+						<div className="p-5">
+							<DialogTitle>
+								{succeeded ? "Оплата подтверждена" : "Оплата не завершена"}
+							</DialogTitle>
+							<DialogDescription>
+								{succeeded
+									? "Доступ активирован по подтверждению банка."
+									: "Доступ не изменён. Повторите оплату или свяжитесь с поддержкой."}
+							</DialogDescription>
+						</div>
+						<div
+							className={cn(
+								"flex min-h-[16rem] flex-col items-center justify-center gap-3 border-y border-border/60 px-6 text-center",
+								succeeded
+									? "bg-emerald-500/[0.06]"
+									: "bg-destructive/[0.05]",
+							)}
+						>
+							{succeeded ? (
+								<CheckCircle2 className="size-12 text-emerald-600" aria-hidden="true" />
+							) : (
+								<AlertCircle className="size-12 text-destructive" aria-hidden="true" />
+							)}
+							<p className="max-w-md text-sm leading-6 text-muted-foreground">
+								{succeeded
+									? "Тариф уже активен в вашем аккаунте. Можно закрыть окно."
+									: "Если вы оплачивали, нажмите «Проверить статус» — приложение само спросит банк."}
+							</p>
+						</div>
+						<div className="flex items-center justify-end gap-2 px-4 py-3">
+							<Button
+								type="button"
+								variant="outline"
+								size="sm"
+								onClick={onClose}
+								className="h-8"
+							>
+								<X className="size-3.5" aria-hidden="true" />
+								Готово
+							</Button>
+						</div>
+					</>
+				) : (
+					<>
+						<div className="p-4 pb-3">
+							<DialogTitle>Оплата через T‑Банк</DialogTitle>
+							<DialogDescription>
+								Форма банка открыта внутри приложения. Если встраивание
+								заблокировано, переключитесь на новую вкладку.
+							</DialogDescription>
+						</div>
+						<div className="border-y border-border/60">
+							{showFallback ? null : (
+								<div className="relative h-[min(68vh,620px)] w-full">
+									<iframe
+										className="h-full w-full border-0 bg-white"
+										src={paymentUrl}
+										title="Форма оплаты"
+										onLoad={markLoaded}
+										onError={markBlocked}
 									/>
-									<p className="text-sm text-muted-foreground">Загрузка формы оплаты…</p>
+									{iframeState === "loading" ? (
+										<div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-background/95">
+											<LoaderCircle
+												className="size-4 animate-spin text-muted-foreground"
+												aria-hidden="true"
+											/>
+											<p className="text-sm text-muted-foreground">
+												Загрузка формы оплаты…
+											</p>
+										</div>
+									) : null}
+								</div>
+							)}
+							{showFallback ? (
+								<div className="flex min-h-[20rem] flex-col items-center justify-center gap-3 px-5 py-8 text-center">
+									<AlertCircle className="size-10 text-amber-500" aria-hidden="true" />
+									<p className="max-w-md text-sm leading-6">
+										Платежную форму нельзя открыть внутри страницы прямо сейчас.
+										Откройте её в новой вкладке банка.
+									</p>
+									<div className="flex flex-col gap-2 sm:flex-row">
+										<Button type="button" onClick={tryPopup}>
+											<ExternalLink className="size-4" aria-hidden="true" />
+											Открыть в новой вкладке
+										</Button>
+									</div>
+									{fallbackError ? (
+										<p className="max-w-md text-xs leading-6 text-destructive">
+											{fallbackError}
+										</p>
+									) : null}
 								</div>
 							) : null}
 						</div>
-					)}
-					{showFallback ? (
-						<div className="flex min-h-[20rem] flex-col items-center justify-center gap-3 px-5 py-8 text-center">
-							<AlertCircle className="size-10 text-amber-500" aria-hidden="true" />
-							<p className="max-w-md text-sm leading-6">
-								Платежную форму нельзя открыть внутри страницы прямо сейчас.
-								Откройте её в новой вкладке банка.
-							</p>
-							<div className="flex flex-col gap-2 sm:flex-row">
-								<Button type="button" onClick={tryPopup}>
-									<ExternalLink className="size-4" aria-hidden="true" />
+						<div className="flex items-center justify-between gap-2 px-4 py-3 text-xs text-muted-foreground">
+							<span>
+								После оплаты закройте вкладку банка — статус проверится
+								автоматически.
+							</span>
+							<div className="flex items-center gap-2">
+								{onRefresh ? (
+									<Button
+										type="button"
+										variant="outline"
+										size="sm"
+										disabled={checking}
+										onClick={onRefresh}
+										className="h-8"
+									>
+										<RefreshCw
+											className={cn("size-3.5", checking && "animate-spin")}
+											aria-hidden="true"
+										/>
+										Проверить статус
+									</Button>
+								) : null}
+								<Button
+									type="button"
+									variant="outline"
+									size="sm"
+									onClick={tryPopup}
+									className="h-8"
+								>
+									<ExternalLink className="size-3.5" aria-hidden="true" />
 									Открыть в новой вкладке
 								</Button>
+								<Button
+									type="button"
+									variant="outline"
+									size="sm"
+									onClick={onClose}
+									className="h-8"
+								>
+									<X className="size-3.5" aria-hidden="true" />
+									Закрыть
+								</Button>
 							</div>
-							{fallbackError ? (
-								<p className="max-w-md text-xs leading-6 text-destructive">
-									{fallbackError}
-								</p>
-							) : null}
 						</div>
-					) : null}
-				</div>
-				<div className="flex items-center justify-between gap-2 px-4 py-3 text-xs text-muted-foreground">
-					<span>Состояние платежа синхронизируется через webhook банка.</span>
-					<div className="flex items-center gap-2">
-						<Button
-							type="button"
-							variant="outline"
-							size="sm"
-							onClick={tryPopup}
-							className="h-8"
-						>
-							<ExternalLink className="size-3.5" aria-hidden="true" />
-							Открыть в новой вкладке
-						</Button>
-						<Button
-							type="button"
-							variant="outline"
-							size="sm"
-							onClick={onClose}
-							className="h-8"
-						>
-							<X className="size-3.5" aria-hidden="true" />
-							Закрыть
-						</Button>
-					</div>
-				</div>
+					</>
+				)}
 			</DialogContent>
 		</Dialog>
 	);

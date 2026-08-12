@@ -10,10 +10,10 @@ import {
 	type BillingSubscription,
 	createBillingIdempotencyKey,
 	createBillingPayment,
-	getBillingPayment,
 	getBillingPayments,
 	getBillingPlans,
 	getBillingSubscriptions,
+	refreshBillingPayment,
 	setBillingAutoRenew,
 } from "@/lib/billing/client";
 
@@ -109,6 +109,7 @@ function errorMessage(error: unknown) {
 export function useBillingAccount(options: BillingAccountOptions = {}) {
 	const returnSurface = options.returnSurface ?? detectReturnSurface();
 	const checkoutInFlight = useRef(false);
+	const refreshInFlight = useRef(false);
 	const [plans, setPlans] = useState<BillingPlan[]>([]);
 	const [payments, setPayments] = useState<BillingPaymentRecord[]>([]);
 	const [subscriptions, setSubscriptions] = useState<BillingSubscription[]>([]);
@@ -119,7 +120,7 @@ export function useBillingAccount(options: BillingAccountOptions = {}) {
 	const [paymentIntentId, setPaymentIntentId] = useState<string | null>(null);
 	const [paymentError, setPaymentError] = useState<string | null>(null);
 	const [checkingPayment, setCheckingPayment] = useState(false);
-	const [pollGeneration, setPollGeneration] = useState(0);
+	const [pollGeneration] = useState(0);
 
 	const loadAccount = useCallback(async (signal?: AbortSignal) => {
 		setLoading(true);
@@ -170,10 +171,10 @@ export function useBillingAccount(options: BillingAccountOptions = {}) {
 			setCheckingPayment(true);
 			setPaymentError(null);
 			try {
-				const nextPayment = await getBillingPayment(
-					paymentIntentId,
-					controller.signal,
-				);
+				// Ask the provider directly: this is the fallback that confirms
+				// a successful payment even when the bank redirect or webhook
+				// never reaches the browser.
+				const nextPayment = await refreshBillingPayment(paymentIntentId);
 				if (stopped) return;
 				setPayment(nextPayment);
 				if (TERMINAL_PAYMENT_STATUSES.has(nextPayment.status)) {
@@ -269,6 +270,28 @@ export function useBillingAccount(options: BillingAccountOptions = {}) {
 		);
 	}, []);
 
+	const refreshPayment = useCallback(async () => {
+		if (!paymentIntentId || refreshInFlight.current) return;
+		refreshInFlight.current = true;
+		setCheckingPayment(true);
+		setPaymentError(null);
+		try {
+			const nextPayment = await refreshBillingPayment(paymentIntentId);
+			setPayment(nextPayment);
+			if (TERMINAL_PAYMENT_STATUSES.has(nextPayment.status)) {
+				clearDraft(nextPayment.id);
+				if (nextPayment.status === "succeeded") {
+					await loadAccount();
+				}
+			}
+		} catch (error) {
+			setPaymentError(errorMessage(error));
+		} finally {
+			refreshInFlight.current = false;
+			setCheckingPayment(false);
+		}
+	}, [loadAccount, paymentIntentId]);
+
 	return {
 		beginPayment,
 		checkingPayment,
@@ -281,7 +304,7 @@ export function useBillingAccount(options: BillingAccountOptions = {}) {
 		paymentError,
 		plans,
 		refreshAccount: () => void loadAccount(),
-		refreshPayment: () => setPollGeneration((value) => value + 1),
+		refreshPayment,
 		subscriptions,
 		updateAutoRenew,
 	};
