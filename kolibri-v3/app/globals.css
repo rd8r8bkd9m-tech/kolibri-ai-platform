@@ -205,8 +205,12 @@
    keep their higher-specificity pill styling on narrow screens. */
 [data-slot="aui_composer-shell"] {
   background: var(--composer-bg, var(--secondary));
-  border-radius: var(--composer-radius, 1.5rem);
+  border-radius: var(--composer-radius, 0.75rem);
   padding: var(--composer-padding, 8px);
+}
+
+[data-slot="aui_composer-shell"]:focus-within {
+  box-shadow: 0 0 0 1px color-mix(in oklab, var(--ring) 45%, transparent);
 }
 
 @media (max-width: 959px) {

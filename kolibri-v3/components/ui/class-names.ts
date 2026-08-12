@@ -118,19 +118,19 @@ export const uiClassTokens = {
 	threadMobileStarterActions:
 		"aui-mobile-starter-actions hidden w-full min-w-0 flex-col",
 	threadWelcomeSuggestions:
-		"aui-thread-welcome-suggestions grid w-full min-w-0 grid-cols-2 gap-2",
+		"aui-thread-welcome-suggestions flex w-full min-w-0 flex-wrap items-center justify-center gap-2",
 	threadWelcomeSuggestionCard:
-		"border-border/70 bg-muted/25 hover:bg-muted/55 focus-visible:ring-ring flex min-h-16 min-w-0 flex-col items-start justify-center rounded-xl border px-3 py-2.5 text-start transition-colors outline-none focus-visible:ring-2",
+		"border-border/70 bg-muted/25 hover:bg-muted/55 focus-visible:ring-ring inline-flex min-h-9 min-w-0 items-center gap-2 rounded-full border px-4 py-2 text-start transition-colors outline-none focus-visible:ring-2",
 	threadWelcomeSuggestionTitle:
-		"text-foreground text-sm leading-snug font-medium",
+		"text-foreground text-sm leading-snug font-medium whitespace-nowrap",
 	threadWelcomeSuggestionDescription:
-		"text-muted-foreground mt-1 line-clamp-1 text-xs",
+		"text-muted-foreground text-xs whitespace-nowrap",
 	threadComposerRoot:
 		"aui-composer-root relative flex w-full min-w-0 flex-col",
 	threadComposerShell:
 		"border-border/65 data-[dragging=true]:border-ring focus-within:border-ring/45 dark:border-muted-foreground/15 relative flex w-full min-w-0 flex-col gap-2 rounded-(--composer-radius) border bg-(--composer-bg) p-(--composer-padding) shadow-[0_12px_36px_-24px_rgba(0,0,0,0.45),0_2px_8px_-4px_rgba(0,0,0,0.12)] transition-[border-color,box-shadow] focus-within:shadow-[0_16px_40px_-24px_rgba(0,0,0,0.5),0_3px_10px_-4px_rgba(0,0,0,0.14)] data-[dragging=true]:border-dashed data-[dragging=true]:bg-[color-mix(in_oklab,var(--color-accent)_50%,var(--color-background))] dark:shadow-none [&_.aui-composer-attachments]:flex-wrap [&_.aui-composer-attachments]:overflow-x-hidden",
 	threadComposerInput:
-		"aui-composer-input caret-primary placeholder:text-muted-foreground/80 max-h-36 min-h-12 w-full min-w-0 resize-none overflow-x-hidden overflow-y-auto bg-transparent px-1.5 py-1 text-[15px] outline-none",
+		"aui-composer-input caret-primary placeholder:text-muted-foreground/80 max-h-[200px] min-h-12 w-full min-w-0 resize-none overflow-x-hidden overflow-y-auto bg-transparent px-1.5 py-1 text-[15px] outline-none",
 	threadComposerActionRow:
 		"aui-composer-action-wrapper relative flex items-center justify-between",
 	threadComposerLeadingActions:
@@ -178,7 +178,7 @@ export const uiClassTokens = {
 	threadUserMessageContentWrapper:
 		"aui-user-message-content-wrapper relative w-fit max-w-[78%] min-w-0",
 	threadUserMessageContent:
-		"aui-user-message-content peer bg-[#f3f3f4] text-foreground rounded-2xl px-4 py-2 text-[15px] leading-[1.45] wrap-break-word empty:hidden dark:bg-zinc-800",
+		"aui-user-message-content peer bg-[#f3f3f4] text-foreground rounded-xl rounded-tr-sm px-4 py-2 text-[15px] leading-[1.45] wrap-break-word empty:hidden dark:bg-[#2c2a28]",
 	threadUserMeta:
 		"text-muted-foreground flex min-h-5 items-center justify-end gap-1 text-[11px]",
 	threadUserMetaRow:

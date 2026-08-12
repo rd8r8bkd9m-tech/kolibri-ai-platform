@@ -133,7 +133,7 @@ export const ThreadSuggestions: ComponentType = () => {
 					className={uiClassTokens.threadWelcomeSuggestions}
 					aria-label={THREAD_UI_TEXT.THREAD_VIEWPORT_WELCOME_LABEL}
 				>
-				{desktopStarters.map(({ ariaLabel, description, prompt, title }) => (
+				{desktopStarters.map(({ ariaLabel, description, icon: StarterIcon, prompt, title }) => (
 					<ThreadPrimitive.Suggestion
 						key={title}
 						prompt={prompt}
@@ -142,6 +142,7 @@ export const ThreadSuggestions: ComponentType = () => {
 						className={uiClassTokens.threadWelcomeSuggestionCard}
 						aria-label={ariaLabel}
 					>
+						<StarterIcon aria-hidden="true" className="size-4 shrink-0" />
 						<span className={uiClassTokens.threadWelcomeSuggestionTitle}>
 							{title}
 						</span>
@@ -254,6 +255,9 @@ export const Composer: ComponentType = () => {
 					</div>
 				</ComposerPrimitive.AttachmentDropzone>
 			</ComposerPrimitive.Root>
+			<p className="text-muted-foreground/80 mx-auto max-w-md px-2 text-center text-[11px] leading-relaxed">
+				Ассистент может ошибаться — проверяйте его работу
+			</p>
 		</ComposerPrimitive.Unstable_TriggerPopoverRoot>
 	);
 };

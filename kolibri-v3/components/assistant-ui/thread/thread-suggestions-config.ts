@@ -1,7 +1,11 @@
 import {
+	Calculator,
+	FileText,
+	FolderKanban,
 	Globe2Icon,
 	ImageIcon,
 	PencilIcon,
+	ShieldCheck,
 	type LucideIcon,
 } from "lucide-react";
 
@@ -17,6 +21,7 @@ type DesktopStarterAction = {
 	description: string;
 	ariaLabel: string;
 	prompt: string;
+	icon: LucideIcon;
 };
 
 export const MOBILE_STARTERS: readonly StarterAction[] = [
@@ -48,6 +53,7 @@ export const DESKTOP_STARTERS: readonly DesktopStarterAction[] = [
 		title: "Рассчитать смету",
 		description: "По описанию объекта",
 		ariaLabel: "Рассчитать смету по описанию объекта",
+		icon: Calculator,
 		prompt:
 			"Подготовь подробную предварительную смету по моему описанию объекта. Сначала выдели исходные данные и условия расчёта. Раздели работы, материалы, оборудование и услуги на отдельные позиции.",
 	},
@@ -55,6 +61,7 @@ export const DESKTOP_STARTERS: readonly DesktopStarterAction[] = [
 		title: "Спланировать проект",
 		description: "От цели до результата",
 		ariaLabel: "Спланировать проект от цели до результата",
+		icon: FolderKanban,
 		prompt:
 			"Составь план проекта: этапы, зависимости, сроки, риски и необходимые исходные данные.",
 	},
@@ -62,6 +69,7 @@ export const DESKTOP_STARTERS: readonly DesktopStarterAction[] = [
 		title: "Подготовить документ",
 		description: "КП, договор или отчёт",
 		ariaLabel: "Подготовить проектный документ",
+		icon: FileText,
 		prompt:
 			"Помоги подготовить проектный документ. Уточни тип документа, назначение и обязательные реквизиты.",
 	},
@@ -69,6 +77,7 @@ export const DESKTOP_STARTERS: readonly DesktopStarterAction[] = [
 		title: "Проверить основания",
 		description: "Источники и доказательства",
 		ariaLabel: "Проверить источники и доказательства",
+		icon: ShieldCheck,
 		prompt:
 			"Проверь исходные данные и выводы: покажи источники, условия расчёта, версии и недостающие доказательства.",
 	},
