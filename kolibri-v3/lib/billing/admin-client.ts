@@ -10,6 +10,7 @@ export type BillingAdminConfig = {
 	mode: BillingAdminMode;
 	receiptMode: "disabled" | "required" | null;
 	productionConfirmed: boolean;
+	verifySsl: boolean;
 	terminalFingerprint: string | null;
 	updatedAt: number | null;
 };
@@ -23,6 +24,7 @@ export type BillingAdminConfigUpdate = {
 	returnOrigin?: string;
 	receiptMode?: "disabled" | "required";
 	taxation?: string;
+	verifySsl?: boolean;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -39,6 +41,7 @@ function sanitizeConfig(value: unknown): BillingAdminConfig | null {
 		(value.receiptMode !== null &&
 			!["disabled", "required"].includes(String(value.receiptMode))) ||
 		typeof value.productionConfirmed !== "boolean" ||
+		typeof value.verifySsl !== "boolean" ||
 		(value.terminalFingerprint !== null &&
 			typeof value.terminalFingerprint !== "string") ||
 		(value.updatedAt !== null && typeof value.updatedAt !== "number")
@@ -51,6 +54,7 @@ function sanitizeConfig(value: unknown): BillingAdminConfig | null {
 		mode: value.mode as BillingAdminMode,
 		receiptMode: value.receiptMode as BillingAdminConfig["receiptMode"],
 		productionConfirmed: value.productionConfirmed,
+		verifySsl: value.verifySsl,
 		terminalFingerprint: value.terminalFingerprint as string | null,
 		updatedAt: value.updatedAt as number | null,
 	};
@@ -123,6 +127,7 @@ export function saveAdminBillingConfig(input: BillingAdminConfigUpdate) {
 			returnOrigin: input.returnOrigin?.trim() || undefined,
 			receiptMode: input.receiptMode ?? "disabled",
 			taxation: input.taxation?.trim() || undefined,
+			verifySsl: input.verifySsl ?? true,
 		}),
 	});
 }

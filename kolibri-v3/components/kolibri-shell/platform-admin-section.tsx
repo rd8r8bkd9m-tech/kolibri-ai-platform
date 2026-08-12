@@ -1567,6 +1567,7 @@ function PlatformBillingPanel() {
 	const [receiptMode, setReceiptMode] = useState<"disabled" | "required">(
 		"disabled",
 	);
+	const [verifySsl, setVerifySsl] = useState(true);
 	const [taxation, setTaxation] = useState("");
 
 	const load = useCallback(async () => {
@@ -1577,6 +1578,7 @@ function PlatformBillingPanel() {
 			setEnabled(next.status === "configured" && next.source === "admin");
 			if (next.mode === "test" || next.mode === "demo") setMode(next.mode);
 			setReceiptMode(next.receiptMode ?? "disabled");
+			setVerifySsl(next.verifySsl);
 		} catch (error) {
 			setLoadError(
 				error instanceof Error
@@ -1604,6 +1606,7 @@ function PlatformBillingPanel() {
 				input.returnOrigin = returnOrigin;
 				input.receiptMode = receiptMode;
 				input.taxation = taxation;
+				input.verifySsl = verifySsl;
 			}
 			const next = await saveAdminBillingConfig(input);
 			setConfig(next);
@@ -1763,6 +1766,18 @@ function PlatformBillingPanel() {
 								onChange={setTaxation}
 								placeholder="osn / usn_income / …"
 							/>
+							<label className="flex items-center gap-2 text-[12px]">
+								<input
+									type="checkbox"
+									checked={verifySsl}
+									onChange={(event) => setVerifySsl(event.target.checked)}
+									className="size-4"
+								/>
+								Проверять SSL-сертификат банка
+								<span className="text-muted-foreground">
+									(отключите только для локальной разработки)
+								</span>
+							</label>
 						</>
 					) : null}
 					<div className="sm:col-span-2">

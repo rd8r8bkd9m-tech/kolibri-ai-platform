@@ -743,6 +743,7 @@ def test_hosted_payment_webhook_replay_refund_and_admin_contracts(
         assert config_body["mode"] == "test"
         assert config_body["receiptMode"] == "disabled"
         assert config_body["productionConfirmed"] is False
+        assert config_body["verifySsl"] is True
         assert config_body["terminalFingerprint"].endswith("…")
         assert config_body["updatedAt"] is None
         assert "password" not in config_body
@@ -753,6 +754,7 @@ def test_hosted_payment_webhook_replay_refund_and_admin_contracts(
             "mode": "test",
             "receiptMode": "disabled",
             "productionConfirmed": False,
+            "verifySsl": True,
             "terminalFingerprint": config_body["terminalFingerprint"],
             "updatedAt": None,
         }

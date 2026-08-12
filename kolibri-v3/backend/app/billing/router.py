@@ -230,6 +230,7 @@ class BillingConfigView(APIModel):
         alias="receiptMode"
     )
     production_confirmed: bool = Field(alias="productionConfirmed")
+    verify_ssl: bool = Field(alias="verifySsl")
     terminal_fingerprint: str | None = Field(
         default=None,
         alias="terminalFingerprint",
@@ -265,6 +266,7 @@ class BillingConfigUpdate(APIModel):
         alias="receiptMode",
     )
     taxation: str | None = Field(default=None, alias="taxation", max_length=32)
+    verify_ssl: bool = Field(default=True, alias="verifySsl")
 
 
 def _no_store(response: Response) -> None:
@@ -612,6 +614,7 @@ def billing_configuration(
             "mode": settings.mode,
             "receiptMode": settings.receipt_mode,
             "productionConfirmed": settings.production_confirmed,
+            "verifySsl": settings.verify_ssl,
             "terminalFingerprint": settings.terminal_fingerprint[:4] + "…"
             if settings.enabled
             else None,
@@ -673,6 +676,7 @@ def update_billing_configuration(
             return_origin=payload.return_origin,
             receipt_mode=payload.receipt_mode,
             taxation=payload.taxation,
+            verify_ssl=payload.verify_ssl,
         )
     except BillingError as exc:
         raise _error(exc) from exc

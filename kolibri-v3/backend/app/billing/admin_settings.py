@@ -86,7 +86,8 @@ def tbank_admin_settings_view(
     row = database.execute(
         """
         SELECT enabled, mode, notification_url, return_origin,
-               receipt_mode, taxation, terminal_fingerprint, updated_at
+               receipt_mode, taxation, terminal_fingerprint, verify_ssl,
+               updated_at
         FROM billing_provider_settings
         WHERE provider = 'tbank'
         LIMIT 1
@@ -99,6 +100,7 @@ def tbank_admin_settings_view(
             "mode": env_settings.mode,
             "receiptMode": env_settings.receipt_mode,
             "productionConfirmed": env_settings.production_confirmed,
+            "verifySsl": env_settings.verify_ssl,
             "terminalFingerprint": _redact(env_settings.terminal_fingerprint),
             "updatedAt": None,
         }
@@ -109,6 +111,7 @@ def tbank_admin_settings_view(
             "mode": None,
             "receiptMode": None,
             "productionConfirmed": False,
+            "verifySsl": True,
             "terminalFingerprint": None,
             "updatedAt": None,
         }
@@ -125,6 +128,7 @@ def tbank_admin_settings_view(
         "mode": mode,
         "receiptMode": str(row["receipt_mode"]),
         "productionConfirmed": False,
+        "verifySsl": bool(int(row["verify_ssl"])),
         "terminalFingerprint": (
             _redact(str(row["terminal_fingerprint"]))
             if row["terminal_fingerprint"]
@@ -165,7 +169,7 @@ def _tbank_settings_from_row(
             str(row["taxation"]) if row["taxation"] is not None else None
         ),
         timeout_seconds=10.0,
-        verify_ssl=True,
+        verify_ssl=bool(int(row["verify_ssl"])),
         production_confirmed=False,
         runtime_environment=settings.environment,
     )
@@ -200,6 +204,7 @@ def save_admin_tbank_settings(
     return_origin: str | None,
     receipt_mode: ReceiptMode,
     taxation: str | None,
+    verify_ssl: bool,
 ) -> dict[str, Any]:
     """Persist admin-managed test/demo terminal settings, encrypted."""
 
@@ -212,9 +217,9 @@ def save_admin_tbank_settings(
                     provider, enabled, mode, terminal_key_encrypted,
                     password_encrypted, notification_url, return_origin,
                     receipt_mode, taxation, terminal_fingerprint,
-                    updated_at, updated_by_user_id
+                    verify_ssl, updated_at, updated_by_user_id
                 ) VALUES ('tbank', 0, ?, NULL, NULL, NULL, NULL,
-                          'disabled', NULL, '', ?, ?)
+                          'disabled', NULL, '', ?, ?, ?)
                 ON CONFLICT(provider) DO UPDATE SET
                     enabled = 0,
                     terminal_key_encrypted = NULL,
@@ -224,10 +229,11 @@ def save_admin_tbank_settings(
                     receipt_mode = 'disabled',
                     taxation = NULL,
                     terminal_fingerprint = '',
+                    verify_ssl = 1,
                     updated_at = excluded.updated_at,
                     updated_by_user_id = excluded.updated_by_user_id
                 """,
-                (mode, now, owner_user_id),
+                (mode, 1, now, owner_user_id),
             )
         return tbank_admin_settings_view(
             database,
@@ -263,7 +269,7 @@ def save_admin_tbank_settings(
             receipt_mode=receipt_mode,
             taxation=taxation,
             timeout_seconds=10.0,
-            verify_ssl=True,
+            verify_ssl=verify_ssl,
             production_confirmed=False,
             runtime_environment=settings.environment,
         )
@@ -293,9 +299,9 @@ def save_admin_tbank_settings(
             INSERT INTO billing_provider_settings (
                 provider, enabled, mode, terminal_key_encrypted,
                 password_encrypted, notification_url, return_origin,
-                receipt_mode, taxation, terminal_fingerprint,
+                receipt_mode, taxation, terminal_fingerprint, verify_ssl,
                 updated_at, updated_by_user_id
-            ) VALUES ('tbank', 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES ('tbank', 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(provider) DO UPDATE SET
                 enabled = 1,
                 mode = excluded.mode,
@@ -306,6 +312,7 @@ def save_admin_tbank_settings(
                 receipt_mode = excluded.receipt_mode,
                 taxation = excluded.taxation,
                 terminal_fingerprint = excluded.terminal_fingerprint,
+                verify_ssl = excluded.verify_ssl,
                 updated_at = excluded.updated_at,
                 updated_by_user_id = excluded.updated_by_user_id
             """,
@@ -318,6 +325,7 @@ def save_admin_tbank_settings(
                 receipt_mode,
                 taxation,
                 terminal_fingerprint,
+                1 if verify_ssl else 0,
                 now,
                 owner_user_id,
             ),
