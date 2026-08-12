@@ -53,6 +53,32 @@ const isDeveloperToolPart = (part: unknown): boolean =>
 	(part.toolName === "developer_command" ||
 		part.toolName === "developer_file_change");
 
+const FILE_STEP_LABELS: Record<
+	string,
+	{ done: string; running: string }
+> = {
+	read: { done: "Прочитал файл", running: "Читаю файл" },
+	glob: { done: "Выполнил поиск", running: "Ищу" },
+	grep: { done: "Выполнил поиск", running: "Ищу" },
+	search: { done: "Выполнил поиск", running: "Ищу" },
+	write: { done: "Изменён файл", running: "Изменяю файл" },
+	edit: { done: "Изменён файл", running: "Изменяю файл" },
+	patch: { done: "Изменён файл", running: "Изменяю файл" },
+	delete: { done: "Удалён файл", running: "Удаляю файл" },
+};
+
+const fileStepLabel = (
+	kind: unknown,
+	running: boolean,
+): string => {
+	const key = typeof kind === "string" ? kind : "change";
+	const labels = FILE_STEP_LABELS[key] ?? {
+		done: "Файлы изменены",
+		running: "Изменяю файлы",
+	};
+	return running ? labels.running : labels.done;
+};
+
 export function DeveloperActivityGroup({
 	children,
 	startIndex,
@@ -136,6 +162,9 @@ export const DeveloperCommandToolUI: ToolCallMessagePartComponent<
 				decoded?.status === "error");
 		const command =
 			typeof args.command === "string" && args.command ? args.command : null;
+		const isSearch =
+			command !== null &&
+			/(^|\s)(rg|grep|find)\s/.test(command);
 		const output =
 			typeof decoded?.output === "string" && decoded.output
 				? decoded.output
@@ -164,10 +193,16 @@ export const DeveloperCommandToolUI: ToolCallMessagePartComponent<
 					)}
 					<span className="shrink-0">
 						{failed
-							? "Команда завершилась с ошибкой"
+							? isSearch
+								? "Поиск завершился с ошибкой"
+								: "Команда завершилась с ошибкой"
 							: completed
-								? "Выполнена команда"
-								: "Выполняется команда"}
+								? isSearch
+									? "Выполнен поиск"
+									: "Выполнена команда"
+								: isSearch
+									? "Ищу"
+									: "Выполняется команда"}
 					</span>
 					{command ? (
 						<code className="text-muted-foreground ml-auto min-w-0 truncate text-[10px] font-normal">
@@ -227,8 +262,13 @@ export const DeveloperFileChangeToolUI: ToolCallMessagePartComponent<
 				? args.files
 				: [];
 		const changes = rawChanges.filter(isRecord).slice(0, 40);
+		const primaryKind = changes[0]?.kind;
+		const runningLabel = fileStepLabel(primaryKind, true);
+		const doneLabel = fileStepLabel(primaryKind, false);
 		const changesLabel =
-			changes.length > 0 ? `${changes.length} файл.` : "Файлы";
+			changes.length > 0
+				? `${changes.length} ${changes.length === 1 ? "файл" : changes.length < 5 ? "файла" : "файлов"}`
+				: "";
 		return (
 			<details
 				className="border-border/70 bg-muted/20 group/developer-tool rounded-lg border"
@@ -248,7 +288,9 @@ export const DeveloperFileChangeToolUI: ToolCallMessagePartComponent<
 					)}
 					<FileCode2Icon className="size-3.5 shrink-0" aria-hidden="true" />
 					<span className="shrink-0">
-						{status.type === "running" ? "Изменяются файлы" : "Файлы изменены"}
+						{status.type === "running"
+							? runningLabel
+							: doneLabel}
 					</span>
 					<span className="text-muted-foreground ml-auto truncate text-[10px] font-normal">
 						{changesLabel}
@@ -265,13 +307,14 @@ export const DeveloperFileChangeToolUI: ToolCallMessagePartComponent<
 								? change.path
 								: `file-${index + 1}`;
 						const diff = typeof change.diff === "string" ? change.diff : "";
+						const label = fileStepLabel(change.kind, status.type === "running");
 						return (
 							<details
 								key={`${path}:${index}`}
 								className="border-border/60 bg-background/70 rounded-lg border"
 							>
 								<summary className="cursor-pointer px-2.5 py-2 text-[11px] font-medium">
-									{path}
+									{label}: {path}
 								</summary>
 								{diff ? (
 									<pre className="border-border/60 max-h-72 overflow-auto border-t px-2.5 py-2 text-[10px] whitespace-pre">

@@ -283,6 +283,7 @@ const AssistantMessage = () => {
 			},
 			ToolGroup: () => null,
 			ReasoningGroup: () => null,
+			// Рендер цепочки «Ход работы» вынесен в тело сообщения ниже.
 		}),
 		[
 			generativeUIComponents,
@@ -326,21 +327,22 @@ const AssistantMessage = () => {
 						</ChainOfThoughtByIndicesProvider>
 					) : null}
 					<MessagePrimitive.Parts components={partsComponents} />
-				<MessageError />
-			</div>
-
-			{hasActionBarContent ? (
-				<div
-					data-slot="aui_assistant-message-footer"
-					className={cn(uiClassTokens.threadAssistantMessageFooter, ACTION_BAR_HEIGHT)}
-				>
-					<BranchPicker />
-					<AssistantActionBarWithTools />
+					<MessageError />
 				</div>
-			) : null}
-		</MessagePrimitive.Root>
-	);
-};
+
+				{hasActionBarContent ? (
+					<div
+						data-slot="aui_assistant-message-footer"
+						className={cn(uiClassTokens.threadAssistantMessageFooter, ACTION_BAR_HEIGHT)}
+					>
+						<BranchPicker />
+						<AssistantActionBarWithTools />
+					</div>
+				) : null}
+			</MessagePrimitive.Root>
+		);
+	};
+
 
 	export {
 			MessageTime,
