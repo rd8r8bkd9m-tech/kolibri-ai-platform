@@ -365,6 +365,11 @@ def create_app(
             code=f"http_{error.status_code}",
             message="Request could not be completed.",
             headers=error.headers,
+            details=(
+                {"reason": error.detail}
+                if isinstance(error.detail, str) and len(error.detail) <= 240
+                else None
+            ),
         )
 
     @app.exception_handler(RequestValidationError)

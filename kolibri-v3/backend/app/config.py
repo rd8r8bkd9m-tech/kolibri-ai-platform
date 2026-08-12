@@ -239,8 +239,12 @@ class Settings:
     allowed_origins: tuple[str, ...] = (
         "http://127.0.0.1:3103",
         "http://localhost:3103",
+        "http://127.0.0.1:3104",
+        "http://localhost:3104",
         "http://127.0.0.1:4103",
         "http://localhost:4103",
+        "http://127.0.0.1:4104",
+        "http://localhost:4104",
     )
     bootstrap_owner_email: str | None = None
     environment: str = "development"
