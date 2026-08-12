@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { ChevronDown } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
@@ -113,6 +114,7 @@ function MobileLinks() {
 
 export function LandingNav() {
 	const [scrolled, setScrolled] = useState(false);
+	const pathname = usePathname();
 
 	useEffect(() => {
 		const update = () => setScrolled(window.scrollY > 8);
@@ -125,11 +127,22 @@ export function LandingNav() {
 		<nav className={`klp-nav${scrolled ? " is-scrolled" : ""}`} aria-label="Основная навигация">
 			<div className="klp-nav-inner">
 				<Link className="klp-nav-logo" href="/" aria-label="КолИ — на главную">
+					<span className="klp-logo-mark" aria-hidden="true">
+						<i />
+						<i />
+						<b />
+					</span>
 					<span className="klp-logo-pixel">колИ</span>
 				</Link>
 				<div className="klp-nav-center">
 					{groups.map((group) => <NavDropdown group={group} key={group.label} />)}
-					<Link className="klp-nav-btn" href="/pricing">Тарифы</Link>
+					<Link
+						className={`klp-nav-btn${pathname === "/pricing" ? " is-active" : ""}`}
+						href="/pricing"
+						aria-current={pathname === "/pricing" ? "page" : undefined}
+					>
+						Тарифы
+					</Link>
 					<NavDropdown group={{ label: "Ресурсы", links: resources }} />
 				</div>
 				<div className="klp-nav-actions">
