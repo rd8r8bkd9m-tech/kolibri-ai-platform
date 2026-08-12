@@ -76,10 +76,13 @@ bearer. T‑Касса выбирается web checkout BFF и UI конкре�
 `CONFIRMED` в той же транзакции, что активирует подписку; история платежей
 читается из серверного списка без hosted payment URL.
 
-Секрет терминала находится только в `KOLIBRI_V3_TBANK_PASSWORD`. В БД хранится
-лишь 16-символьный SHA-256 fingerprint идентификатора терминала; сам пароль,
-`Token` и callback nonce не сохраняются. HTTP-журнал V3 пишет только шаблон
-маршрута, без query string и тела.
+Канонический production-секрет терминала находится только в
+`KOLIBRI_V3_TBANK_PASSWORD`. Для development/test DEMO-терминал можно задать
+через админ-панель (`PUT /v1/platform-admin/billing/config`): ключи шифруются
+AES-256-GCM тем же локальным vault, что и platform model keys, а в БД хранится
+лишь 16-символьный SHA-256 fingerprint идентификатора терминала. Сам пароль,
+`Token` и callback nonce не сохраняются в открытом виде. HTTP-журнал V3 пишет
+только шаблон маршрута, без query string и тела.
 
 ## Состояния и защита от replay
 
@@ -150,6 +153,8 @@ payment id, затем применяется та же state authority, что 
 Platform owner получает redacted read models (payment URL исключен):
 
 - `GET /v1/platform-admin/billing/config`;
+- `PUT /v1/platform-admin/billing/config` — сохранение test/demo терминала
+  из админ-панели (production только через env);
 - `GET /v1/platform-admin/billing/plans` — полный серверный каталог, включая
   неактивные тарифы, текущие ревизии и состояние entitlement (только чтение);
 - `GET /v1/platform-admin/billing/payments`;

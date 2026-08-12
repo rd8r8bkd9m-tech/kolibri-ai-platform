@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import sqlite3
+from dataclasses import replace
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
@@ -735,11 +737,24 @@ def test_hosted_payment_webhook_replay_refund_and_admin_contracts(
         promote_registered_owner(settings, email="owner@example.com")
         config = owner.get("/v1/platform-admin/billing/config")
         assert config.status_code == 200
-        assert config.json() == {
+        config_body = config.json()
+        assert config_body["status"] == "configured"
+        assert config_body["source"] == "env"
+        assert config_body["mode"] == "test"
+        assert config_body["receiptMode"] == "disabled"
+        assert config_body["productionConfirmed"] is False
+        assert config_body["terminalFingerprint"].endswith("…")
+        assert config_body["updatedAt"] is None
+        assert "password" not in config_body
+        assert "terminalKey" not in config_body
+        assert config_body == {
             "status": "configured",
+            "source": "env",
             "mode": "test",
             "receiptMode": "disabled",
             "productionConfirmed": False,
+            "terminalFingerprint": config_body["terminalFingerprint"],
+            "updatedAt": None,
         }
         catalog = owner.get("/v1/platform-admin/billing/plans")
         assert catalog.status_code == 200
@@ -1677,5 +1692,138 @@ def test_confirmed_renewal_reactivates_refunded_parent_subscription(
             (subject["tenantId"], subject["id"]),
         ).fetchone()
         assert row["status"] == "active"
+    finally:
+        database.close()
+
+
+def test_admin_billing_config_save_redact_disable_and_production_fence(
+    tmp_path: Path,
+) -> None:
+    """Terminal settings are admin-managed, encrypted, and never production."""
+
+    database_path = tmp_path / "admin-billing-config.db"
+    settings = Settings.for_testing(
+        database_url=database_path,
+        bootstrap_owner_email="owner@example.com",
+    )
+    settings = replace(settings, local_provider_vault_read_enabled=True)
+    master_key_path = database_path.parent / ".kolibri-v3-provider-master-key"
+    master_key_path.write_bytes(os.urandom(32))
+    os.chmod(master_key_path, 0o600)
+    app = create_app(settings)
+    with TestClient(app) as owner:
+        _register(owner, email="owner@example.com", name="Owner")
+        promote_registered_owner(settings, email="owner@example.com")
+
+        initial = owner.get("/v1/platform-admin/billing/config")
+        assert initial.status_code == 200
+        assert initial.json()["status"] == "disabled"
+        assert initial.json()["source"] == "none"
+
+        production = owner.put(
+            "/v1/platform-admin/billing/config",
+            headers=_mutation_headers(owner, key=f"{IDEMPOTENCY_KEY}-prod-fence"),
+            json={
+                "enabled": True,
+                "mode": "production",
+                "terminalKey": "ProductionTerminal",
+                "password": "production-password",
+                "notificationUrl": "https://kolibriai.ru/api/v3/billing/tbank/notifications",
+                "returnOrigin": "https://kolibriai.ru",
+            },
+        )
+        assert production.status_code == 422
+        assert production.json()["code"] in {
+            "invalid_request",
+            "billing_settings_production_forbidden",
+        }
+
+        missing = owner.put(
+            "/v1/platform-admin/billing/config",
+            headers=_mutation_headers(owner, key=f"{IDEMPOTENCY_KEY}-missing-keys"),
+            json={
+                "enabled": True,
+                "mode": "demo",
+                "terminalKey": "",
+                "password": "",
+                "notificationUrl": "http://localhost/v1/billing/tbank/notifications",
+                "returnOrigin": "http://localhost",
+            },
+        )
+        assert missing.status_code == 422
+        assert missing.json()["code"] == "billing_settings_credentials_required"
+
+        saved = owner.put(
+            "/v1/platform-admin/billing/config",
+            headers=_mutation_headers(owner, key=f"{IDEMPOTENCY_KEY}-save"),
+            json={
+                "enabled": True,
+                "mode": "demo",
+                "terminalKey": "DemoTerminalDEMO",
+                "password": "demo-secret-123",
+                "notificationUrl": "http://localhost/v1/billing/tbank/notifications",
+                "returnOrigin": "http://localhost",
+            },
+        )
+        assert saved.status_code == 200, saved.text
+        body = saved.json()
+        assert body["status"] == "configured"
+        assert body["source"] == "admin"
+        assert body["mode"] == "demo"
+        assert body["receiptMode"] == "disabled"
+        assert body["productionConfirmed"] is False
+        assert body["terminalFingerprint"] is not None
+        assert "password" not in body
+        assert "terminalKey" not in body
+        assert body["updatedAt"] is not None
+
+        again = owner.put(
+            "/v1/platform-admin/billing/config",
+            headers=_mutation_headers(owner, key=f"{IDEMPOTENCY_KEY}-disable"),
+            json={"enabled": False, "mode": "demo"},
+        )
+        assert again.status_code == 200
+        assert again.json()["status"] == "disabled"
+        assert again.json()["source"] == "none"
+
+        # Re-enable and verify the encrypted payload never stores plaintext.
+        owner.put(
+            "/v1/platform-admin/billing/config",
+            headers=_mutation_headers(owner, key=f"{IDEMPOTENCY_KEY}-re-enable"),
+            json={
+                "enabled": True,
+                "mode": "demo",
+                "terminalKey": "DemoTerminalDEMO",
+                "password": "demo-secret-123",
+                "notificationUrl": "http://localhost/v1/billing/tbank/notifications",
+                "returnOrigin": "http://localhost",
+            },
+        )
+
+    database = connect_database(database_path)
+    try:
+        row = database.execute(
+            "SELECT enabled, terminal_key_encrypted, password_encrypted "
+            "FROM billing_provider_settings WHERE provider = 'tbank'"
+        ).fetchone()
+        assert row is not None
+        assert row["enabled"] == 1
+        assert row["terminal_key_encrypted"] is not None
+        assert row["password_encrypted"] is not None
+    finally:
+        database.close()
+
+    database = connect_database(database_path)
+    try:
+        row = database.execute(
+            "SELECT terminal_key_encrypted, password_encrypted "
+            "FROM billing_provider_settings WHERE provider = 'tbank'"
+        ).fetchone()
+        assert row is not None
+        for encrypted in (row["terminal_key_encrypted"], row["password_encrypted"]):
+            assert encrypted is not None
+            assert len(encrypted) > 13
+            assert b"DemoTerminalDEMO" not in bytes(encrypted)
+            assert b"demo-secret-123" not in bytes(encrypted)
     finally:
         database.close()

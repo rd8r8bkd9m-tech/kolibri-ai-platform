@@ -6,6 +6,7 @@ import {
 	Bot,
 	Building2,
 	Check,
+	CreditCard,
 	HardDrive,
 	KeyRound,
 	LayoutDashboard,
@@ -72,6 +73,12 @@ import {
 	testPlatformModel,
 	updatePlatformModel,
 } from "@/lib/platform-admin/models-client";
+import {
+	getAdminBillingConfig,
+	saveAdminBillingConfig,
+	type BillingAdminConfig,
+	type BillingAdminConfigUpdate,
+} from "@/lib/billing/admin-client";
 import { cn } from "@/lib/utils";
 
 type Snapshot = {
@@ -92,7 +99,7 @@ type Snapshot = {
 
 type PageKind = "tenants" | "users" | "operations" | "audit";
 type PlatformAdminView =
-	"overview" | "hosts" | "agents" | "tasks" | "clients" | "models" | "audit";
+	"overview" | "hosts" | "agents" | "tasks" | "clients" | "models" | "billing" | "audit";
 
 const PLATFORM_ADMIN_VIEWS: Array<{
 	id: PlatformAdminView;
@@ -105,6 +112,7 @@ const PLATFORM_ADMIN_VIEWS: Array<{
 	{ id: "tasks", label: "Задачи", icon: ListTodo },
 	{ id: "clients", label: "Клиенты", icon: Users },
 	{ id: "models", label: "Модели", icon: Bot },
+	{ id: "billing", label: "Оплата", icon: CreditCard },
 	{ id: "audit", label: "Аудит", icon: ScrollText },
 ];
 
@@ -769,6 +777,8 @@ export function PlatformAdminSection() {
 							}
 						/>
 					) : null}
+
+					{activeView === "billing" ? <PlatformBillingPanel /> : null}
 
 					{activeView === "audit" ? (
 						<AdminGroup
@@ -1537,6 +1547,239 @@ function PlatformModelsPanel({
 				</div>
 			) : (
 				<EmptyState text="Платформенные модели не добавлены." />
+			)}
+		</AdminGroup>
+	);
+}
+
+function PlatformBillingPanel() {
+	const [config, setConfig] = useState<BillingAdminConfig | null>(null);
+	const [loadError, setLoadError] = useState<string | null>(null);
+	const [busy, setBusy] = useState(false);
+	const [failed, setFailed] = useState(false);
+	const [message, setMessage] = useState<string | null>(null);
+	const [enabled, setEnabled] = useState(false);
+	const [mode, setMode] = useState<"test" | "demo">("demo");
+	const [terminalKey, setTerminalKey] = useState("");
+	const [password, setPassword] = useState("");
+	const [notificationUrl, setNotificationUrl] = useState("");
+	const [returnOrigin, setReturnOrigin] = useState("");
+	const [receiptMode, setReceiptMode] = useState<"disabled" | "required">(
+		"disabled",
+	);
+	const [taxation, setTaxation] = useState("");
+
+	const load = useCallback(async () => {
+		setLoadError(null);
+		try {
+			const next = await getAdminBillingConfig();
+			setConfig(next);
+			setEnabled(next.status === "configured" && next.source === "admin");
+			if (next.mode === "test" || next.mode === "demo") setMode(next.mode);
+			setReceiptMode(next.receiptMode ?? "disabled");
+		} catch (error) {
+			setLoadError(
+				error instanceof Error
+					? error.message
+					: "Не удалось загрузить настройки оплаты.",
+			);
+		}
+	}, []);
+
+	useEffect(() => {
+		void load();
+	}, [load]);
+
+	const submit = async (event: FormEvent) => {
+		event.preventDefault();
+		setBusy(true);
+		setFailed(false);
+		setMessage(null);
+		try {
+			const input: BillingAdminConfigUpdate = { enabled, mode };
+			if (enabled) {
+				input.terminalKey = terminalKey;
+				input.password = password;
+				input.notificationUrl = notificationUrl;
+				input.returnOrigin = returnOrigin;
+				input.receiptMode = receiptMode;
+				input.taxation = taxation;
+			}
+			const next = await saveAdminBillingConfig(input);
+			setConfig(next);
+			setMessage(
+				enabled
+					? "Оплата подключена и сохранена."
+					: "Оплата отключена.",
+			);
+			setTerminalKey("");
+			setPassword("");
+		} catch (error) {
+			setFailed(true);
+			setMessage(
+				error instanceof Error
+					? error.message
+					: "Не удалось сохранить настройки оплаты.",
+			);
+		} finally {
+			setBusy(false);
+		}
+	};
+
+	const envManaged = config?.source === "env";
+
+	return (
+		<AdminGroup
+			icon={CreditCard}
+			title="Оплата · T‑Банк"
+			description="DEMO и тестовый терминал настраиваются здесь. Рабочий (production) терминал включается только переменными окружения."
+		>
+			{loadError ? <StatusMessage failed message={loadError} /> : null}
+			<StatusMessage failed={failed} message={message} />
+
+			<div className="grid gap-3 rounded-2xl border bg-card p-4 sm:grid-cols-2">
+				<div className="text-[12px] text-muted-foreground">
+					Статус:{" "}
+					<span className="font-semibold text-foreground">
+						{config?.status === "configured"
+							? "Подключено"
+							: config?.status === "invalid"
+								? "Требует проверки"
+								: "Отключено"}
+					</span>
+				</div>
+				<div className="text-[12px] text-muted-foreground">
+					Источник:{" "}
+					<span className="font-semibold text-foreground">
+						{config?.source === "env"
+							? "переменные окружения"
+							: config?.source === "admin"
+								? "админ-панель"
+								: "не задан"}
+					</span>
+				</div>
+				{config?.terminalFingerprint ? (
+					<div className="text-[12px] text-muted-foreground">
+						Терминал:{" "}
+						<span className="font-mono font-semibold text-foreground">
+							{config.terminalFingerprint}
+						</span>
+					</div>
+				) : null}
+				{config?.updatedAt ? (
+					<div className="text-[12px] text-muted-foreground">
+						Обновлено:{" "}
+						<span className="font-semibold text-foreground">
+							{new Date(config.updatedAt * 1_000).toLocaleString("ru-RU")}
+						</span>
+					</div>
+				) : null}
+			</div>
+
+			{envManaged ? (
+				<div className="mt-3 rounded-2xl border border-amber-500/30 bg-amber-500/[0.07] px-4 py-3 text-[12px] leading-5">
+					Оплата управляется переменными окружения (KOLIBRI_V3_TBANK_*).
+					Чтобы использовать админ-панель, отключите их.
+				</div>
+			) : (
+				<form
+					onSubmit={submit}
+					className="mt-4 grid gap-3 sm:grid-cols-2"
+					aria-label="Настройки оплаты"
+				>
+					<label className="flex items-center gap-2 text-[12px]">
+						<input
+							type="checkbox"
+							checked={enabled}
+							onChange={(event) => setEnabled(event.target.checked)}
+							className="size-4"
+						/>
+						Оплата подключена
+					</label>
+					<label className="flex items-center gap-2 text-[12px]">
+						Режим терминала
+						<select
+							value={mode}
+							onChange={(event) =>
+								setMode(event.target.value === "test" ? "test" : "demo")
+							}
+							className="h-9 rounded-lg border bg-card px-2 text-[12px]"
+						>
+							<option value="demo">DEMO (тесты банка)</option>
+							<option value="test">Тестовый терминал</option>
+						</select>
+					</label>
+					{enabled ? (
+						<>
+							<LabeledInput
+								label="TerminalKey *"
+								value={terminalKey}
+								onChange={setTerminalKey}
+								placeholder="Ключ терминала из кабинета"
+							/>
+							<label className="block text-[11px] font-medium">
+								Password *
+								<Input
+									type="password"
+									value={password}
+									placeholder="Пароль терминала из кабинета"
+									onChange={(event) => setPassword(event.target.value)}
+									className="mt-1.5 h-9 rounded-lg text-[12px] shadow-none"
+									autoComplete="new-password"
+								/>
+							</label>
+							<LabeledInput
+								label="NotificationURL"
+								value={notificationUrl}
+								onChange={setNotificationUrl}
+								placeholder="http://127.0.0.1:3103/api/v3/billing/tbank/notifications"
+							/>
+							<LabeledInput
+								label="Return origin"
+								value={returnOrigin}
+								onChange={setReturnOrigin}
+								placeholder="http://127.0.0.1:3103"
+							/>
+							<label className="flex items-center gap-2 text-[12px]">
+								Кассовый чек
+								<select
+									value={receiptMode}
+									onChange={(event) =>
+										setReceiptMode(
+											event.target.value === "required"
+												? "required"
+												: "disabled",
+										)
+									}
+									className="h-9 rounded-lg border bg-card px-2 text-[12px]"
+								>
+									<option value="disabled">Не подключён</option>
+									<option value="required">Требуется</option>
+								</select>
+							</label>
+							<LabeledInput
+								label="СНО (для чека)"
+								value={taxation}
+								onChange={setTaxation}
+								placeholder="osn / usn_income / …"
+							/>
+						</>
+					) : null}
+					<div className="sm:col-span-2">
+						<Button
+							type="submit"
+							disabled={busy}
+							className="min-h-10 rounded-xl"
+						>
+							{busy ? (
+								<LoaderCircle className="size-4 animate-spin" aria-hidden="true" />
+							) : (
+								<Check className="size-4" aria-hidden="true" />
+							)}
+							Сохранить настройки оплаты
+						</Button>
+					</div>
+				</form>
 			)}
 		</AdminGroup>
 	);

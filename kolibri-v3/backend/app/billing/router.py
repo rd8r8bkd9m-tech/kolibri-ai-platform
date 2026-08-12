@@ -15,6 +15,11 @@ from ..database import get_database
 from ..identity import require_owner, require_user
 from ..schemas import APIModel, UserSession
 from ..security import require_mutation_auth
+from .admin_settings import (
+    load_admin_tbank_settings,
+    save_admin_tbank_settings,
+    tbank_admin_settings_view,
+)
 from .config import TBankSettings
 from .service import (
     BillingError,
@@ -218,11 +223,47 @@ class BillingReturnView(APIModel):
 
 class BillingConfigView(APIModel):
     status: Literal["disabled", "configured", "invalid"]
+    source: Literal["env", "admin", "none"]
     mode: Literal["off", "test", "demo", "production"] | None
     receipt_mode: Literal["disabled", "required"] | None = Field(
         alias="receiptMode"
     )
     production_confirmed: bool = Field(alias="productionConfirmed")
+    terminal_fingerprint: str | None = Field(
+        default=None,
+        alias="terminalFingerprint",
+    )
+    updated_at: int | None = Field(default=None, alias="updatedAt")
+
+
+class BillingConfigUpdate(APIModel):
+    enabled: bool
+    mode: Literal["test", "demo"] = "demo"
+    terminal_key: str | None = Field(
+        default=None,
+        alias="terminalKey",
+        max_length=64,
+    )
+    password: str | None = Field(
+        default=None,
+        alias="password",
+        max_length=20,
+    )
+    notification_url: str | None = Field(
+        default=None,
+        alias="notificationUrl",
+        max_length=2048,
+    )
+    return_origin: str | None = Field(
+        default=None,
+        alias="returnOrigin",
+        max_length=2048,
+    )
+    receipt_mode: Literal["disabled", "required"] = Field(
+        default="disabled",
+        alias="receiptMode",
+    )
+    taxation: str | None = Field(default=None, alias="taxation", max_length=32)
 
 
 def _no_store(response: Response) -> None:
@@ -236,7 +277,7 @@ def _error(error: BillingError) -> HTTPException:
     )
 
 
-def _gateway(request: Request) -> TBankGateway:
+def _gateway(request: Request, database: sqlite3.Connection) -> TBankGateway:
     override = getattr(request.app.state, "tbank_gateway", None)
     if isinstance(override, TBankGateway):
         return override
@@ -244,19 +285,24 @@ def _gateway(request: Request) -> TBankGateway:
         settings = TBankSettings.from_env(
             runtime_environment=request.app.state.settings.environment
         )
-    except ValueError as exc:
+    except ValueError:
+        settings = None
+    if settings is not None and settings.enabled:
+        return TBankGateway(settings)
+    stored = load_admin_tbank_settings(database, request.app.state.settings)
+    if stored is not None:
+        return TBankGateway(stored)
+    if settings is not None:
         raise _error(
             BillingError(
                 503,
                 "billing_configuration_invalid",
                 "Настройки оплаты требуют проверки оператором.",
             )
-        ) from exc
-    if not settings.enabled:
-        raise _error(
-            BillingError(503, "billing_disabled", "Оплата пока не подключена.")
         )
-    return TBankGateway(settings)
+    raise _error(
+        BillingError(503, "billing_disabled", "Оплата пока не подключена.")
+    )
 
 
 def _validated_intent_id(intent_id: str) -> str:
@@ -358,7 +404,7 @@ def initialize_payment(
             plan_code=payload.plan_code,
             return_surface=payload.return_surface,
             idempotency_key=idempotency_key,
-            gateway=_gateway(request),
+            gateway=_gateway(request, database),
         )
         response.status_code = (
             202
@@ -462,7 +508,7 @@ async def tbank_notification(
     request: Request,
     database: DatabaseDependency,
 ) -> PlainTextResponse:
-    gateway = _gateway(request)
+    gateway = _gateway(request, database)
     payload = await _notification_json(request)
     try:
         notification = verify_notification(payload, gateway.settings)
@@ -526,30 +572,83 @@ def tbank_return(
 def billing_configuration(
     request: Request,
     response: Response,
+    database: DatabaseDependency,
     _owner: OwnerDependency,
 ) -> dict[str, object]:
     _no_store(response)
     override = getattr(request.app.state, "tbank_gateway", None)
     if isinstance(override, TBankGateway):
         settings = override.settings
-    else:
-        try:
-            settings = TBankSettings.from_env(
-                runtime_environment=request.app.state.settings.environment
+        return {
+            "status": "configured" if settings.enabled else "disabled",
+            "source": "env",
+            "mode": settings.mode,
+            "receiptMode": settings.receipt_mode,
+            "productionConfirmed": settings.production_confirmed,
+            "terminalFingerprint": settings.terminal_fingerprint[:4] + "…"
+            if settings.enabled
+            else None,
+            "updatedAt": None,
+        }
+    try:
+        env_settings = TBankSettings.from_env(
+            runtime_environment=request.app.state.settings.environment
+        )
+    except ValueError:
+        env_settings = None
+    return tbank_admin_settings_view(
+        database,
+        request.app.state.settings,
+        env_settings=env_settings,
+    )
+
+
+@router.put(
+    "/v1/platform-admin/billing/config",
+    response_model=BillingConfigView,
+)
+def update_billing_configuration(
+    payload: BillingConfigUpdate,
+    request: Request,
+    response: Response,
+    database: DatabaseDependency,
+    owner: OwnerDependency,
+    _mutation: MutationDependency,
+) -> dict[str, object]:
+    """Persist test/demo terminal settings from the admin panel."""
+
+    _no_store(response)
+    try:
+        env_settings = TBankSettings.from_env(
+            runtime_environment=request.app.state.settings.environment
+        )
+    except ValueError:
+        env_settings = None
+    if env_settings is not None and env_settings.enabled:
+        raise _error(
+            BillingError(
+                409,
+                "billing_settings_env_authority",
+                "Оплата управляется переменными окружения. Отключите их, "
+                "чтобы использовать настройки из админ-панели.",
             )
-        except ValueError:
-            return {
-                "status": "invalid",
-                "mode": None,
-                "receiptMode": None,
-                "productionConfirmed": False,
-            }
-    return {
-        "status": "configured" if settings.enabled else "disabled",
-        "mode": settings.mode,
-        "receiptMode": settings.receipt_mode,
-        "productionConfirmed": settings.production_confirmed,
-    }
+        )
+    try:
+        return save_admin_tbank_settings(
+            database,
+            settings=request.app.state.settings,
+            owner_user_id=owner.user_id,
+            enabled=payload.enabled,
+            mode=payload.mode,
+            terminal_key=payload.terminal_key,
+            password=payload.password,
+            notification_url=payload.notification_url,
+            return_origin=payload.return_origin,
+            receipt_mode=payload.receipt_mode,
+            taxation=payload.taxation,
+        )
+    except BillingError as exc:
+        raise _error(exc) from exc
 
 
 @router.get(
@@ -607,7 +706,7 @@ def run_admin_billing_renewals(
     _mutation: MutationDependency,
 ) -> dict[str, Any]:
     _no_store(response)
-    summary = run_due_renewals(database, gateway=_gateway(request))
+    summary = run_due_renewals(database, gateway=_gateway(request, database))
     return {
         "scanned": summary.scanned,
         "attempted": summary.attempted,
@@ -632,7 +731,7 @@ def run_admin_billing_reconcile(
     """Synchronise non-terminal intents with the provider via GetState."""
 
     _no_store(response)
-    summary = reconcile_payments(database, gateway=_gateway(request))
+    summary = reconcile_payments(database, gateway=_gateway(request, database))
     return {
         "scanned": summary.scanned,
         "reconciled": summary.reconciled,
@@ -659,7 +758,7 @@ def refund_admin_billing_payment(
         return refund_payment(
             database,
             intent_id=_validated_intent_id(intent_id),
-            gateway=_gateway(request),
+            gateway=_gateway(request, database),
         )
     except BillingError as exc:
         raise _error(exc) from exc

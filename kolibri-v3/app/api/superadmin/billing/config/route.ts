@@ -8,3 +8,9 @@ export function GET(request: Request) {
 		method: "GET",
 	});
 }
+
+export function PUT(request: Request) {
+	return proxyV3JsonRequest(request, "/v1/platform-admin/billing/config", {
+		method: "PUT",
+	});
+}
