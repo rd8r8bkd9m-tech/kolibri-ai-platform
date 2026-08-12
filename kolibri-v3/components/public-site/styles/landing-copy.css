@@ -352,10 +352,10 @@
 .klp-hero-title {
 	margin: 0;
 	color: var(--klp-text);
-	font-size: clamp(2.2rem, 7.4vw, 4.8rem);
+	font-size: clamp(1.625rem, 8.4vw, 5rem);
 	font-weight: 650;
-	letter-spacing: -0.05em;
-	line-height: 1.06;
+	letter-spacing: -0.04em;
+	line-height: 1.08;
 	text-wrap: balance;
 }
 
