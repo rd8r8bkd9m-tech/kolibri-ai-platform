@@ -7,11 +7,14 @@ import {
 	unstable_Interactables,
 	useAui,
 } from "@assistant-ui/react";
+import { LoaderCircle } from "lucide-react";
 
 import { kolibriToolkit } from "@/components/assistant-ui/toolkit";
 import { EstimateDraftInteractableSpike } from "@/components/assistant-ui/interactables/estimate-draft-spike";
+import { DesktopAuthScreen } from "@/components/kolibri-shell/auth-panel";
 import { WorkspaceShell } from "@/components/kolibri-shell/workspace-shell";
 import { ThreadDeepLink } from "@/components/kolibri-shell/thread-deep-link";
+import { useIdentity } from "@/lib/identity/provider";
 
 const kolibriSuggestions = Suggestions([
 	{
@@ -45,11 +48,27 @@ export function KolibriApp({
 }: {
 	initialThreadId?: string;
 }) {
+	const identity = useIdentity();
 	const aui = useAui({
 		 suggestions: kolibriSuggestions,
 		 tools: Tools({ toolkit: kolibriToolkit }),
 		 unstable_interactables: unstable_Interactables(),
 	});
+
+	if (identity.status === "loading") {
+		return (
+			<div className="bg-background flex h-dvh items-center justify-center">
+				<LoaderCircle
+					className="text-muted-foreground size-5 animate-spin"
+					aria-hidden="true"
+				/>
+			</div>
+		);
+	}
+
+	if (identity.status !== "authenticated") {
+		return <DesktopAuthScreen />;
+	}
 
 	return (
 		<AuiProvider value={aui}>
