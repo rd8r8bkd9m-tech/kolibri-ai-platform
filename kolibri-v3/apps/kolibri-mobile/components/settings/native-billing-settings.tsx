@@ -378,6 +378,10 @@ export function NativeBillingSettings() {
 						</View>
 					);
 				})}
+				<Text style={[styles.plansFooter, { color: colors.mutedForeground }]}>
+					Оплата картой, СБП (QR) или T‑Pay через защищённую страницу Т‑Банка.
+					Реквизиты не передаются Kolibri.
+				</Text>
 				{polling ? (
 					<View style={styles.pollingRow}>
 						<ActivityIndicator color={colors.foreground} size="small" />
@@ -455,6 +459,7 @@ const styles = StyleSheet.create({
 	planName: { fontSize: 16, fontWeight: "700" },
 	planPrice: { fontSize: 15, fontWeight: "700", marginTop: 3 },
 	planPeriod: { fontSize: 13, fontWeight: "500" },
+	plansFooter: { fontSize: 11, lineHeight: 16, marginTop: 12, paddingHorizontal: 2, textAlign: "center" },
 	payButton: {
 		alignItems: "center",
 		borderRadius: 21,

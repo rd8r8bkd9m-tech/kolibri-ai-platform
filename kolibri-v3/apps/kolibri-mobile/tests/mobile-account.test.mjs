@@ -67,7 +67,8 @@ test("PWA billing uses hosted T-Bank checkout without leaking into native stores
 	assert.match(billingState, /2_000/);
 	assert.match(webBilling, /Оплата пока не подключена/);
 	assert.match(webBilling, /без автоматического продления/);
-	assert.match(webBilling, /реквизиты карты не передаются Kolibri/);
+	assert.match(webBilling, /СБП \(QR\)/);
+	assert.match(webBilling, /реквизиты не передаются Kolibri/);
 	assert.doesNotMatch(
 		`${billingClient}\n${billingState}\n${webBilling}`,
 		/Recurrent|CustomerKey|RebillId|CardData|\bPAN\b|\bCVV\b/,

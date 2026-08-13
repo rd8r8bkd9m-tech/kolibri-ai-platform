@@ -158,8 +158,9 @@ export function BillingCheckoutOverlay({
 						<div className="p-4 pb-3">
 							<DialogTitle>Оплата через T‑Банк</DialogTitle>
 							<DialogDescription>
-								Форма банка открыта внутри приложения. Если встраивание
-								заблокировано, переключитесь на новую вкладку.
+								Форма банка открыта внутри приложения: карта, СБП (QR) или
+								T‑Pay. Если встраивание заблокировано, переключитесь на новую
+								вкладку.
 							</DialogDescription>
 						</div>
 						<div className="border-y border-border/60">

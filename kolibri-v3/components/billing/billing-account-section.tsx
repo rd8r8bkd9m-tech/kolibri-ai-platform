@@ -217,9 +217,23 @@ function PlanCard({
 					Оплатить
 				</Button>
 				<p className="mt-3 text-center text-[10px] leading-4 text-muted-foreground">
-					Оплата откроется на защищённой странице Т‑Банка.
-					Данные карты не передаются Kolibri.
+					Оплата откроется на защищённой странице Т‑Банка: карта, СБП (QR)
+					или T‑Pay. Реквизиты не передаются Kolibri.
 				</p>
+				<div
+					className="mt-3 flex flex-wrap items-center justify-center gap-1.5"
+					role="group"
+					aria-label="Способы оплаты"
+				>
+					{["МИР", "Visa", "Mastercard", "СБП", "T‑Pay"].map((method) => (
+						<span
+							key={method}
+							className="rounded-full border border-border/70 bg-muted/50 px-2 py-0.5 text-[9px] font-medium text-muted-foreground"
+						>
+							{method}
+						</span>
+					))}
+				</div>
 			</div>
 		</article>
 	);

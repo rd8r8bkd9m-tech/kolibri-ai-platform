@@ -143,7 +143,8 @@ test("billing account UI follows the server-backed hosted checkout", () => {
 	assert.match(section, /Цена не подставляется вручную/);
 	assert.match(section, /История платежей/);
 	assert.match(section, /Автопродление/);
-	assert.match(section, /Данные карты не\s+передаются Kolibri/);
+	assert.match(section, /СБП \(QR\)/);
+	assert.match(section, /Реквизиты не\s+передаются Kolibri/);
 	assert.match(profile, /<BillingAccountSection\s*\/>/);
 	assert.match(workspace, /destination\s*===\s*["']billing["']/);
 	assert.doesNotMatch(

@@ -241,7 +241,7 @@ export function WebBillingSettings({
 					<SettingsGroup
 						footer={
 							<Text style={[styles.footer, { color: colors.mutedForeground }]}>
-								Разовая оплата без автоматического продления. Защищённая страница откроется в Т‑Банке; реквизиты карты не передаются Kolibri.
+								Разовая оплата без автоматического продления. Защищённая страница откроется в Т‑Банке: карта, СБП (QR) или T‑Pay; реквизиты не передаются Kolibri.
 							</Text>
 						}
 						title="Тарифы"
