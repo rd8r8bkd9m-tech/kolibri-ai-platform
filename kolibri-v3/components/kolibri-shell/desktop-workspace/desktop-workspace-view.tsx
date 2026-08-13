@@ -121,6 +121,8 @@ export function DesktopWorkspaceView({
 		? auxiliary.activeFile.name
 		: auxiliary.activeTab?.title;
 	const rightWorkspaceOpen = auxiliary.rightOpen || auxiliary.fullscreen;
+	const settingsOpen =
+		auxiliary.activeTab?.content.kind === "settings";
 	const composerContextLabel =
 		composerContextOverride ??
 		(primaryOpen
@@ -144,27 +146,29 @@ export function DesktopWorkspaceView({
 			}
 			chrome={chrome}
 			composer={
-				<div
-					data-slot="workspace-context-composer"
-					data-composer-surface={primaryOpen ? "canvas" : "chat"}
-					className="border-border/80 bg-background shrink-0 border-t px-3 pt-2 pb-[calc(0.75rem+env(safe-area-inset-bottom))]"
-				>
-					<div className="mx-auto w-full max-w-3xl">
-						<div className="text-muted-foreground mb-1.5 flex min-w-0 items-center gap-1.5 px-1 text-[10px] leading-4">
-							<span className="shrink-0">Контекст:</span>
-							<span className="text-foreground truncate font-medium">
-								{composerContextLabel}
-							</span>
+				settingsOpen ? null : (
+					<div
+						data-slot="workspace-context-composer"
+						data-composer-surface={primaryOpen ? "canvas" : "chat"}
+						className="border-border/80 bg-background shrink-0 border-t px-3 pt-2 pb-[calc(0.75rem+env(safe-area-inset-bottom))]"
+					>
+						<div className="mx-auto w-full max-w-3xl">
+							<div className="text-muted-foreground mb-1.5 flex min-w-0 items-center gap-1.5 px-1 text-[10px] leading-4">
+								<span className="shrink-0">Контекст:</span>
+								<span className="text-foreground truncate font-medium">
+									{composerContextLabel}
+								</span>
+							</div>
+							<ThreadComposer
+								onOpenAccount={() => onOpenSettings("general")}
+								onOpenContextPanel={
+									primaryOpen ? undefined : auxiliary.toggle
+								}
+								workspaceOpen={rightWorkspaceOpen}
+							/>
 						</div>
-						<ThreadComposer
-							onOpenAccount={() => onOpenSettings("general")}
-							onOpenContextPanel={
-								primaryOpen ? undefined : auxiliary.toggle
-							}
-							workspaceOpen={rightWorkspaceOpen}
-						/>
 					</div>
-				</div>
+				)
 			}
 			header={
 				<WorkspaceHeader
