@@ -43,7 +43,7 @@ export async function GET(
 		}
 
 		await upstream.body?.cancel();
-		const destination =
+		const destinationParams =
 			returnSurface === "pwa"
 				? new URLSearchParams({
 						client: "mobile",
@@ -54,11 +54,19 @@ export async function GET(
 						paymentIntent: intentId,
 					});
 		const destinationPath = returnSurface === "pwa" ? "/account" : "/app";
+		// Use an absolute Location. The hosted payment form lives on a
+		// different origin (pay.tbank.ru), and strict webviews can drop a
+		// relative 303 Location mid cross-origin redirect chain, which shows
+		// the user a "site can't be reached" page instead of the app.
+		const destination = new URL(
+			`${destinationPath}?${destinationParams.toString()}`,
+			request.nextUrl.origin,
+		).toString();
 		return new Response(null, {
 			status: 303,
 			headers: {
 				"Cache-Control": "no-store",
-				Location: `${destinationPath}?${destination.toString()}`,
+				Location: destination,
 				"Referrer-Policy": "no-referrer",
 			},
 		});
