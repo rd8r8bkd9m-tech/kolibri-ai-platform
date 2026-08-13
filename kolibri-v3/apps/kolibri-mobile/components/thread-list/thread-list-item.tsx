@@ -79,7 +79,7 @@ export function ThreadListItem({ onSelect }: { onSelect: () => void }) {
 						},
 					]}
 				>
-					<ThreadListItemPrimitive.Title fallback="Новая задача" />
+					<ThreadListItemPrimitive.Title fallback="Новый диалог" />
 				</Text>
 			</Pressable>
 		</ThreadListItemPrimitive.Root>
