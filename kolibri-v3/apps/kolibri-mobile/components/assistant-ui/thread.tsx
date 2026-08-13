@@ -15,7 +15,6 @@ import {
 
 import { Composer } from "@/components/assistant-ui/composer";
 import { MessageBubble } from "@/components/assistant-ui/message";
-import { PetMiniAssistant } from "@/components/pet/pet-mini-assistant";
 import { Icon } from "@/components/ui/icon";
 import { Layout } from "@/constants/theme";
 import { useTheme } from "@/hooks/use-theme";
@@ -148,7 +147,6 @@ export function Thread() {
 			</View>
 			{drawerOpen ? null : (
 				<>
-					<PetMiniAssistant />
 					<Composer />
 				</>
 			)}

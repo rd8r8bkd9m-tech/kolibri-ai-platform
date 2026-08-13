@@ -5,25 +5,10 @@ import { test } from "node:test";
 const read = (relativePath) =>
 	readFileSync(new URL(`../${relativePath}`, import.meta.url), "utf8");
 
-test("the pet overlay lets mobile chat gestures reach the message list", () => {
-	const pet = read("components/pet/pet-mini-assistant.tsx");
+test("mobile chat gestures reach the message list without a pet overlay", () => {
 	const thread = read("components/assistant-ui/thread.tsx");
 
-	assert.match(
-		pet,
-		/Platform\.OS === "web" \? \{ pointerEvents: "none" \} : \{ pointerEvents: "box-none" \}/,
-	);
-	assert.match(pet, /StyleSheet\.absoluteFill/);
-	assert.match(pet, /pointerEvents: open \? "auto" : "none"/);
-	assert.doesNotMatch(pet, /\spointerEvents=/);
-	assert.match(pet, /accessibilityElementsHidden=\{!open\}/);
-	assert.match(
-		pet,
-		/importantForAccessibility=\{open \? "yes" : "no-hide-descendants"\}/,
-	);
-	assert.match(pet, /\{open \? \([\s\S]*?<PetComposer accent=\{pet\.accent\} \/>/);
-	assert.doesNotMatch(pet, /passThroughOverlay/);
-
+	assert.doesNotMatch(thread, /<PetMiniAssistant \/>/);
 	assert.match(thread, /<ThreadPrimitive\.MessagesFlatList/);
 	assert.match(thread, /style=\{styles\.flex\}/);
 	assert.match(thread, /root: \{ flex: 1, minHeight: 0, minWidth: 0 \}/);

@@ -86,7 +86,7 @@ test("pet mini assistant binds to the active assistant-ui composer", () => {
 	const thread = read("components/assistant-ui/thread.tsx");
 	assert.match(thread, /useDrawerStatus/);
 	assert.match(thread, /drawerOpen \? null/);
-	assert.match(thread, /<PetMiniAssistant \/>/);
+	assert.doesNotMatch(thread, /<PetMiniAssistant \/>/);
   assert.match(thread, /<Composer \/>/);
 });
 
