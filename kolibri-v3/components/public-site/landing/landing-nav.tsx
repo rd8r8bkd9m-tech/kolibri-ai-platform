@@ -183,7 +183,6 @@ export function LandingNav() {
 						</div>
 					</details>
 					<Link className="klp-nav-login" href="/app">Войти</Link>
-					<Link className="klp-cta-pill" href="/app">Попробовать бесплатно</Link>
 				</div>
 			</div>
 		</nav>
