@@ -13,7 +13,7 @@ export function SidebarChrome({
 	return (
 		<div
 			data-slot="workspace-sidebar-chrome"
-			className="flex h-12 shrink-0 items-center px-2"
+			className="flex shrink-0 items-center"
 		>
 			<SidebarChromeButton
 				label={isOverlay ? "Закрыть навигацию" : "Переключить боковую панель"}

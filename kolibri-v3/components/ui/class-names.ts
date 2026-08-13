@@ -34,7 +34,7 @@ export const uiClassTokens = {
 	threadListArchiveDetails:
 		"group/archive mt-2",
 	threadListArchiveSummary:
-		"text-muted-foreground hover:bg-sky-100/70 flex h-8 cursor-pointer list-none items-center rounded-lg px-2.5 text-xs font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-sky-400/45 dark:hover:bg-sky-950/35",
+		"text-muted-foreground hover:bg-[var(--brand-soft)] flex h-8 cursor-pointer list-none items-center rounded-lg px-2.5 text-xs font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-[color-mix(in_oklab,var(--brand)_45%,transparent)] dark:hover:bg-[var(--brand-soft)]",
 	threadListArchiveBadge:
 		"rounded-full bg-black/[0.045] px-1.5 py-0.5 text-[10px] dark:bg-white/[0.08]",
 	threadListArchiveItems:
@@ -42,9 +42,9 @@ export const uiClassTokens = {
 	threadListNewButton:
 		"h-10 justify-start gap-2 rounded-xl bg-foreground px-3 text-sm font-medium text-background shadow-sm hover:bg-foreground/88 data-active:bg-foreground",
 	threadListMenuTrigger:
-		"absolute end-1 top-1/2 flex size-7 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground opacity-0 outline-none transition hover:bg-white/70 hover:text-foreground focus-visible:ring-2 focus-visible:ring-sky-400/50 group-hover:opacity-100 group-focus-within:opacity-100 group-data-active:opacity-100 data-[state=open]:bg-white/70 data-[state=open]:opacity-100 dark:hover:bg-white/10",
+		"absolute end-1 top-1/2 flex size-7 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground opacity-0 outline-none transition hover:bg-white/70 hover:text-foreground focus-visible:ring-2 focus-visible:ring-[color-mix(in_oklab,var(--brand)_50%,transparent)] group-hover:opacity-100 group-focus-within:opacity-100 group-data-active:opacity-100 data-[state=open]:bg-white/70 data-[state=open]:opacity-100 dark:hover:bg-white/10",
 	threadListMenuItem:
-		"flex cursor-default select-none items-center gap-2 rounded-lg px-2.5 py-2 outline-none data-[highlighted]:bg-sky-100 dark:data-[highlighted]:bg-sky-950/50",
+		"flex cursor-default select-none items-center gap-2 rounded-lg px-2.5 py-2 outline-none data-[highlighted]:bg-[var(--brand-soft)] dark:data-[highlighted]:bg-[var(--brand-soft)]",
 	threadListMenuContent:
 		"z-[90] min-w-52 rounded-xl border bg-popover p-1.5 text-sm text-popover-foreground shadow-xl outline-none",
 	threadListMenuCompactContent:
@@ -62,7 +62,7 @@ export const uiClassTokens = {
 	generativeUIPanel:
 		"min-w-0 rounded-xl border border-border/70 bg-card p-3",
 	sidebarDestinationButton:
-		"h-9 w-full justify-start gap-2.5 rounded-lg px-2 text-[14px] font-normal transition-colors hover:bg-[#e2edff] dark:hover:bg-sky-950/45",
+		"h-9 w-full justify-start gap-2.5 rounded-lg px-2 text-[14px] font-normal transition-colors hover:bg-[var(--brand-soft)] dark:hover:bg-[var(--brand-soft)]",
 	sidebarBody:
 		"min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-2.5 pt-1 pb-3",
 	sidebarSectionHeading:
@@ -70,7 +70,7 @@ export const uiClassTokens = {
 	sidebarProfileFooter:
 		"border-sidebar-border sticky bottom-0 z-20 mt-auto flex min-h-12 shrink-0 items-center border-t px-3 pb-[env(safe-area-inset-bottom)]",
 	sidebarProfileTrigger:
-		"flex min-w-0 flex-1 items-center rounded-lg px-1.5 py-1 text-left outline-none transition-colors hover:bg-[#e2edff] focus-visible:ring-[3px] data-[state=open]:bg-[#dce9fd] dark:hover:bg-sky-950/45",
+		"flex min-w-0 flex-1 items-center rounded-lg px-1.5 py-1 text-left outline-none transition-colors hover:bg-[var(--brand-soft)] focus-visible:ring-[3px] data-[state=open]:bg-[var(--brand-soft-strong)] dark:hover:bg-[var(--brand-soft)]",
 	sidebarProfileAvatar:
 		"flex size-7 shrink-0 items-center justify-center rounded-full bg-[#fb927c] text-[10px] font-medium text-white",
 	sidebarProfileName:
@@ -88,11 +88,11 @@ export const uiClassTokens = {
 	sidebarProfileMenuEmail:
 		"text-muted-foreground block truncate text-xs",
 	threadListItem:
-		"group relative flex min-h-9 items-center rounded-lg transition-[transform,background-color] duration-150 hover:bg-[#e2edff] focus-within:bg-[#e2edff] focus-visible:bg-[#e2edff] data-active:bg-[#d8e6fb] data-[long-pressing=true]:scale-[0.985] data-[long-pressing=true]:bg-[#dce9fd] has-data-[state=open]:bg-[#dce9fd] dark:hover:bg-sky-950/45 dark:focus-within:bg-sky-950/45 dark:data-active:bg-sky-900/45 dark:data-[long-pressing=true]:bg-sky-900/45",
+		"group relative flex min-h-9 items-center rounded-lg transition-[transform,background-color] duration-150 hover:bg-[var(--brand-soft)] focus-within:bg-[var(--brand-soft)] focus-visible:bg-[var(--brand-soft)] data-active:bg-[var(--brand-soft-strong)] data-[long-pressing=true]:scale-[0.985] data-[long-pressing=true]:bg-[var(--brand-soft-strong)] has-data-[state=open]:bg-[var(--brand-soft-strong)] dark:hover:bg-[var(--brand-soft)] dark:focus-within:bg-[var(--brand-soft)] dark:data-active:bg-[var(--brand-soft-strong)] dark:data-[long-pressing=true]:bg-[var(--brand-soft-strong)]",
 	threadListItemTrigger:
 		"flex h-full min-w-0 flex-1 items-center rounded-lg px-2.5 text-start text-[13px] outline-none group-hover:pe-9 group-focus-within:pe-9 group-has-data-[state=open]:pe-9 group-data-active:pe-9 focus-visible:ring-2 focus-visible:ring-ring/50",
 	sidebarProfileMenuItem:
-		"rounded-lg px-2.5 py-2 focus:bg-sky-100 dark:focus:bg-sky-950/45",
+		"rounded-lg px-2.5 py-2 focus:bg-[var(--brand-soft)] dark:focus:bg-[var(--brand-soft)]",
 	threadRoot:
 		"aui-root aui-thread-root bg-background @container flex h-full min-h-0 min-w-0 flex-col overflow-hidden",
 	threadViewport:

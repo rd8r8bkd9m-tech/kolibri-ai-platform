@@ -35,8 +35,10 @@ export function WorkspaceSidebar({
 				data-overlay={isOverlay ? "true" : "false"}
 				className={className}
 			>
-				<SidebarChrome isOverlay={isOverlay} onRequestClose={onRequestClose} />
-				<SidebarBrand />
+				<div className="flex h-12 shrink-0 items-center justify-between pr-2 pl-1">
+					<SidebarBrand />
+					<SidebarChrome isOverlay={isOverlay} onRequestClose={onRequestClose} />
+				</div>
 
 				<WorkspaceSidebarNavigation
 					activeDestination={activeDestination}

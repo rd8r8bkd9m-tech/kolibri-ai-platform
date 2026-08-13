@@ -63,7 +63,7 @@ export const ThreadListItem: FC = () => {
 		typeof setTimeout
 	> | null>(null);
 	const title = useAuiState(
-		(state) => state.threadListItem.title || "Новая задача",
+		(state) => state.threadListItem.title || "Новый диалог",
 	);
 	const status = useAuiState((state) => state.threadListItem.status);
 	const lastMessageAt = useAuiState(
@@ -226,7 +226,7 @@ export const ThreadListItem: FC = () => {
 							data-slot="aui_thread-list-item-title"
 							className="min-w-0 flex-1 truncate"
 						>
-							<ThreadListItemPrimitive.Title fallback="Новая задача" />
+							<ThreadListItemPrimitive.Title fallback="Новый диалог" />
 						</span>
 					</ThreadListItemPrimitive.Trigger>
 				</HoverCardTrigger>

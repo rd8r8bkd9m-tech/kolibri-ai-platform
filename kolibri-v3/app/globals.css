@@ -100,6 +100,9 @@
   --sidebar-accent-foreground: oklch(0.205 0.006 265);
   --sidebar-border: oklch(0.88 0.004 265);
   --sidebar-ring: oklch(0.59 0.018 265);
+  --brand: oklch(0.55 0.12 190);
+  --brand-soft: oklch(0.95 0.035 190);
+  --brand-soft-strong: oklch(0.9 0.055 190);
   --kolibri-chrome: #efefec;
   --kolibri-panel: #f7f7f5;
   --kolibri-surface: #ffffff;
@@ -130,6 +133,9 @@
   --border: rgb(255 255 255 / 8%);
   --input: rgb(255 255 255 / 12%);
   --ring: rgb(250 250 247 / 35%);
+  --brand: oklch(0.78 0.09 190);
+  --brand-soft: oklch(0.28 0.045 190);
+  --brand-soft-strong: oklch(0.34 0.055 190);
   --chart-1: oklch(0.488 0.243 264.376);
   --chart-2: oklch(0.696 0.17 162.48);
   --chart-3: oklch(0.769 0.188 70.08);
@@ -246,6 +252,9 @@
     --ring: #7a7a80;
     --mobile-composer: #f7f7f8;
     --mobile-action: #353539;
+    --brand: #0e7a6b;
+    --brand-soft: #e6f4f1;
+    --brand-soft-strong: #d3ece7;
   }
 
   .dark [data-workspace-mode="compact"] {
@@ -268,6 +277,9 @@
     --ring: #a6a6ab;
     --mobile-composer: #111113;
     --mobile-action: #bcbcc1;
+    --brand: #7cd8c8;
+    --brand-soft: #1e3532;
+    --brand-soft-strong: #294640;
   }
 
   [data-slot="kolibri-mobile-header"] button {

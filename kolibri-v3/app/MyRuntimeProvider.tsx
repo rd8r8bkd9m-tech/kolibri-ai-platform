@@ -457,7 +457,7 @@ function ProductChatRuntimeScope({
 						{
 							id: projection.draftThreadId,
 							status: "regular" as const,
-							title: "Новая задача",
+							title: "Новый диалог",
 							custom: { draft: true },
 						},
 					];

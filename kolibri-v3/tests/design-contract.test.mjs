@@ -130,10 +130,9 @@ test("the compact shell matches the mobile chat contract and persists theme choi
     sidebar,
     /data-overlay=\{isOverlay\s*\?\s*["']true["']\s*:\s*["']false["']\}/,
   );
-  assert.match(
-    sidebarBrand,
-    /data-slot=["']workspace-sidebar-brand["'][\s\S]{0,240}Птичка/,
-  );
+  assert.match(sidebarBrand, /data-slot=["']workspace-sidebar-brand["']/);
+  assert.match(sidebarBrand, /КолИ/);
+  assert.match(sidebarBrand, /PetAvatar/);
   assert.match(sidebarNavigation, /data-slot=["']workspace-sidebar-body["']/);
   assert.match(sidebarNavigation, /isOverlay/);
   assert.match(sidebarControls, /data-canvas-launcher=\{normalizedLauncherId\}/);

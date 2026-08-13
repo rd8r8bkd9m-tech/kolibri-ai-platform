@@ -75,7 +75,7 @@ export function SidebarDestination({
 			className={cn(
 				uiClassTokens.sidebarDestinationButton,
 				active &&
-					"bg-[#d9e7fc] text-sidebar-accent-foreground hover:bg-[#d9e7fc] dark:bg-sky-900/45",
+					"bg-[var(--brand-soft-strong)] text-sidebar-accent-foreground hover:bg-[var(--brand-soft-strong)] dark:bg-[var(--brand-soft-strong)]",
 				className,
 			)}
 			data-canvas-launcher={normalizedLauncherId}

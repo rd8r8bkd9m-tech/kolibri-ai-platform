@@ -302,7 +302,7 @@ export const ComposerAction: ComponentType = () => {
 						/>
 					</TooltipIconButton>
 				</ComposerPrimitive.AddAttachment>
-				{!compact && onOpenContextPanel ? (
+				{compact && onOpenContextPanel ? (
 					<TooltipIconButton
 					tooltip={
 						workspaceOpen
