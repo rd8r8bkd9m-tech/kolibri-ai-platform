@@ -84,7 +84,14 @@ function targetFor(request, url = requestUrl(request)) {
 }
 
 function upstreamHeaders(request, port) {
-  return { ...request.headers, host: `${listenHost}:${port}`, "x-forwarded-host": request.headers.host || `${listenHost}:${listenPort}`, "x-forwarded-proto": "http" };
+  const forwardedProto =
+    request.headers["x-forwarded-proto"]?.split(",")[0]?.trim() || "http";
+  return {
+    ...request.headers,
+    host: `${listenHost}:${port}`,
+    "x-forwarded-host": request.headers.host || `${listenHost}:${listenPort}`,
+    "x-forwarded-proto": forwardedProto,
+  };
 }
 
 function unavailable(response, target, error) {
