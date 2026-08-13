@@ -14,6 +14,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import { AuthScreen } from "@/components/auth/auth-screen";
 import { NativeScreenHeader } from "@/components/shell/native-screen-header";
+import { CircleButton } from "@/components/shell/circle-button";
 import { IdentitySummary } from "@/components/settings/identity-summary";
 import { ProfileNameEditor } from "@/components/settings/profile-name-editor";
 import { SettingsGroup } from "@/components/settings/settings-group";
@@ -42,7 +43,7 @@ function AccountSkeleton() {
 			edges={["top", "bottom"]}
 			style={[styles.safe, { backgroundColor: colors.settingsBackground }]}
 		>
-			<NativeScreenHeader onBack={() => undefined} title="Личный кабинет" />
+			<NativeScreenHeader onBack={() => undefined} title="Настроить КолИ" />
 			<View style={styles.skeletonContent}>
 				<View style={styles.skeletonHero}>
 					<View style={[styles.skeletonAvatar, { backgroundColor: colors.muted }]} />
@@ -229,7 +230,22 @@ export default function AccountScreen() {
 			edges={["top", "bottom"]}
 			style={[styles.safe, { backgroundColor: colors.settingsBackground }]}
 		>
-			<NativeScreenHeader onBack={requestBack} title="Личный кабинет" />
+			<NativeScreenHeader
+				onBack={requestBack}
+				title="Настроить КолИ"
+				trailing={
+					<CircleButton
+						accessibilityLabel="Закрыть настройки"
+						accessibilityRole="button"
+						onPress={() => {
+							haptics.selection();
+							requestBack();
+						}}
+					>
+						<Icon name="close" size={22} color={colors.foreground} />
+					</CircleButton>
+				}
+			/>
 			<KeyboardAvoidingView
 				behavior={Platform.OS === "ios" ? "padding" : undefined}
 				style={styles.flex}

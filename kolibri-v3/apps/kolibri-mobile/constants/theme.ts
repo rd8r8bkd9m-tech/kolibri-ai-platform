@@ -8,6 +8,7 @@ export type KolibriPalette = {
 	mutedForeground: string;
 	border: string;
 	composer: string;
+	userBubble: string;
 	primary: string;
 	primaryForeground: string;
 	destructive: string;
@@ -21,14 +22,15 @@ export const Colors: {
 } = {
 	light: {
 		background: "#ffffff",
-		settingsBackground: "#f2f2f7",
+		settingsBackground: "#ebebf0",
 		foreground: "#0d0d0d",
 		surface: "#f2f2f2",
 		surfaceRaised: "#ffffff",
 		muted: "#ececec",
 		mutedForeground: "#6f6f6f",
 		border: "#d9d9dc",
-		composer: "#f7f7f7",
+		composer: "#f1f1f1",
+		userBubble: "#cbd4fb",
 		primary: "#0d0d0d",
 		primaryForeground: "#ffffff",
 		destructive: "#d92d20",
@@ -45,6 +47,7 @@ export const Colors: {
 		mutedForeground: "#a5a5a5",
 		border: "#3a3a3c",
 		composer: "#171717",
+		userBubble: "#2e3550",
 		primary: "#f5f5f5",
 		primaryForeground: "#111111",
 		destructive: "#ff6961",

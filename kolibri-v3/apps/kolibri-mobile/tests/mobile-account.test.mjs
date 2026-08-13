@@ -82,7 +82,7 @@ test("mobile account is a reusable native settings surface, not a debug dashboar
 	const identity = read("components/settings/identity-summary.tsx");
 	const editor = read("components/settings/profile-name-editor.tsx");
 
-	assert.match(account, /<NativeScreenHeader[^>]+title="Личный кабинет"/);
+	assert.match(account, /<NativeScreenHeader[^>]+title="Настроить КолИ"/);
 	assert.match(account, /<ScrollView/);
 	assert.match(account, /contentInsetAdjustmentBehavior="automatic"/);
 	assert.match(account, /<SettingsGroup title="Аккаунт">/);

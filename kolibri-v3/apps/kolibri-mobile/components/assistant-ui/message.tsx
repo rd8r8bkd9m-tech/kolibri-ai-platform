@@ -135,7 +135,7 @@ function UserMessage() {
 	const { colors } = useTheme();
 	return (
 		<MessagePrimitive.Root style={styles.userRoot}>
-			<View style={[styles.userBubble, { backgroundColor: colors.muted }]}>
+			<View style={[styles.userBubble, { backgroundColor: colors.userBubble }]}>
 				<MessagePrimitive.Parts components={{ Text: UserText }} />
 			</View>
 			<MessageBranchPicker align="flex-end" />
