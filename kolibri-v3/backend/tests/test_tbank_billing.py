@@ -11,6 +11,7 @@ from urllib.parse import parse_qs, urlsplit
 import httpx
 import pytest
 from app.billing.config import TBankSettings
+from app.billing.admin_settings import load_admin_tbank_settings
 from app.billing.service import (
     _provider_payload,
     _target_status,
@@ -189,6 +190,9 @@ def test_tbank_configuration_fences_real_charges_and_redacts_secret() -> None:
     settings = TBankSettings.for_testing(password="not-visible-in-repr")
     assert "not-visible-in-repr" not in repr(settings)
     assert settings.base_url == "https://rest-api-test.tinkoff.ru/v2"
+    # Recurring is strictly opt-in: test/demo terminals must not send
+    # Recurrent=Y unless the operator explicitly enables it.
+    assert settings.recurring_enabled is False
 
     with pytest.raises(ValueError, match="credentials are incomplete"):
         TBankSettings.for_testing(password="x" * 21)
@@ -1811,6 +1815,14 @@ def test_admin_billing_config_save_redact_disable_and_production_fence(
                 "returnOrigin": "http://localhost",
             },
         )
+
+    database = connect_database(database_path)
+    try:
+        stored = load_admin_tbank_settings(database, app.state.settings)
+        assert stored is not None
+        assert stored.recurring_enabled is False
+    finally:
+        database.close()
 
     database = connect_database(database_path)
     try:

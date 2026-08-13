@@ -177,6 +177,9 @@ def _tbank_settings_from_row(
         timeout_seconds=10.0,
         verify_ssl=bool(int(row["verify_ssl"])),
         production_confirmed=False,
+        # Admin-managed terminals are test/demo only and must never send
+        # Recurrent=Y, otherwise T-Bank test case #1 cannot pass.
+        recurring_enabled=False,
         runtime_environment=settings.environment,
     )
 

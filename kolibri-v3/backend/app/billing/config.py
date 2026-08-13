@@ -94,7 +94,10 @@ class TBankSettings:
     verify_ssl: bool = True
     production_confirmed: bool = False
     runtime_environment: str = "development"
-    recurring_enabled: bool = True
+    # Recurring is strictly opt-in: T-Bank test case #1 (successful payment)
+    # fails when Init carries Recurrent=Y, so the default must never enable
+    # the flag unless an operator explicitly turns it on.
+    recurring_enabled: bool = False
 
     def __post_init__(self) -> None:
         runtime_environment = self.runtime_environment.strip().lower()
@@ -220,7 +223,7 @@ class TBankSettings:
             ),
             recurring_enabled=_parse_bool(
                 os.getenv("KOLIBRI_V3_TBANK_RECURRING_ENABLED"),
-                default=True,
+                default=False,
             ),
             runtime_environment=runtime_environment,
         )
@@ -239,7 +242,7 @@ class TBankSettings:
         runtime_environment: Literal["development", "test", "production"] = "test",
         production_confirmed: bool = False,
         verify_ssl: bool = True,
-        recurring_enabled: bool = True,
+        recurring_enabled: bool = False,
     ) -> "TBankSettings":
         return cls(
             enabled=True,
