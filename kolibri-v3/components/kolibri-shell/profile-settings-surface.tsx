@@ -547,22 +547,12 @@ function AuthPanel({ onAuthenticated }: { onAuthenticated: () => void }) {
 
 	return (
 		<div className="min-h-0 flex-1 overflow-y-auto px-4 py-8 sm:px-8">
-			<div className="mx-auto w-full max-w-md">
-				<div className="flex size-11 items-center justify-center rounded-2xl bg-neutral-950 text-white">
-					<LogIn className="size-5" aria-hidden="true" />
-				</div>
-				<h2 className="mt-5 text-xl font-semibold tracking-tight">
-					{mode === "login" ? "Войти в Kolibri" : "Создать аккаунт"}
-				</h2>
-				<p className="text-muted-foreground mt-1 text-sm leading-5">
-					Чаты, проекты и настройки сохраняются в вашем пространстве Kolibri.
-				</p>
-
+			<div className="mx-auto w-full max-w-sm">
 				<div
 					role="tablist"
 					aria-label="Способ входа"
 					aria-orientation="horizontal"
-					className="mt-6 grid grid-cols-2 rounded-xl bg-muted p-1"
+					className="grid grid-cols-2 rounded-xl bg-muted p-1"
 				>
 					<button
 						type="button"
@@ -736,18 +726,6 @@ function AuthPanel({ onAuthenticated }: { onAuthenticated: () => void }) {
 					</form>
 				)}
 
-				{identity.status === "offline" ? (
-					<Button
-						type="button"
-						variant="ghost"
-						size="sm"
-						onClick={() => void identity.refresh()}
-						className="mt-3 w-full rounded-lg"
-					>
-						<RefreshCw className="size-4" aria-hidden="true" />
-						Повторить подключение
-					</Button>
-				) : null}
 			</div>
 		</div>
 	);
