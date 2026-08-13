@@ -185,8 +185,18 @@ KOLIBRI_V3_TBANK_TIMEOUT_SECONDS=10
 KOLIBRI_V3_TBANK_VERIFY_SSL=true
 KOLIBRI_V3_TBANK_RECEIPT_MODE=disabled|required
 KOLIBRI_V3_TBANK_TAXATION=osn|usn_income|usn_income_outcome|esn|patent
+KOLIBRI_V3_TBANK_RECURRING_ENABLED=false
 KOLIBRI_V3_TBANK_PRODUCTION_CONFIRMED=false
 ```
+
+`KOLIBRI_V3_TBANK_RECURRING_ENABLED` — строго opt-in (по умолчанию `false`).
+Официальный тест-кейс №1 кабинета Т-Бизнес
+([test cases](https://developer.tbank.ru/eacq/intro/errors/test-cases)) не
+проходит, если в `Init` передан `Recurrent=Y`. Поэтому разовые оплаты и
+dashboard-тесты должны идти без `Recurrent`/`CustomerKey`/`RebillId`.
+Включать автопродление можно только отдельной операторской настройкой, когда
+тестируется сценарий «Автоплатежи». Админ-настройки test/demo терминала
+никогда не включают recurring.
 
 `KOLIBRI_V3_TBANK_VERIFY_SSL=false` использовать только в локальной dev-среде для
 локального TLS-цепочки с самоподписанным сертификатом. Для production
