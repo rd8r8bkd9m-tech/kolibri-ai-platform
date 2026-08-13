@@ -114,7 +114,11 @@ function AttachmentButton() {
 			accessibilityState={{ disabled: !canAttach, busy }}
 			disabled={!canAttach}
 			onPress={pick}
-			style={[styles.plus, !canAttach && styles.disabled]}
+			style={[
+				styles.plus,
+				{ backgroundColor: colors.muted },
+				!canAttach && styles.disabled,
+			]}
 		>
 			{busy ? (
 				<ActivityIndicator color={colors.foreground} size="small" />
@@ -131,12 +135,12 @@ function SendButton() {
 		<ComposerPrimitive.Send
 			accessibilityLabel="Отправить"
 			onPressIn={haptics.success}
-			style={[styles.action, { backgroundColor: colors.foreground }]}
+			style={[styles.action, { backgroundColor: colors.send }]}
 		>
 			<Icon
 				name="send"
 				size={21}
-				color={colors.background}
+				color={colors.primaryForeground}
 				weight="semibold"
 			/>
 		</ComposerPrimitive.Send>
@@ -223,11 +227,6 @@ export function Composer() {
 					<StopButton />
 				</AuiIf>
 			</ComposerPrimitive.Root>
-			<Text
-				style={[styles.disclaimer, { color: colors.mutedForeground }]}
-			>
-				Kolibri может ошибаться. Проверяйте важные данные.
-			</Text>
 		</View>
 	);
 }
@@ -290,9 +289,10 @@ const styles = StyleSheet.create({
 	},
 	plus: {
 		alignItems: "center",
-		height: 40,
+		borderRadius: 20,
 		justifyContent: "center",
 		opacity: 0.94,
+		height: 40,
 		width: 40,
 	},
 	disabled: { opacity: 0.42 },
@@ -316,12 +316,5 @@ const styles = StyleSheet.create({
 		height: 44,
 		justifyContent: "center",
 		width: 44,
-	},
-	disclaimer: {
-		fontSize: 12,
-		lineHeight: 16,
-		paddingBottom: 6,
-		paddingTop: 7,
-		textAlign: "center",
 	},
 });
