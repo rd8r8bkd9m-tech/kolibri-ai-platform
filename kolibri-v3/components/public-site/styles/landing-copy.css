@@ -1526,6 +1526,27 @@
 	padding: 0.3rem 0.65rem;
 }
 
+.kp-payment-result {
+	align-items: center;
+	display: flex;
+	min-height: 60vh;
+	padding: 4rem 1rem;
+	text-align: center;
+}
+
+.kp-payment-result h1 {
+	font-size: 2rem;
+	margin-bottom: 1rem;
+}
+
+.kp-payment-result p {
+	color: var(--klp-soft);
+	font-size: 1rem;
+	line-height: 1.6;
+	margin: 0 auto 1.5rem;
+	max-width: 34rem;
+}
+
 .klp-price-card {
 	position: relative;
 	display: flex;
