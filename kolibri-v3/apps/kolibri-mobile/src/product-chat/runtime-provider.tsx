@@ -44,6 +44,18 @@ const MIME_TYPE =
 
 export type MobileDeveloperMode = "standard" | "auto" | "full";
 
+export const MOBILE_DEV_MODE_CYCLE: readonly MobileDeveloperMode[] = [
+	"standard",
+	"auto",
+	"full",
+];
+
+export const MOBILE_DEV_MODE_LABELS: Record<MobileDeveloperMode, string> = {
+	standard: "Dev",
+	auto: "Dev · Авто",
+	full: "Dev · Полный",
+};
+
 const MOBILE_DEVELOPER_MODE_KEY = "kolibri.ui.mobile-developer-access-mode";
 
 const readMobileDeveloperMode = (): MobileDeveloperMode => {

@@ -27,6 +27,11 @@ import type { ThemePreference } from "@/hooks/use-theme";
 import { haptics } from "@/lib/haptics";
 import { confirmAsync } from "@/lib/dialogs";
 import { useMobileSession } from "@/src/auth/mobile-session";
+import {
+	MOBILE_DEV_MODE_CYCLE,
+	MOBILE_DEV_MODE_LABELS,
+	useMobileDeveloperMode,
+} from "@/src/product-chat/runtime-provider";
 import { constructionEstimateAccess } from "@/src/verticals/construction-estimates/access";
 
 function AccountSkeleton() {
@@ -140,6 +145,7 @@ export default function AccountScreen() {
 	}>();
 	const session = useMobileSession();
 	const { colors, isDark, preference, setPreference } = useTheme();
+	const { mode: devMode, setMode: setDevMode } = useMobileDeveloperMode();
 	const [nameDraft, setNameDraft] = useState<string | null>(null);
 	const [saving, setSaving] = useState(false);
 	const [loggingOut, setLoggingOut] = useState(false);
@@ -265,6 +271,20 @@ export default function AccountScreen() {
 							icon="model"
 							title="Модель"
 							value={user.preferredModel ?? "Автоматически"}
+						/>
+						<SettingsRow
+							icon="shield"
+							onPress={() => {
+								const next =
+									MOBILE_DEV_MODE_CYCLE[
+										(MOBILE_DEV_MODE_CYCLE.indexOf(devMode) + 1) %
+											MOBILE_DEV_MODE_CYCLE.length
+									] ?? "full";
+								haptics.selection();
+								setDevMode(next);
+							}}
+							title="Режим разработчика"
+							value={MOBILE_DEV_MODE_LABELS[devMode]}
 						/>
 						<SettingsRow
 							icon="appearance"
