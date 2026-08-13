@@ -1,6 +1,6 @@
 # Kolibri V3 R1 — release control board
 
-Updated: 2026-08-12 01:10 MSK
+Updated: 2026-08-13 05:50 MSK
 Target: 2026-08-06 18:00 MSK  
 Production: `https://kolibriai.ru/app`  
 Decision authority: product owner
@@ -8,6 +8,33 @@ Decision authority: product owner
 This file is the operational resume point after any interruption. The
 roadmap defines scope; this board records current truth. A workstream is not
 `DONE` until its required test, artifact or runtime evidence is linked here.
+
+## 2026-08-13 QR/СБП production checkpoint
+
+Verdict: **DONE** — QR/СБП live on `kolibriai.ru`.
+
+- T-Bank hosted form already exposes «Оплата через СБП» (dynamic QR) on the
+  production terminal `25988125`; verified twice on real Init URLs
+  (`https://pay.tbank.ru/W9xFJXCX`, `https://pay.tbank.ru/tgYNPmDO`): the
+  «Еще способы» → СБП button opens the QR modal. No server-side
+  `PaymentMethod` override is used, so card, СБП, T-Pay and SberPay all stay
+  available.
+- UI now advertises «Карта, СБП (QR) или T‑Pay» with payment-method badges in
+  the web account billing card, checkout overlay, and both mobile billing
+  settings surfaces. Committed as `a59adcb2adb9`; deployed as immutable
+  release `kolibri-v3-a59adcb2adb9-8895e9af40a0` with backend health reporting
+  the exact release ID/commit.
+- Full gate green: web `207 passed`, mobile `21 passed`, typecheck for both,
+  production Next build, Expo web export with
+  `EXPO_PUBLIC_API_BASE_URL=https://kolibriai.ru`.
+- Production E2E: desktop `/app?account=billing` and mobile `/account?client=mobile`
+  both show «СБП (QR)», the badges, and «Реквизиты не передаются Kolibri» with
+  zero console errors (Playwright, test user `TBank Test`). Two test payment
+  intents were created, their forms inspected for СБП, then canceled via the
+  T-Bank API; the backend webhook updated both intents to `canceled`.
+- Custom production topology preserved after install: UI gateway on `3103`,
+  desktop Next on `3104`, Expo mobile static on `4104`, public-origin drop-in
+  fixed to valid systemd `Environment=` syntax.
 
 ## 2026-08-01 production acceptance checkpoint
 
