@@ -58,9 +58,21 @@ export async function GET(
 		// different origin (pay.tbank.ru), and strict webviews can drop a
 		// relative 303 Location mid cross-origin redirect chain, which shows
 		// the user a "site can't be reached" page instead of the app.
+		// request.nextUrl.origin is the internal Next host (localhost:3103),
+		// so derive the public origin from the forwarded proxy headers that
+		// nginx sends (X-Forwarded-Proto + Host), with a direct-dev fallback.
+		const forwardedScheme = request.headers
+			.get("x-forwarded-proto")
+			?.split(",")[0]
+			?.trim();
+		const scheme =
+			forwardedScheme === "http" || forwardedScheme === "https"
+				? forwardedScheme
+				: request.nextUrl.protocol.replace(/:$/, "");
+		const host = request.headers.get("host")?.trim() || request.nextUrl.host;
 		const destination = new URL(
 			`${destinationPath}?${destinationParams.toString()}`,
-			request.nextUrl.origin,
+			`${scheme}://${host}`,
 		).toString();
 		return new Response(null, {
 			status: 303,
