@@ -85,6 +85,7 @@ test("billing BFF exposes only the canonical bounded V3 routes", () => {
 	assert.match(routes.paymentReturn, /new URL\(/);
 	assert.match(routes.paymentReturn, /x-forwarded-proto/);
 	assert.match(routes.paymentReturn, /request\.headers\.get\(["']host["']\)/);
+	assert.match(routes.paymentReturn, /KOLIBRI_V3_TBANK_RETURN_ORIGIN/);
 	assert.match(routes.paymentReturn, /Location:\s*destination/);
 	assert.doesNotMatch(routes.paymentReturn, /new URL\([^)]*request\.url/);
   assert.match(routes.paymentReturn, /fetchV3Backend/);
