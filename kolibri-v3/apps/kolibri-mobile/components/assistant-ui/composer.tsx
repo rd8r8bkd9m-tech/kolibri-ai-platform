@@ -210,7 +210,7 @@ export function Composer() {
 					onBlur={handleBlur}
 					onFocus={handleFocus}
 					onKeyPress={handleKeyPress}
-					placeholder="Спросите что угодно…"
+					placeholder="Спросить КолИ…"
 					placeholderTextColor={colors.mutedForeground}
 					style={[styles.input, { color: colors.foreground }]}
 				/>

@@ -54,32 +54,11 @@ export function DrawerContent({ navigation, state }: DrawerContentComponentProps
 					<HamburgerMark />
 				</Pressable>
 				<Text style={[styles.brand, { color: colors.foreground }]}>
-					Kolibri AI
+					КолИ
 				</Text>
 			</View>
 
 			<ThreadListPrimitive.Root style={styles.threadRoot}>
-				<Pressable
-					accessibilityLabel="Новая задача"
-					accessibilityRole="button"
-					onPress={() => {
-						haptics.selection();
-						aui.threads.switchToNewThread();
-						closeDrawer();
-					}}
-					style={({ pressed }) => [
-						styles.newTask,
-						{
-							backgroundColor: pressed ? colors.muted : colors.surface,
-						},
-					]}
-				>
-					<Icon name="compose" size={21} color={colors.foreground} />
-					<Text style={[styles.newTaskText, { color: colors.foreground }]}>
-						Новая задача
-					</Text>
-				</Pressable>
-
 				<Text style={[styles.section, { color: colors.mutedForeground }]}>
 					Недавние
 				</Text>
@@ -140,6 +119,30 @@ export function DrawerContent({ navigation, state }: DrawerContentComponentProps
 					<Icon name="chevron-right" size={18} color={colors.mutedForeground} />
 				</Pressable>
 			</ThreadListPrimitive.Root>
+
+			<View style={[styles.bottomActions, { borderTopColor: colors.muted }]}>
+				<Pressable
+					accessibilityLabel="Новая задача"
+					accessibilityRole="button"
+					onPress={() => {
+						haptics.selection();
+						aui.threads.switchToNewThread();
+						closeDrawer();
+					}}
+					style={({ pressed }) => [
+						styles.newTask,
+						{
+							backgroundColor: pressed ? colors.muted : colors.surface,
+						},
+						pressed && styles.pressed,
+					]}
+				>
+					<Icon name="compose" size={21} color={colors.foreground} />
+					<Text style={[styles.newTaskText, { color: colors.foreground }]}>
+						Чат
+					</Text>
+				</Pressable>
+			</View>
 
 			<View style={[styles.account, { borderTopColor: colors.muted }]}>
 				<Pressable
@@ -247,6 +250,11 @@ const styles = StyleSheet.create({
 	verticalEntryCopy: { flex: 1, marginLeft: 11 },
 	verticalEntryText: { fontSize: 15, fontWeight: "700" },
 	verticalEntryHint: { fontSize: 11, marginTop: 2 },
+	bottomActions: {
+		borderTopWidth: StyleSheet.hairlineWidth,
+		paddingBottom: 6,
+		paddingTop: 8,
+	},
 	account: {
 		alignItems: "center",
 		borderTopWidth: StyleSheet.hairlineWidth,

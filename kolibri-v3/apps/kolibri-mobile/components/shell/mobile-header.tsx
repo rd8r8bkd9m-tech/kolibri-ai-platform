@@ -33,7 +33,7 @@ export function MobileHeader() {
 			</CircleButton>
 
 			<View accessibilityRole="header" style={styles.titleWrap}>
-				<Text style={[styles.title, { color: colors.foreground }]}>Chat</Text>
+				<Text style={[styles.title, { color: colors.foreground }]}>КолИ</Text>
 				<ModelSelector />
 			</View>
 
