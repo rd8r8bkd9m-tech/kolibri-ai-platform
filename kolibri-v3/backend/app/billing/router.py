@@ -231,6 +231,8 @@ class BillingConfigView(APIModel):
     )
     production_confirmed: bool = Field(alias="productionConfirmed")
     verify_ssl: bool = Field(alias="verifySsl")
+    notification_url: str | None = Field(alias="notificationUrl")
+    return_origin: str | None = Field(alias="returnOrigin")
     terminal_fingerprint: str | None = Field(
         default=None,
         alias="terminalFingerprint",
@@ -615,6 +617,8 @@ def billing_configuration(
             "receiptMode": settings.receipt_mode,
             "productionConfirmed": settings.production_confirmed,
             "verifySsl": settings.verify_ssl,
+            "notificationUrl": settings.notification_url,
+            "returnOrigin": settings.return_origin,
             "terminalFingerprint": settings.terminal_fingerprint[:4] + "…"
             if settings.enabled
             else None,

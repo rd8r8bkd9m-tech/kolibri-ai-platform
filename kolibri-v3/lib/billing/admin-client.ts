@@ -11,6 +11,8 @@ export type BillingAdminConfig = {
 	receiptMode: "disabled" | "required" | null;
 	productionConfirmed: boolean;
 	verifySsl: boolean;
+	notificationUrl: string | null;
+	returnOrigin: string | null;
 	terminalFingerprint: string | null;
 	updatedAt: number | null;
 };
@@ -42,6 +44,9 @@ function sanitizeConfig(value: unknown): BillingAdminConfig | null {
 			!["disabled", "required"].includes(String(value.receiptMode))) ||
 		typeof value.productionConfirmed !== "boolean" ||
 		typeof value.verifySsl !== "boolean" ||
+		(value.notificationUrl !== null &&
+			typeof value.notificationUrl !== "string") ||
+		(value.returnOrigin !== null && typeof value.returnOrigin !== "string") ||
 		(value.terminalFingerprint !== null &&
 			typeof value.terminalFingerprint !== "string") ||
 		(value.updatedAt !== null && typeof value.updatedAt !== "number")
@@ -55,6 +60,8 @@ function sanitizeConfig(value: unknown): BillingAdminConfig | null {
 		receiptMode: value.receiptMode as BillingAdminConfig["receiptMode"],
 		productionConfirmed: value.productionConfirmed,
 		verifySsl: value.verifySsl,
+		notificationUrl: value.notificationUrl as string | null,
+		returnOrigin: value.returnOrigin as string | null,
 		terminalFingerprint: value.terminalFingerprint as string | null,
 		updatedAt: value.updatedAt as number | null,
 	};

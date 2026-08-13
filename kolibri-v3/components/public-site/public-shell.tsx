@@ -81,6 +81,9 @@ export function PublicShell({
 						<PublicNavigationLink href="/legal/payment-and-refund">
 							Оплата и возврат
 						</PublicNavigationLink>
+						<PublicNavigationLink href="/legal/store">
+							Информация для покупателей
+						</PublicNavigationLink>
 					</nav>
 					<div className="kp-footer-legal">
 						{commerce.ready ? (

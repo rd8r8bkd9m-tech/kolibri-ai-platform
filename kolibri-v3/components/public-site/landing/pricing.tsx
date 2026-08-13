@@ -142,6 +142,22 @@ function PricingGrid({ plan }: { plan: BillingPlan | null }) {
 					/>
 				</Reveal>
 			</div>
+			<div className="klp-payment-methods" role="group" aria-label="Способы оплаты">
+				<span>Оплата принимается:</span>
+				<span className="klp-payment-badge">МИР</span>
+				<span className="klp-payment-badge">Visa</span>
+				<span className="klp-payment-badge">Mastercard</span>
+				<span className="klp-payment-badge">СБП</span>
+				<span className="klp-payment-badge">T‑Pay</span>
+				<Link
+					href="https://tbank.ru"
+					target="_blank"
+					rel="noopener noreferrer"
+					style={{ color: "var(--klp-mint)", textDecoration: "underline" }}
+				>
+					Банк — tbank.ru
+				</Link>
+			</div>
 			<p style={{ marginTop: "2rem", color: "var(--klp-faint)", fontSize: "0.78rem", textAlign: "center" }}>
 				Цена тарифа загружается из серверного каталога биллинга и не подставляется вручную.{" "}
 				<Link href="/legal/payment-and-refund" style={{ color: "var(--klp-mint)", textDecoration: "underline" }}>

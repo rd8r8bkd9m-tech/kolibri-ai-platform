@@ -101,6 +101,8 @@ def tbank_admin_settings_view(
             "receiptMode": env_settings.receipt_mode,
             "productionConfirmed": env_settings.production_confirmed,
             "verifySsl": env_settings.verify_ssl,
+            "notificationUrl": env_settings.notification_url,
+            "returnOrigin": env_settings.return_origin,
             "terminalFingerprint": _redact(env_settings.terminal_fingerprint),
             "updatedAt": None,
         }
@@ -112,6 +114,8 @@ def tbank_admin_settings_view(
             "receiptMode": None,
             "productionConfirmed": False,
             "verifySsl": True,
+            "notificationUrl": None,
+            "returnOrigin": None,
             "terminalFingerprint": None,
             "updatedAt": None,
         }
@@ -129,6 +133,8 @@ def tbank_admin_settings_view(
         "receiptMode": str(row["receipt_mode"]),
         "productionConfirmed": False,
         "verifySsl": bool(int(row["verify_ssl"])),
+        "notificationUrl": str(row["notification_url"]),
+        "returnOrigin": str(row["return_origin"]),
         "terminalFingerprint": (
             _redact(str(row["terminal_fingerprint"]))
             if row["terminal_fingerprint"]
@@ -247,11 +253,37 @@ def save_admin_tbank_settings(
     return_origin = (return_origin or "").strip() or None
     taxation = (taxation or "").strip() or None
     if not terminal_key or not password:
-        raise BillingError(
-            422,
-            "billing_settings_credentials_required",
-            "Для включения оплаты нужны TerminalKey и Password терминала.",
-        )
+        # Allow partial admin edits without re-entering stored secrets.
+        existing = database.execute(
+            """
+            SELECT terminal_key_encrypted, password_encrypted
+            FROM billing_provider_settings
+            WHERE provider = 'tbank'
+            LIMIT 1
+            """
+        ).fetchone()
+        if existing is not None:
+            if (
+                not terminal_key
+                and existing["terminal_key_encrypted"] is not None
+            ):
+                terminal_key = _decrypt_secret(
+                    settings,
+                    bytes(existing["terminal_key_encrypted"]),
+                    field="terminal_key",
+                )
+            if not password and existing["password_encrypted"] is not None:
+                password = _decrypt_secret(
+                    settings,
+                    bytes(existing["password_encrypted"]),
+                    field="password",
+                )
+        if not terminal_key or not password:
+            raise BillingError(
+                422,
+                "billing_settings_credentials_required",
+                "Для включения оплаты нужны TerminalKey и Password терминала.",
+            )
     if mode == "production":
         raise BillingError(
             422,

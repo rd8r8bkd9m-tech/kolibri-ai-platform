@@ -1579,6 +1579,8 @@ function PlatformBillingPanel() {
 			if (next.mode === "test" || next.mode === "demo") setMode(next.mode);
 			setReceiptMode(next.receiptMode ?? "disabled");
 			setVerifySsl(next.verifySsl);
+			setNotificationUrl(next.notificationUrl ?? "");
+			setReturnOrigin(next.returnOrigin ?? "");
 		} catch (error) {
 			setLoadError(
 				error instanceof Error
@@ -1610,6 +1612,8 @@ function PlatformBillingPanel() {
 			}
 			const next = await saveAdminBillingConfig(input);
 			setConfig(next);
+			setNotificationUrl(next.notificationUrl ?? "");
+			setReturnOrigin(next.returnOrigin ?? "");
 			setMessage(
 				enabled
 					? "Оплата подключена и сохранена."

@@ -755,6 +755,10 @@ def test_hosted_payment_webhook_replay_refund_and_admin_contracts(
             "receiptMode": "disabled",
             "productionConfirmed": False,
             "verifySsl": True,
+            "notificationUrl": (
+                "http://localhost/v1/billing/tbank/notifications"
+            ),
+            "returnOrigin": "http://localhost",
             "terminalFingerprint": config_body["terminalFingerprint"],
             "updatedAt": None,
         }
@@ -1774,6 +1778,12 @@ def test_admin_billing_config_save_redact_disable_and_production_fence(
         assert body["mode"] == "demo"
         assert body["receiptMode"] == "disabled"
         assert body["productionConfirmed"] is False
+        assert body["verifySsl"] is True
+        assert (
+            body["notificationUrl"]
+            == "http://localhost/v1/billing/tbank/notifications"
+        )
+        assert body["returnOrigin"] == "http://localhost"
         assert body["terminalFingerprint"] is not None
         assert "password" not in body
         assert "terminalKey" not in body

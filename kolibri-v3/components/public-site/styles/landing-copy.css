@@ -1508,6 +1508,24 @@
 	margin-top: 3rem;
 }
 
+.klp-payment-methods {
+	align-items: center;
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.5rem;
+	justify-content: center;
+	margin-top: 1.25rem;
+}
+
+.klp-payment-badge {
+	border: 1px solid var(--klp-line);
+	border-radius: 999px;
+	color: var(--klp-soft);
+	font-size: 0.72rem;
+	font-weight: 600;
+	padding: 0.3rem 0.65rem;
+}
+
 .klp-price-card {
 	position: relative;
 	display: flex;
