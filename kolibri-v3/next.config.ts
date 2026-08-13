@@ -5,6 +5,7 @@ const strictCspDirectives = [
   "default-src 'self'",
   "base-uri 'self'",
   "frame-ancestors 'none'",
+  "frame-src 'self' https://*.tinkoff.ru https://*.tbank.ru",
   "form-action 'self'",
   "object-src 'none'",
   "script-src 'self'",
