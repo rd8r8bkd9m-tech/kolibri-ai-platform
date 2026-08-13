@@ -274,7 +274,7 @@ export function ProfileSettingsSurface({
 					<aside
 						aria-label="Разделы настроек"
 						data-slot="settings-canvas-navigation"
-						className="hidden h-full min-h-0 overflow-y-auto border-r border-[#dce5f5] bg-[#eef3ff] px-3 py-4 dark:border-sky-950 dark:bg-[#101721] @min-[760px]:block"
+						className="hidden h-full min-h-0 overflow-y-auto border-r border-border bg-sidebar px-3 py-4 dark:border-border dark:bg-sidebar @min-[760px]:block"
 					>
 						<div className="flex items-center gap-2 px-2">
 							<span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-[#fb927c] text-[11px] font-medium text-white">
@@ -300,7 +300,7 @@ export function ProfileSettingsSurface({
 								onChange={(event) => setSearch(event.target.value)}
 								placeholder="Поиск настроек…"
 								aria-label="Поиск настроек"
-								className="h-9 rounded-lg border-white/80 bg-white/85 pl-9 text-[12px] shadow-none dark:border-white/10 dark:bg-white/[0.06]"
+								className="h-9 rounded-lg border-border/70 bg-background/80 pl-9 text-[12px] shadow-none dark:border-white/10 dark:bg-white/[0.06]"
 							/>
 						</div>
 						<nav className="mt-4" aria-label="Все настройки">
@@ -322,13 +322,13 @@ export function ProfileSettingsSurface({
 														aria-current={
 															activeSection === id ? "page" : undefined
 														}
-														onClick={() => selectSection(id)}
-														className={cn(
-															"flex min-h-9 w-full items-center gap-2.5 rounded-lg px-2.5 text-left text-[12px] outline-none transition-colors focus-visible:ring-2 focus-visible:ring-sky-400/50",
-															activeSection === id
-																? "bg-[#d8e4fa] text-foreground dark:bg-sky-900/45"
-																: "hover:bg-[#e2edff] dark:hover:bg-sky-950/45",
-														)}
+													onClick={() => selectSection(id)}
+													className={cn(
+														"flex min-h-9 w-full items-center gap-2.5 rounded-lg px-2.5 text-left text-[13px] outline-none transition-colors focus-visible:ring-2 focus-visible:ring-[color-mix(in_oklab,var(--brand)_50%,transparent)]",
+														activeSection === id
+															? "bg-[var(--brand-soft-strong)] text-foreground dark:bg-[var(--brand-soft-strong)]"
+															: "hover:bg-[var(--brand-soft)] dark:hover:bg-[var(--brand-soft)]",
+													)}
 													>
 														<Icon
 															className="size-4 shrink-0"
@@ -377,10 +377,10 @@ export function ProfileSettingsSurface({
 										aria-current={activeSection === id ? "page" : undefined}
 										onClick={() => selectSection(id)}
 										className={cn(
-											"flex h-8 shrink-0 items-center gap-1.5 rounded-lg px-2.5 text-[11px] font-medium",
+											"flex h-9 shrink-0 items-center gap-1.5 rounded-full px-3 text-[11px] font-medium",
 											activeSection === id
-												? "bg-blue-500/10 text-blue-950 dark:text-blue-100"
-												: "text-muted-foreground hover:bg-muted/70 hover:text-foreground",
+												? "bg-[var(--brand-soft-strong)] text-foreground dark:text-foreground"
+												: "text-muted-foreground hover:bg-[var(--brand-soft)] hover:text-foreground",
 										)}
 									>
 										<Icon className="size-3.5" aria-hidden="true" />
