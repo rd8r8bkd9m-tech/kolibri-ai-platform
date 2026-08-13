@@ -274,22 +274,10 @@ export function ProfileSettingsSurface({
 					<aside
 						aria-label="Разделы настроек"
 						data-slot="settings-canvas-navigation"
-						className="hidden h-full min-h-0 overflow-y-auto border-r border-border bg-sidebar px-3 py-4 dark:border-border dark:bg-sidebar @min-[760px]:block"
+						className="hidden h-full min-h-0 flex-col border-r border-border bg-sidebar dark:border-border dark:bg-sidebar @min-[760px]:flex"
 					>
-						<div className="flex items-center gap-2 px-2">
-							<span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-[#fb927c] text-[11px] font-medium text-white">
-								{accountInitials(identity.user)}
-							</span>
-							<span className="min-w-0">
-								<span className="block truncate text-[12px] font-semibold">
-									{identity.user.name}
-								</span>
-								<span className="text-muted-foreground block truncate text-[10px]">
-									{roleLabel}
-								</span>
-							</span>
-						</div>
-						<div className="relative mt-4">
+						<div className="min-h-0 flex-1 overflow-y-auto px-3 py-4">
+							<div className="relative">
 							<Search
 								aria-hidden="true"
 								className="text-muted-foreground pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2"
@@ -302,8 +290,8 @@ export function ProfileSettingsSurface({
 								aria-label="Поиск настроек"
 								className="h-9 rounded-lg border-border/70 bg-background/80 pl-9 text-[12px] shadow-none dark:border-white/10 dark:bg-white/[0.06]"
 							/>
-						</div>
-						<nav className="mt-4" aria-label="Все настройки">
+							</div>
+							<nav className="mt-4" aria-label="Все настройки">
 							{filteredGroups.length ? (
 								filteredGroups.map((group) => (
 									<div
@@ -346,7 +334,21 @@ export function ProfileSettingsSurface({
 									Настройки не найдены
 								</p>
 							)}
-						</nav>
+							</nav>
+						</div>
+						<div className="flex shrink-0 items-center gap-2 border-t border-border px-3 py-3">
+							<span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-[#fb927c] text-[11px] font-medium text-white">
+								{accountInitials(identity.user)}
+							</span>
+							<span className="min-w-0">
+								<span className="block truncate text-[12px] font-semibold">
+									{identity.user.name}
+								</span>
+								<span className="text-muted-foreground block truncate text-[10px]">
+									{roleLabel}
+								</span>
+							</span>
+						</div>
 					</aside>
 
 					<header
