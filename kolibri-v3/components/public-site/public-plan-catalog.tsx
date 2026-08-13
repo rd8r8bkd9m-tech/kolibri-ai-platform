@@ -1,4 +1,5 @@
 import { Check, CircleAlert } from "lucide-react";
+import Link from "next/link";
 import { getPublicLaunchPlan } from "@/lib/server/public-billing";
 import { PublicPlanCheckoutButton } from "./landing/public-plan-checkout-button";
 
@@ -69,6 +70,22 @@ export async function PublicPlanCatalog({ compact = false }: { compact?: boolean
 			<div className="kp-plan-action">
 				<PublicPlanCheckoutButton planCode={plan.code} />
 				<small>Оплата выполняется в личном кабинете на защищённой странице Т‑Банка.</small>
+			</div>
+			<div className="klp-payment-methods" role="group" aria-label="Способы оплаты">
+				<span>Оплата принимается:</span>
+				<span className="klp-payment-badge">МИР</span>
+				<span className="klp-payment-badge">Visa</span>
+				<span className="klp-payment-badge">Mastercard</span>
+				<span className="klp-payment-badge">СБП</span>
+				<span className="klp-payment-badge">T‑Pay</span>
+				<Link
+					href="https://tbank.ru"
+					target="_blank"
+					rel="noopener noreferrer"
+					style={{ color: "var(--klp-mint)", textDecoration: "underline" }}
+				>
+					Банк — tbank.ru
+				</Link>
 			</div>
 		</article>
 	);
