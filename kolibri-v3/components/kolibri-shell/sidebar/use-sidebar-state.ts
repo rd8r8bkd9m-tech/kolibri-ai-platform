@@ -44,11 +44,9 @@ export function useSidebarPetState(initial = true): SidebarPetState {
 	return {
 		petVisible,
 		togglePet: () => {
-			setPetVisible((current) => {
-				const next = !current;
-				setKolibriPetVisibility(next);
-				return next;
-			});
+			const next = !petVisible;
+			setPetVisible(next);
+			setKolibriPetVisibility(next);
 		},
 	};
 }
