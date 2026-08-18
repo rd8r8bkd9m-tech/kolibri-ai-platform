@@ -1,13 +1,19 @@
 import {
+	AuiIf,
 	ThreadPrimitive,
 	type ThreadMessage,
+	useAuiEvent,
+	useAuiState,
 } from "@assistant-ui/react-native";
 import { useDrawerStatus } from "expo-router/drawer";
-import { useCallback, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
 	FlatList,
 	KeyboardAvoidingView,
+	NativeScrollEvent,
+	NativeSyntheticEvent,
 	Platform,
+	Pressable,
 	StyleSheet,
 	Text,
 	View,
@@ -15,26 +21,41 @@ import {
 
 import { Composer } from "@/components/assistant-ui/composer";
 import { MessageBubble } from "@/components/assistant-ui/message";
-import { Icon } from "@/components/ui/icon";
-import { Layout } from "@/constants/theme";
+import { Icon } from "@/src/components/icons/Icon";
+import {
+	Layout,
+	LetterSpacing,
+	LineHeight,
+	Radius,
+	Spacing,
+	WebShadow,
+	shadow,
+	typography,
+} from "@/constants/theme";
 import { useTheme } from "@/hooks/use-theme";
 import { haptics } from "@/lib/haptics";
 
 const starters = [
 	{
-		label: "Начать задачу",
-		prompt: "Помоги разобраться с новой задачей",
-		icon: "bubble" as const,
+		label: "Создать изображение",
+		prompt:
+			"Создай изображение по моему описанию. Сначала уточни стиль, формат и назначение.",
+		icon: "image" as const,
+		send: true,
 	},
 	{
 		label: "Написать или отредактировать",
-		prompt: "Помоги написать или отредактировать документ",
+		prompt:
+			"Помоги написать или отредактировать текст. Сначала уточни тип текста, аудиторию и желаемый результат.",
 		icon: "compose" as const,
+		send: false,
 	},
 	{
-		label: "Искать в справочниках",
-		prompt: "Найди информацию в доступных справочниках",
-		icon: "search" as const,
+		label: "Искать в интернете",
+		prompt:
+			"Найди актуальную информацию в интернете по моему запросу и приложи источники.",
+		icon: "globe" as const,
+		send: false,
 	},
 ];
 
@@ -50,7 +71,8 @@ function EmptyState() {
 						accessibilityRole="button"
 						onPressIn={haptics.selection}
 						prompt={starter.prompt}
-						send
+						send={starter.send}
+						clearComposer={starter.send}
 						style={({ pressed }: { pressed: boolean }) => [
 							styles.starter,
 							pressed && styles.pressed,
@@ -58,12 +80,16 @@ function EmptyState() {
 					>
 						<Icon
 							name={starter.icon}
-							size={21}
+							size={26}
 							color={colors.mutedForeground}
 						/>
 						<Text
 							numberOfLines={2}
-							style={[styles.starterText, { color: colors.mutedForeground }]}
+							style={[
+								typography.suggest,
+								styles.starterText,
+								{ color: colors.mutedForeground },
+							]}
 						>
 							{starter.label}
 						</Text>
@@ -74,24 +100,26 @@ function EmptyState() {
 	);
 }
 
-function Messages() {
-	// The bundled @assistant-ui/react-native auto-scroll relies on
-	// VirtualizedList frame metrics, which are stale on react-native-web at
-	// content-size-change time (the newly rendered cell has not been measured
-	// yet), so new messages end up off-screen. The FlatList also resets the
-	// scroll offset to 0 on each re-render, which makes any "was at bottom"
-	// tracking unreliable. We scroll the host node directly on the next
-	// frames, when layout has settled; users can still read history by
-	// scrolling up (wheel/touch scrolling is native).
+function Messages({ drawerOpen }: { drawerOpen: boolean }) {
+	const { colors } = useTheme();
 	const listRef = useRef<FlatList<ThreadMessage>>(null);
-	const scrollToBottom = useCallback(() => {
+	const [showScrollToBottom, setShowScrollToBottom] = useState(false);
+	const threadId = useAuiState((state) => state.threads.mainThreadId);
+	const messages = useAuiState((state) => state.thread.messages);
+	const lastMessageRoleRef = useRef<string | null>(null);
+	const atBottomRef = useRef(true);
+	const forceScrollToBottomRef = useRef(false);
+	useEffect(() => {
+		lastMessageRoleRef.current = messages[messages.length - 1]?.role;
+	}, [messages]);
+	useAuiEvent("thread.runStart", () => {
+		forceScrollToBottomRef.current = true;
+	});
+	const scrollToBottom = useCallback((animated = false) => {
+		atBottomRef.current = true;
 		const list = listRef.current;
 		if (!list) return;
 		if (Platform.OS === "web") {
-			// VirtualizedList#scrollToEnd derives the offset from per-cell
-			// frame metrics, which lag behind the DOM on react-native-web, so
-			// the list stops short of the newest message. Scroll the host node
-			// directly instead.
 			const node = (
 				list as unknown as {
 					getScrollableNode?: () => HTMLElement | null;
@@ -102,34 +130,101 @@ function Messages() {
 				return;
 			}
 		}
-		list.scrollToEnd({ animated: false });
+		list.scrollToEnd({ animated });
 	}, []);
+	useEffect(() => {
+		atBottomRef.current = true;
+		requestAnimationFrame(() => {
+			scrollToBottom(false);
+		});
+	}, [scrollToBottom, threadId]);
+	const handleScroll = useCallback(
+		(event: NativeSyntheticEvent<NativeScrollEvent>) => {
+			const { contentOffset, contentSize, layoutMeasurement } =
+				event.nativeEvent;
+			const distanceFromBottom =
+				contentSize.height - (contentOffset.y + layoutMeasurement.height);
+			atBottomRef.current = distanceFromBottom <= 140;
+			const shouldShow = distanceFromBottom > 140;
+			setShowScrollToBottom((current) =>
+				current === shouldShow ? current : shouldShow,
+			);
+		},
+		[],
+	);
 	const handleContentSizeChange = useCallback(() => {
+		if (
+			!atBottomRef.current &&
+			!forceScrollToBottomRef.current &&
+			lastMessageRoleRef.current !== "user"
+		) {
+			return;
+		}
+		forceScrollToBottomRef.current = false;
 		requestAnimationFrame(() => {
 			requestAnimationFrame(() => {
-				scrollToBottom();
+				atBottomRef.current = true;
+				scrollToBottom(false);
 			});
 		});
 	}, [scrollToBottom]);
 
 	return (
 		<>
-			<ThreadPrimitive.Empty>
+			<AuiIf condition={(state) => state.thread.isEmpty}>
 				<EmptyState />
-			</ThreadPrimitive.Empty>
-			<ThreadPrimitive.If empty={false}>
+			</AuiIf>
+			<AuiIf condition={(state) => !state.thread.isEmpty}>
 				<ThreadPrimitive.MessagesFlatList
+					autoScroll={false}
 					contentContainerStyle={styles.messageList}
 					keyboardDismissMode="interactive"
 					keyboardShouldPersistTaps="handled"
 					onContentSizeChange={handleContentSizeChange}
+					onScroll={handleScroll}
 					ref={listRef}
+					scrollEventThrottle={120}
+					scrollToBottomOnInitialize={false}
+					scrollToBottomOnRunStart={false}
+					scrollToBottomOnThreadSwitch={false}
 					showsVerticalScrollIndicator={false}
 					style={styles.flex}
 				>
 					{() => <MessageBubble />}
 				</ThreadPrimitive.MessagesFlatList>
-			</ThreadPrimitive.If>
+			</AuiIf>
+			{!drawerOpen && showScrollToBottom ? (
+			<Pressable
+				accessibilityLabel="Прокрутить вниз"
+				accessibilityRole="button"
+				onPress={() => {
+					atBottomRef.current = true;
+					scrollToBottom(true);
+				}}
+				style={({ pressed }) => [
+					styles.scrollToBottom,
+					{
+						backgroundColor: colors.surfaceRaised,
+						borderColor: colors.border,
+					},
+					Platform.select({
+						web: {
+							boxShadow: WebShadow.floating,
+						} as never,
+						ios: {
+							shadowColor: shadow.shadowColor,
+							shadowOffset: { height: 2, width: 0 },
+							shadowOpacity: 0.18,
+							shadowRadius: 8,
+						},
+						default: { elevation: 4 },
+					}),
+					pressed && styles.pressed,
+				]}
+			>
+					<Icon name="chevron-down" size={18} color={colors.foreground} />
+				</Pressable>
+			) : null}
 		</>
 	);
 }
@@ -143,7 +238,7 @@ export function Thread() {
 			style={[styles.root, { backgroundColor: colors.background }]}
 		>
 			<View style={styles.flex}>
-				<Messages />
+				<Messages drawerOpen={drawerOpen} />
 			</View>
 			{drawerOpen ? null : (
 				<>
@@ -155,39 +250,45 @@ export function Thread() {
 }
 
 const styles = StyleSheet.create({
-	// RN Web maps the chat list to a CSS flex child. Without an explicit
-	// min-height of zero, the child can refuse to shrink and gestures are sent
-	// to the page/drawer instead of the list once a conversation grows.
 	root: { flex: 1, minHeight: 0, minWidth: 0 },
-	flex: { flex: 1, minHeight: 0, minWidth: 0 },
+	flex: { flex: 1, minHeight: 0, minWidth: 0, position: "relative" },
 	empty: {
 		flex: 1,
-		paddingBottom: 8,
-		paddingHorizontal: Layout.edgeInset + 12,
+		paddingBottom: Spacing.sm,
+		paddingHorizontal: Spacing.xxl,
 	},
 	emptySpacer: { flex: 1 },
-	starters: { gap: 17, paddingBottom: 8 },
+	starters: { gap: Spacing.xxl, paddingBottom: Spacing.sm },
 	starter: {
 		alignItems: "center",
 		flexDirection: "row",
-		gap: 14,
-		minHeight: 36,
+		gap: Spacing.lg,
+		minHeight: 44,
 	},
 	starterText: {
 		flex: 1,
-		fontSize: 18,
-		fontWeight: "600",
-		letterSpacing: -0.35,
-		lineHeight: 23,
+		letterSpacing: LetterSpacing.small,
+		lineHeight: LineHeight.screen,
 	},
 	pressed: { opacity: 0.55 },
+	scrollToBottom: {
+		alignItems: "center",
+		borderRadius: Radius.input,
+		borderWidth: StyleSheet.hairlineWidth,
+		bottom: Spacing.lg,
+		height: 32,
+		justifyContent: "center",
+		position: "absolute",
+		right: Layout.composerInset,
+		width: 32,
+	},
 	messageList: {
 		alignSelf: "center",
-		gap: 18,
+		gap: Layout.composerInset,
 		flexGrow: 1,
 		maxWidth: Layout.threadMaxWidth,
-		paddingHorizontal: 14,
-		paddingVertical: 20,
+		paddingHorizontal: Spacing.lg,
+		paddingVertical: Spacing.xl,
 		width: "100%",
 	},
 });

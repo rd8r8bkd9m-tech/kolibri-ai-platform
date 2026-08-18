@@ -40,6 +40,16 @@ const readStoredPreference = async (): Promise<ThemePreference> => {
 	}
 };
 
+const readStoredPreferenceSync = (): ThemePreference => {
+	if (Platform.OS !== "web") return "system";
+	try {
+		const value = globalThis.localStorage?.getItem(THEME_PREFERENCE_KEY);
+		return isThemePreference(value) ? value : "system";
+	} catch {
+		return "system";
+	}
+};
+
 const persistPreference = async (preference: ThemePreference) => {
 	try {
 		if (Platform.OS === "web") {
@@ -56,8 +66,9 @@ const persistPreference = async (preference: ThemePreference) => {
 
 export function KolibriThemeProvider({ children }: PropsWithChildren) {
 	const systemScheme = useColorScheme();
-	const [preference, setPreferenceState] =
-		useState<ThemePreference>("system");
+	const [preference, setPreferenceState] = useState<ThemePreference>(() =>
+		readStoredPreferenceSync(),
+	);
 
 	useEffect(() => {
 		let active = true;

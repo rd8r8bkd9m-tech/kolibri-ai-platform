@@ -421,7 +421,13 @@ test("every Canvas tool shares one state-preserving fullscreen control", async (
   assert.match(canvas, /<CanvasFrame\b/);
 
   assert.match(layout, /auxiliaryFullscreen \? auxiliary : null/);
-  assert.match(view, /auxiliaryFullscreen=\{auxiliary\.fullscreen\}/);
+  // Adaptive layout: the view renders the user fullscreen state OR the
+  // viewport-forced fullscreen from useAdaptiveWorkspaceLayout (spec §5).
+  assert.match(view, /auxiliaryFullscreen=\{auxiliaryRenderFullscreen\}/);
+  assert.match(
+    desktop,
+    /auxiliary\.fullscreen \|\| \(auxiliary\.rightOpen && !adaptive\.auxiliaryDocked\)/,
+  );
   assert.match(frame, /data-slot=["']canvas-fullscreen-toggle["']/);
   assert.match(canvas, /<CanvasFrame\b/);
   assert.match(canvas, /onToggleMaximize=\{onToggleMaximize\}/);
@@ -524,7 +530,7 @@ test("polished workspace recovers placement, saves through reconnects, and repor
   assert.match(session, /\bmaximized:\s*boolean\b/);
   assert.match(session, /function\s+updateCanvasTab/);
   assert.match(session, /maximized:\s*input\.maximized \?\? false/);
-  assert.match(view, /auxiliaryFullscreen=\{auxiliary\.fullscreen\}/);
+  assert.match(view, /auxiliaryFullscreen=\{auxiliaryRenderFullscreen\}/);
   assert.match(layout, /auxiliaryFullscreen \? auxiliary : null/);
 
   assert.match(estimates, /\bsaveErrorRetryable\b/);

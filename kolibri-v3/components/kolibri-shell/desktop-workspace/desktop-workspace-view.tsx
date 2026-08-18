@@ -24,10 +24,14 @@ export function DesktopWorkspaceView({
 	activeProject,
 	auxiliary,
 	auxiliaryCanvas,
+	auxiliaryDockedOpen,
+	auxiliaryRenderFullscreen,
 	commandPaletteOpen,
 	composerContextOverride,
 	currentTitle,
+	navigationDockedOpen,
 	navigationOpen,
+	navigationOverlayOpen,
 	onNewTask,
 	onOpenChat,
 	onOpenDocuments,
@@ -49,10 +53,14 @@ export function DesktopWorkspaceView({
 	activeProject: WorkspaceProject | null;
 	auxiliary: AuxiliaryCanvasController;
 	auxiliaryCanvas: ReactNode;
+	auxiliaryDockedOpen: boolean;
+	auxiliaryRenderFullscreen: boolean;
 	commandPaletteOpen: boolean;
 	composerContextOverride?: string;
 	currentTitle: string;
+	navigationDockedOpen: boolean;
 	navigationOpen: boolean;
+	navigationOverlayOpen: boolean;
 	onNewTask: () => void;
 	onOpenChat: () => void;
 	onOpenDocuments: () => void;
@@ -73,6 +81,7 @@ export function DesktopWorkspaceView({
 	const navigation = (
 		<WorkspaceSidebar
 			activeDestination={activeDestination}
+			isOverlay={navigationOverlayOpen}
 			onOpenAiModels={() => onOpenSettings("ai-models")}
 			onOpenChat={onOpenChat}
 			onOpenDocuments={onOpenDocuments}
@@ -120,7 +129,7 @@ export function DesktopWorkspaceView({
 	const activeCanvasLabel = auxiliary.activeFile?.name
 		? auxiliary.activeFile.name
 		: auxiliary.activeTab?.title;
-	const rightWorkspaceOpen = auxiliary.rightOpen || auxiliary.fullscreen;
+	const rightWorkspaceOpen = auxiliaryDockedOpen || auxiliaryRenderFullscreen;
 	const settingsOpen =
 		auxiliary.activeTab?.content.kind === "settings";
 	const composerContextLabel =
@@ -128,69 +137,90 @@ export function DesktopWorkspaceView({
 		(primaryOpen
 			? activeCanvasLabel || "Рабочая область"
 			: rightWorkspaceOpen
-				? `Диалог · ${activeCanvasLabel || "Инструменты"}`
+				? `Диалог · ${activeCanvasLabel || "Документы"}`
 				: "Диалог");
 
 	return (
-		<DesktopWorkspaceLayout
-			auxiliary={auxiliaryCanvas}
-			auxiliaryFullscreen={auxiliary.fullscreen}
-			auxiliaryOpen={auxiliary.rightOpen}
-			chat={
-				<Thread
-					composerPlacement="workspace"
-					onOpenAccount={() => onOpenSettings("general")}
-					onOpenContextPanel={primaryOpen ? undefined : auxiliary.toggle}
-					workspaceOpen={rightWorkspaceOpen}
-				/>
-			}
-			chrome={chrome}
-			composer={
-				settingsOpen ? null : (
-					<div
-						data-slot="workspace-context-composer"
-						data-composer-surface={primaryOpen ? "canvas" : "chat"}
-						className="border-border/80 bg-background shrink-0 border-t px-3 pt-2 pb-[calc(0.75rem+env(safe-area-inset-bottom))]"
-					>
-						<div className="mx-auto w-full max-w-3xl">
-							<div className="text-muted-foreground mb-1.5 flex min-w-0 items-center gap-1.5 px-1 text-[10px] leading-4">
-								<span className="shrink-0">Контекст:</span>
-								<span className="text-foreground truncate font-medium">
-									{composerContextLabel}
-								</span>
+		<>
+			<DesktopWorkspaceLayout
+				auxiliary={auxiliaryCanvas}
+				auxiliaryFullscreen={auxiliaryRenderFullscreen}
+				auxiliaryOpen={auxiliaryDockedOpen}
+				chat={
+					<Thread
+						composerPlacement="workspace"
+						onOpenAccount={() => onOpenSettings("general")}
+						onOpenContextPanel={primaryOpen ? undefined : auxiliary.toggle}
+						workspaceOpen={rightWorkspaceOpen}
+					/>
+				}
+				chrome={chrome}
+				composer={
+					settingsOpen ? null : (
+						<div
+							data-slot="workspace-context-composer"
+							data-composer-surface={primaryOpen ? "canvas" : "chat"}
+							className="border-border/80 bg-background shrink-0 border-t px-3 pt-2 pb-[calc(0.75rem+env(safe-area-inset-bottom))]"
+						>
+							<div className="mx-auto w-full max-w-3xl">
+								<div className="text-muted-foreground mb-1.5 flex min-w-0 items-center gap-1.5 px-1 text-[10px] leading-4">
+									<span className="shrink-0">Контекст:</span>
+									<span className="text-foreground truncate font-medium">
+										{composerContextLabel}
+									</span>
+								</div>
+								<ThreadComposer
+									onOpenAccount={() => onOpenSettings("general")}
+									onOpenContextPanel={
+										primaryOpen ? undefined : auxiliary.toggle
+									}
+									workspaceOpen={rightWorkspaceOpen}
+								/>
 							</div>
-							<ThreadComposer
-								onOpenAccount={() => onOpenSettings("general")}
-								onOpenContextPanel={
-									primaryOpen ? undefined : auxiliary.toggle
-								}
-								workspaceOpen={rightWorkspaceOpen}
-							/>
 						</div>
+					)
+				}
+				header={
+					<WorkspaceHeader
+						activeProjectId={activeProject?.id}
+						contextPanelOpen={rightWorkspaceOpen}
+						navigationOpen={navigationOpen}
+						onOpenChat={onOpenChat}
+						onOpenCommandPalette={() => onPaletteOpenChange(true)}
+						onProjectSelect={onOpenProject}
+						onToggleContextPanel={
+							primaryOpen ? undefined : auxiliary.toggle
+						}
+						onToggleNavigation={onToggleNavigation}
+						projectName={activeProject?.name}
+						projects={projects}
+						threadTitle={currentTitle}
+					/>
+				}
+				navigation={navigation}
+				navigationOpen={navigationDockedOpen}
+				primary={primaryContent}
+				primaryOpen={primaryOpen}
+			/>
+			{navigationOverlayOpen ? (
+				<div
+					data-slot="workspace-navigation-overlay"
+					className="fixed inset-0 z-50"
+					role="dialog"
+					aria-modal="true"
+					aria-label="Навигация рабочего пространства"
+				>
+					<button
+						type="button"
+						aria-label="Закрыть навигацию"
+						className="absolute inset-0 h-full w-full cursor-default bg-foreground/30"
+						onClick={onToggleNavigation}
+					/>
+					<div className="absolute inset-y-0 left-0 flex w-[min(88vw,20rem)] flex-col border-r border-border bg-background shadow-2xl">
+						{navigation}
 					</div>
-				)
-			}
-			header={
-				<WorkspaceHeader
-					activeProjectId={activeProject?.id}
-					contextPanelOpen={rightWorkspaceOpen}
-					navigationOpen={navigationOpen}
-					onOpenChat={onOpenChat}
-					onOpenCommandPalette={() => onPaletteOpenChange(true)}
-					onProjectSelect={onOpenProject}
-					onToggleContextPanel={
-						primaryOpen ? undefined : auxiliary.toggle
-					}
-					onToggleNavigation={onToggleNavigation}
-					projectName={activeProject?.name}
-					projects={projects}
-					threadTitle={currentTitle}
-				/>
-			}
-			navigation={navigation}
-			navigationOpen={navigationOpen}
-			primary={primaryContent}
-			primaryOpen={primaryOpen}
-		/>
+				</div>
+			) : null}
+		</>
 	);
 }

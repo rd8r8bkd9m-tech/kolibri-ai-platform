@@ -7,6 +7,8 @@ license: MIT
 # assistant-ui Thread List
 
 **Always consult [assistant-ui.com/llms.txt](https://www.assistant-ui.com/llms.txt) for the latest API.**
+Full API dump: [assistant-ui.com/llms-full.txt](https://www.assistant-ui.com/llms-full.txt)
+(prefer the `assistant-ui-docs` MCP server tools when connected).
 
 Manage multiple chat threads with built-in or custom UI.
 

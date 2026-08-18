@@ -24,16 +24,15 @@ const groups: NavGroup[] = [
 			{ label: "О продукте", href: "/", hint: "Что умеет агент" },
 			{ label: "Все возможности", href: "/#roles", hint: "Сметы, документы, нормативы" },
 			{ label: "Как работает", href: "/#work", hint: "Запрос, расчёт, результат" },
-			{ label: "Тарифы", href: "/pricing", hint: "Один тариф запуска" },
-			{ label: "Приложение", href: "/app", hint: "Работа в браузере и на телефоне" },
+						{ label: "Приложение", href: "/app", hint: "Работа в браузере и на телефоне" },
 		],
 	},
 	{
 		label: "Решения",
 		links: [
 			{ label: "Сметы", href: "/#roles", hint: "Работы, материалы, цены" },
-			{ label: "Документы", href: "/#roles", hint: "КП, договоры, акты" },
-			{ label: "Цены и нормативы", href: "/#roles", hint: "ФСНБ, ГЭСН, ФГИС ЦС" },
+			{ label: "Документы", href: "/#roles", hint: "КП, счёт, ведомость" },
+			{ label: "Цены и нормативы", href: "/#roles", hint: "ФСНБ-2024, ФГИС ЦС" },
 			{ label: "Экспорт", href: "/#roles", hint: "XLSX, PDF, DOCX" },
 			{ label: "Поддержка", href: "/contacts", hint: "Помощь по проекту" },
 		],
@@ -120,12 +119,15 @@ function NavDropdown({ group }: { group: NavGroup }) {
 function MobileLinks() {
 	return (
 		<>
-			<Link href="/#roles">Возможности</Link>
-			<Link href="/#work">Как работает</Link>
+			<Link href="/#work">Что умеет агент</Link>
+			<Link href="/#roles">Сценарии</Link>
+			<Link href="/#agent">Как работает агент</Link>
+			<Link href="/#integrations">Интеграции</Link>
 			<Link href="/pricing">Тарифы</Link>
 			<Link href="/#faq">Вопросы</Link>
 			<Link href="/contacts">Контакты</Link>
 			<Link href="/app">Войти</Link>
+			<Link className="klp-mobile-cta" href="/app">Попробовать бесплатно</Link>
 		</>
 	);
 }
@@ -183,6 +185,9 @@ export function LandingNav() {
 						</div>
 					</details>
 					<Link className="klp-nav-login" href="/app">Войти</Link>
+					<Link className="klp-cta-pill klp-nav-cta" href="/app">
+						Попробовать бесплатно
+					</Link>
 				</div>
 			</div>
 		</nav>

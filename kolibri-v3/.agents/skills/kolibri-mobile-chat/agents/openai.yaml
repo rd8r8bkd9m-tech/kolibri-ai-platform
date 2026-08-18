@@ -1,0 +1,4 @@
+interface:
+  display_name: "Kolibri Mobile Chat"
+  short_description: "assistant-ui chat: composer, streaming, cards, voice"
+  default_prompt: "Fix the mobile composer send/stop morph"

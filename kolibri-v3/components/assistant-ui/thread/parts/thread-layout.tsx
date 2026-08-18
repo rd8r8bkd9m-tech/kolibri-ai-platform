@@ -217,7 +217,7 @@ export const Composer: ComponentType = () => {
 								asChild
 								aria-label="Убрать цитату"
 							>
-								<button type="button" className="rounded px-1 hover:bg-muted">×</button>
+								<button type="button" className="rounded px-1 transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none">×</button>
 							</ComposerPrimitive.QuoteDismiss>
 						</ComposerPrimitive.Quote>
 						<div className="mx-3 mt-2 space-y-1" aria-label="Очередь сообщений">
@@ -226,10 +226,10 @@ export const Composer: ComponentType = () => {
 									<div key={queueItem.id} className="border-border bg-muted/25 flex items-center gap-2 rounded-md border px-2 py-1 text-xs">
 										<QueueItemPrimitive.Text className="min-w-0 flex-1 truncate" />
 										<QueueItemPrimitive.Steer asChild>
-											<button type="button" className="rounded px-1.5 py-0.5 hover:bg-muted">Сейчас</button>
+											<button type="button" className="rounded px-1.5 py-0.5 transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none">Сейчас</button>
 										</QueueItemPrimitive.Steer>
 										<QueueItemPrimitive.Remove asChild>
-											<button type="button" className="rounded px-1.5 py-0.5 text-muted-foreground hover:bg-muted">Убрать</button>
+											<button type="button" className="rounded px-1.5 py-0.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none">Убрать</button>
 										</QueueItemPrimitive.Remove>
 									</div>
 								)}
@@ -255,7 +255,7 @@ export const Composer: ComponentType = () => {
 					</div>
 				</ComposerPrimitive.AttachmentDropzone>
 			</ComposerPrimitive.Root>
-			<p className="text-muted-foreground/80 mx-auto max-w-md px-2 text-center text-[11px] leading-relaxed">
+			<p className="text-muted-foreground/80 mx-auto max-w-md px-2 text-center text-xs leading-relaxed">
 				Ассистент может ошибаться — проверяйте его работу
 			</p>
 		</ComposerPrimitive.Unstable_TriggerPopoverRoot>

@@ -271,6 +271,16 @@ export async function getWebBillingSubscriptions(
 	);
 }
 
+export async function getWebBillingPayments(
+	authorizedFetch: AuthorizedFetch,
+	signal?: AbortSignal,
+) {
+	return listItems(
+		await requestJson(authorizedFetch, "/v1/billing/payments", { signal }),
+		sanitizePayment,
+	);
+}
+
 export async function createWebBillingPayment(
 	authorizedFetch: AuthorizedFetch,
 	planCode: string,

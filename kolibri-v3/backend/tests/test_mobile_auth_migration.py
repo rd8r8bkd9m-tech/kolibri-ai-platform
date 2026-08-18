@@ -51,6 +51,7 @@ def test_mobile_auth_migration_upgrades_the_deployed_v31_database(
             "mobile_access_tokens",
             "mobile_auth_events",
             "mobile_device_sessions",
+            "mobile_magic_links",
             "mobile_refresh_tokens",
         }
         assert database.execute("PRAGMA foreign_key_check").fetchall() == []

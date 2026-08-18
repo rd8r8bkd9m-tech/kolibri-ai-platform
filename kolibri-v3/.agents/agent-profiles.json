@@ -1,0 +1,86 @@
+{
+  "orchestrator": [
+    "skill-router",
+    "development-controller",
+    "mission-control",
+    "task-state-machine",
+    "progress-ledger",
+    "scope-lock",
+    "execution-budget",
+    "test-loop-breaker",
+    "feature-slice-delivery",
+    "definition-of-done",
+    "context-budgeting"
+  ],
+  "mobile": [
+    "screen-implementation",
+    "react-native-components",
+    "react-native-architecture",
+    "react-native-performance",
+    "gestures-and-presses",
+    "lists-and-virtualization",
+    "expo-project-structure",
+    "expo-router",
+    "kolibri-mobile-ui",
+    "kolibri-mobile-chat",
+    "kolibri-mobile-navigation",
+    "kolibri-mobile-qa",
+    "kolibri-mobile-perf",
+    "kolibri-mobile-state"
+  ],
+  "backend": [
+    "api-feature-implementation",
+    "contract-driven-feature",
+    "schema-migration-safe",
+    "fastapi",
+    "api-contracts",
+    "backend-health-check",
+    "kolibri-backend"
+  ],
+  "ai": [
+    "agent-task-execution",
+    "tool-permission-model",
+    "ai-feature-productionization",
+    "agent-evaluation",
+    "llm-provider-routing",
+    "llm-streaming",
+    "llm-tool-calling"
+  ],
+  "assistant": [
+    "chat-feature-implementation",
+    "assistant-action-execution",
+    "attachments-pipeline",
+    "assistant-ui-architecture",
+    "streaming-messages",
+    "interactive-artifacts",
+    "kolibri-agui-transport"
+  ],
+  "estimator": [
+    "estimate-end-to-end",
+    "estimate-editor-implementation",
+    "estimate-price-provenance",
+    "estimate-pdf-export",
+    "estimate-domain",
+    "estimate-calculation-engine",
+    "estimate-validation",
+    "kolibri-estimates-engine"
+  ],
+  "qa": [
+    "development-smoke-check",
+    "failure-first-debugging",
+    "integration-testing",
+    "e2e-testing",
+    "regression-testing",
+    "visual-e2e",
+    "release-gate",
+    "kolibri-mobile-qa"
+  ],
+  "release": [
+    "production-readiness",
+    "canary-release",
+    "deployment-verification",
+    "rollback-execution",
+    "release-gate",
+    "release-evidence-pack"
+  ]
+}

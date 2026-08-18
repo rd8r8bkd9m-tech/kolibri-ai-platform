@@ -10,17 +10,25 @@ import {
 } from "react-native";
 
 import { SettingsGroup } from "@/components/settings/settings-group";
-import { Icon } from "@/components/ui/icon";
-import { Radius } from "@/constants/theme";
+import { Icon } from "@/src/components/icons/Icon";
+import {
+	FontSize,
+	FontWeight,
+	LineHeight,
+	Radius,
+	Spacing,
+} from "@/constants/theme";
 import { useTheme } from "@/hooks/use-theme";
 import { haptics } from "@/lib/haptics";
 import {
 	type BillingPlan,
+	type BillingPaymentIntent,
 	type BillingSubscription,
 	createWebBillingIdempotencyKey,
 	createWebBillingPayment,
 	getWebBillingPlans,
 	getWebBillingPayment,
+	getWebBillingPayments,
 	getWebBillingSubscriptions,
 	setWebBillingAutoRenew,
 } from "@/src/billing/client";
@@ -63,6 +71,7 @@ export function NativeBillingSettings() {
 	const [subscriptions, setSubscriptions] = useState<
 		readonly BillingSubscription[]
 	>([]);
+	const [payments, setPayments] = useState<readonly BillingPaymentIntent[]>([]);
 	const [status, setStatus] = useState<"loading" | "ready" | "error">(
 		"loading",
 	);
@@ -76,12 +85,14 @@ export function NativeBillingSettings() {
 		setStatus("loading");
 		setMessage("");
 		try {
-			const [nextPlans, nextSubscriptions] = await Promise.all([
+			const [nextPlans, nextSubscriptions, nextPayments] = await Promise.all([
 				getWebBillingPlans(session.authorizedFetch),
 				getWebBillingSubscriptions(session.authorizedFetch),
+				getWebBillingPayments(session.authorizedFetch),
 			]);
 			setPlans(nextPlans);
 			setSubscriptions(nextSubscriptions);
+			setPayments(nextPayments);
 			setStatus("ready");
 		} catch (reason) {
 			setMessage(
@@ -399,6 +410,40 @@ export function NativeBillingSettings() {
 					</Text>
 				) : null}
 			</SettingsGroup>
+
+			<SettingsGroup title="История платежей">
+				{payments.length ? (
+					payments.map((payment) => (
+						<View
+							key={payment.id}
+							style={[styles.paymentRow, { borderTopColor: colors.border }]}
+						>
+							<View style={styles.paymentCopy}>
+								<Text style={[styles.paymentTitle, { color: colors.foreground }]}>
+									{payment.planName}
+								</Text>
+								<Text style={[styles.paymentMeta, { color: colors.mutedForeground }]}>
+									{formatPeriodEnd(payment.createdAt)} · {payment.id.slice(-8)}
+								</Text>
+							</View>
+							<View style={styles.paymentAmount}>
+								<Text style={[styles.paymentAmountText, { color: colors.foreground }]}>
+									{formatMoney(payment.amountMinor)}
+								</Text>
+								<Text style={[styles.paymentStatus, { color: colors.mutedForeground }]}>
+									{payment.status}
+								</Text>
+							</View>
+						</View>
+					))
+				) : (
+					<View style={styles.center}>
+						<Text style={[styles.emptyText, { color: colors.mutedForeground }]}>
+							Платежей пока нет.
+						</Text>
+					</View>
+				)}
+			</SettingsGroup>
 		</>
 	);
 }
@@ -408,75 +453,114 @@ const styles = StyleSheet.create({
 		alignItems: "center",
 		justifyContent: "center",
 		minHeight: 120,
-		paddingHorizontal: 18,
-		paddingVertical: 18,
+		paddingHorizontal: Spacing.xl,
+		paddingVertical: Spacing.xl,
 	},
-	errorText: { fontSize: 13, lineHeight: 18, textAlign: "center" },
-	emptyText: { fontSize: 13, lineHeight: 18, textAlign: "center" },
+	errorText: {
+		fontSize: FontSize.footnote,
+		lineHeight: LineHeight.compact,
+		textAlign: "center",
+	},
+	emptyText: {
+		fontSize: FontSize.footnote,
+		lineHeight: LineHeight.compact,
+		textAlign: "center",
+	},
 	retry: {
 		alignItems: "center",
-		borderRadius: 20,
+		borderRadius: Radius.bubble,
 		flexDirection: "row",
-		gap: 7,
-		marginTop: 14,
+		gap: Spacing.sm,
+		marginTop: Spacing.lg,
 		minHeight: 40,
-		paddingHorizontal: 16,
+		paddingHorizontal: Spacing.lg,
 	},
-	retryText: { fontSize: 14, fontWeight: "700" },
+	retryText: { fontSize: FontSize.small, fontWeight: FontWeight.bold },
 	subscriptionCard: {
 		borderRadius: Radius.card,
-		paddingHorizontal: 15,
-		paddingVertical: 13,
+		paddingHorizontal: Spacing.lg,
+		paddingVertical: Spacing.lg,
 	},
 	subscriptionHeader: {
 		alignItems: "center",
 		flexDirection: "row",
 		justifyContent: "space-between",
 	},
-	subscriptionTitle: { fontSize: 16, fontWeight: "700" },
-	subscriptionMeta: { fontSize: 12, marginTop: 3 },
-	statusBadge: { borderRadius: 999, paddingHorizontal: 10, paddingVertical: 5 },
-	statusBadgeText: { fontSize: 12, fontWeight: "700" },
+	subscriptionTitle: { fontSize: FontSize.body, fontWeight: FontWeight.bold },
+	subscriptionMeta: { fontSize: FontSize.caption, marginTop: Spacing.xs },
+	statusBadge: {
+		borderRadius: Radius.circle,
+		paddingHorizontal: Spacing.md,
+		paddingVertical: Spacing.xs,
+	},
+	statusBadgeText: { fontSize: FontSize.caption, fontWeight: FontWeight.bold },
 	autoRenewRow: {
 		alignItems: "center",
 		borderTopWidth: StyleSheet.hairlineWidth,
 		flexDirection: "row",
-		marginTop: 12,
-		paddingTop: 12,
+		marginTop: Spacing.md,
+		paddingTop: Spacing.md,
 	},
 	autoRenewCopy: { flex: 1 },
-	autoRenewTitle: { fontSize: 14, fontWeight: "600" },
-	autoRenewHint: { fontSize: 12, marginTop: 2 },
+	autoRenewTitle: {
+		fontSize: FontSize.small,
+		fontWeight: FontWeight.semibold,
+	},
+	autoRenewHint: { fontSize: FontSize.caption, marginTop: Spacing.xs },
 	planCard: {
 		alignItems: "center",
 		borderRadius: Radius.card,
 		flexDirection: "row",
-		gap: 12,
-		paddingHorizontal: 15,
-		paddingVertical: 13,
+		gap: Spacing.md,
+		paddingHorizontal: Spacing.lg,
+		paddingVertical: Spacing.lg,
 	},
 	planCopy: { flex: 1 },
-	planName: { fontSize: 16, fontWeight: "700" },
-	planPrice: { fontSize: 15, fontWeight: "700", marginTop: 3 },
-	planPeriod: { fontSize: 13, fontWeight: "500" },
-	plansFooter: { fontSize: 11, lineHeight: 16, marginTop: 12, paddingHorizontal: 2, textAlign: "center" },
+	planName: { fontSize: FontSize.body, fontWeight: FontWeight.bold },
+	planPrice: {
+		fontSize: FontSize.medium,
+		fontWeight: FontWeight.bold,
+		marginTop: Spacing.xs,
+	},
+	planPeriod: { fontSize: FontSize.footnote, fontWeight: FontWeight.medium },
+	plansFooter: {
+		fontSize: FontSize.caption2,
+		lineHeight: LineHeight.caption,
+		marginTop: Spacing.md,
+		paddingHorizontal: Spacing.xs,
+		textAlign: "center",
+	},
 	payButton: {
 		alignItems: "center",
-		borderRadius: 21,
+		borderRadius: Radius.bubble,
 		height: 42,
 		justifyContent: "center",
 		minWidth: 92,
-		paddingHorizontal: 16,
+		paddingHorizontal: Spacing.lg,
 	},
 	payButtonActive: { opacity: 0.65 },
-	payButtonText: { fontSize: 14, fontWeight: "700" },
+	payButtonText: { fontSize: FontSize.small, fontWeight: FontWeight.bold },
 	pressed: { opacity: 0.6 },
 	pollingRow: {
 		alignItems: "center",
 		flexDirection: "row",
-		gap: 9,
+		gap: Spacing.md,
 		justifyContent: "center",
-		paddingVertical: 12,
+		paddingVertical: Spacing.md,
 	},
-	pollingText: { fontSize: 13 },
+	pollingText: { fontSize: FontSize.footnote },
+	paymentRow: {
+		alignItems: "center",
+		borderTopWidth: StyleSheet.hairlineWidth,
+		flexDirection: "row",
+		justifyContent: "space-between",
+		paddingHorizontal: Spacing.lg,
+		paddingVertical: Spacing.md,
+	},
+	paymentCopy: { flex: 1, minWidth: 0 },
+	paymentTitle: { fontSize: FontSize.body, fontWeight: FontWeight.semibold },
+	paymentMeta: { fontSize: FontSize.caption, marginTop: Spacing.xs },
+	paymentAmount: { alignItems: "flex-end", marginLeft: Spacing.md },
+	paymentAmountText: { fontSize: FontSize.body, fontWeight: FontWeight.bold },
+	paymentStatus: { fontSize: FontSize.caption, marginTop: Spacing.xs },
 });

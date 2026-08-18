@@ -1,7 +1,7 @@
 "use client";
 
 import { ThreadListPrimitive, useAuiState } from "@assistant-ui/react";
-import { ArchiveIcon } from "lucide-react";
+import { ArchiveIcon, MessageCircle, SearchX } from "lucide-react";
 import { type FC, Fragment, useMemo } from "react";
 import { uiClassTokens } from "@/components/ui/class-names";
 import { ThreadListItem } from "@/components/assistant-ui/thread-list/thread-list-item";
@@ -73,9 +73,24 @@ export const ThreadListItemGroups: FC<{ searchQuery?: string }> = ({
 		return (
 			<div
 				data-slot="aui_thread-list-empty"
-				className={uiClassTokens.threadListItemsEmpty}
+				className="flex flex-col items-center gap-1.5 px-3 py-6 text-center"
 			>
-				Ничего не найдено
+				<SearchX className="text-muted-foreground/60 size-5" aria-hidden="true" />
+				<p className="text-sm font-medium text-foreground">Ничего не найдено</p>
+				<p className="text-muted-foreground text-xs">Попробуйте изменить запрос</p>
+			</div>
+		);
+	}
+
+	if (!query && threadIds.length === 0) {
+		return (
+			<div
+				data-slot="aui_thread-list-empty"
+				className="flex flex-col items-center gap-1.5 px-3 py-6 text-center"
+			>
+				<MessageCircle className="text-muted-foreground/60 size-5" aria-hidden="true" />
+				<p className="text-sm font-medium text-foreground">Диалогов пока нет</p>
+				<p className="text-muted-foreground text-xs">Начните с «Новой задачи»</p>
 			</div>
 		);
 	}

@@ -1,5 +1,6 @@
 import { StyleSheet, View } from "react-native";
 
+import { Radius, Spacing } from "@/constants/theme";
 import { useTheme } from "@/hooks/use-theme";
 
 export function HamburgerMark() {
@@ -11,12 +12,19 @@ export function HamburgerMark() {
 			style={styles.mark}
 		>
 			<View style={[styles.line, { backgroundColor: colors.foreground }]} />
-			<View style={[styles.line, { backgroundColor: colors.foreground }]} />
+			<View
+				style={[
+					styles.line,
+					styles.lineShort,
+					{ backgroundColor: colors.foreground },
+				]}
+			/>
 		</View>
 	);
 }
 
 const styles = StyleSheet.create({
-	mark: { gap: 7.5 },
-	line: { borderRadius: 2, height: 2.5, width: 26 },
+	mark: { gap: Spacing.sm },
+	line: { borderRadius: Radius.xxs, height: 3, width: 26 },
+	lineShort: { width: 17 },
 });

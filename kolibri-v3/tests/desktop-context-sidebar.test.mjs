@@ -47,12 +47,14 @@ test("desktop shell has one shared central Canvas and an optional tool panel", a
 	assert.doesNotMatch(wrapper, /WorkspaceContextSidebar|desktopContextTool/);
 
 	assert.match(layout, /id=["']workspace-project-navigation["']/);
-	assert.match(layout, /defaultSize=\{374\}/);
-	assert.match(layout, /minSize=\{288\}[\s\S]{0,80}maxSize=\{410\}/);
+	// Redesign spec §5: navigation default 320, range 280–360.
+	assert.match(layout, /defaultSize=\{320\}/);
+	assert.match(layout, /minSize=\{280\}[\s\S]{0,80}maxSize=\{360\}/);
 	assert.match(layout, /id=["']primary-workspace["'][\s\S]{0,100}minSize=\{640\}/);
 	assert.match(layout, /id=["']auxiliary-canvas["']/);
-	assert.match(layout, /defaultSize=\{480\}/);
-	assert.match(layout, /minSize=\{320\}[\s\S]{0,80}maxSize=\{600\}/);
+	// Redesign spec §5: auxiliary default 400, range 320–640.
+	assert.match(layout, /defaultSize=\{400\}/);
+	assert.match(layout, /minSize=\{320\}[\s\S]{0,80}maxSize=\{640\}/);
 	assert.match(layout, /aria-label=["']Диалог с Kolibri["']/);
 	assert.match(layout, /\{auxiliaryOpen && !auxiliaryFullscreen \? \(/);
 
@@ -99,7 +101,10 @@ test("desktop shell has one shared central Canvas and an optional tool panel", a
 	assert.match(frame, /overflow-x-auto/);
 	assert.match(canvas, /activeHeaderTabId/);
 	assert.match(canvas, /onHeaderTabSelect/);
-	assert.match(canvas, /<WorkspaceProjectPicker\b/);
+	// Redesign spec §9: canvas header keeps at most three actions; the
+	// project picker lives only in the workspace header.
+	assert.doesNotMatch(canvas, /WorkspaceProjectPicker/);
+	assert.match(header, /<WorkspaceProjectPicker\b/);
 	assert.match(frame, /data-slot=["']canvas-fullscreen-toggle["']/);
 	assert.match(frame, /tabs\.length > 0 \? \(/);
 	assert.match(frame, /role=["']tabpanel["']/);
@@ -117,9 +122,10 @@ test("desktop shell has one shared central Canvas and an optional tool panel", a
 });
 
 test("right canvas exposes exactly the four owner-approved tools", async () => {
-	const [contextPanel, canvas, fileManager] = await Promise.all([
+	const [contextPanel, canvas, frame, fileManager] = await Promise.all([
 		readSource("components/kolibri-workspace/context-panel.tsx"),
 		readSource("components/kolibri-workspace/canvas-workspace.tsx"),
+		readSource("components/kolibri-workspace/canvas-frame.tsx"),
 		readSource("components/kolibri-workspace/workspace-file-manager.tsx"),
 	]);
 
@@ -136,8 +142,12 @@ test("right canvas exposes exactly the four owner-approved tools", async () => {
 	assert.doesNotMatch(contextPanel, /role=["']tablist["']/);
 
 	assert.match(canvas, /CONTEXT_PANEL_TABS\.map/);
-	assert.match(canvas, /aria-label=["']Инструменты рабочей области["']/);
+	assert.match(frame, /aria-label=["']Инструменты рабочей области["']/);
+	// Redesign spec §8: the static «Инструменты» launcher page is removed;
+	// the canvas falls back to the Files surface instead.
+	assert.doesNotMatch(canvas, /WorkspaceLauncher/);
 	assert.match(canvas, /<WorkspaceFileManager\b/);
+	assert.doesNotMatch(canvas, /WorkspaceProjectPicker/);
 	assert.match(fileManager, /<select\b/);
 	assert.match(fileManager, /placeholder=["']Поиск файлов["']/);
 	assert.doesNotMatch(fileManager, /workspace-file-category-tabs/);

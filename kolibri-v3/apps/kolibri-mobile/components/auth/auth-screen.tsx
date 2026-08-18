@@ -10,19 +10,35 @@ import {
 	View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { Link } from "expo-router";
 
-import { Radius } from "@/constants/theme";
+import {
+	FontSize,
+	Layout,
+	LetterSpacing,
+	LineHeight,
+	Radius,
+	Spacing,
+	typography,
+} from "@/constants/theme";
 import { useTheme } from "@/hooks/use-theme";
 import { useMobileSession } from "@/src/auth/mobile-session";
 
 export function AuthScreen() {
 	const { colors } = useTheme();
 	const session = useMobileSession();
-	const [mode, setMode] = useState<"login" | "register">("login");
+	const [mode, setMode] = useState<"login" | "register" | "magic-link">(
+		"login",
+	);
 	const [email, setEmail] = useState("");
 	const [name, setName] = useState("");
 	const [password, setPassword] = useState("");
 	const [submitting, setSubmitting] = useState(false);
+	const [magicState, setMagicState] = useState<
+		"idle" | "sending" | "sent" | "error"
+	>("idle");
+	const [magicLink, setMagicLink] = useState<string | null>(null);
+	const [magicError, setMagicError] = useState<string | null>(null);
 	const emailInputRef = useRef<TextInput | null>(null);
 	const passwordInputRef = useRef<TextInput | null>(null);
 
@@ -73,6 +89,25 @@ export function AuthScreen() {
 		}
 	};
 
+	const sendMagicLink = async () => {
+		const normalizedEmail = email.trim();
+		if (!normalizedEmail || submitting) return;
+		setSubmitting(true);
+		setMagicError(null);
+		try {
+			const result = await session.requestMagicLink(normalizedEmail);
+			setMagicLink(result.magicLink ?? null);
+			setMagicState("sent");
+		} catch (reason) {
+			setMagicError(
+				reason instanceof Error ? reason.message : "Не удалось отправить ссылку.",
+			);
+			setMagicState("error");
+		} finally {
+			setSubmitting(false);
+		}
+	};
+
 	return (
 		<SafeAreaView
 			edges={["top", "bottom"]}
@@ -100,6 +135,83 @@ export function AuthScreen() {
 					</View>
 
 					<View style={styles.form}>
+						{mode === "magic-link" ? (
+							<>
+								<TextInput
+									accessibilityLabel="Электронная почта"
+									autoCapitalize="none"
+									autoComplete="email"
+									keyboardType="email-address"
+									onChangeText={setEmail}
+									placeholder="Электронная почта"
+									placeholderTextColor={colors.mutedForeground}
+									style={[
+										styles.input,
+										{
+											backgroundColor: colors.surface,
+											borderColor: colors.border,
+											color: colors.foreground,
+										},
+									]}
+									value={email}
+								/>
+								<Pressable
+									accessibilityRole="button"
+									accessibilityState={{ disabled: submitting }}
+									disabled={submitting}
+									onPress={sendMagicLink}
+									style={({ pressed }) => [
+										styles.primary,
+										{ backgroundColor: colors.foreground },
+										pressed && styles.pressed,
+									]}
+								>
+									{submitting ? (
+										<ActivityIndicator color={colors.primaryForeground} />
+									) : (
+										<Text
+											style={[
+												styles.primaryText,
+												{ color: colors.primaryForeground },
+											]}
+										>
+											Отправить ссылку
+										</Text>
+									)}
+								</Pressable>
+								{magicState === "sent" ? (
+									<Text style={[styles.hint, { color: colors.success }]}>
+										Ссылка отправлена. Проверьте почту.
+									</Text>
+								) : null}
+								{magicLink ? (
+									<Link
+										href={`/auth/magic-link?email=${encodeURIComponent(email.trim())}&token=${encodeURIComponent(magicLink)}`}
+										style={[styles.secondaryText, { color: colors.foreground }]}
+									>
+										Открыть ссылку входа
+									</Link>
+								) : null}
+								{magicError ? (
+									<Text style={[styles.error, { color: colors.destructive }]}>
+										{magicError}
+									</Text>
+								) : null}
+								<Pressable
+									accessibilityRole="button"
+									onPress={() => setMode("login")}
+									style={({ pressed }) => [
+										styles.secondary,
+										pressed && styles.pressed,
+									]}
+								>
+									<Text style={[styles.secondaryText, { color: colors.foreground }]}>
+										Войти с паролем
+									</Text>
+								</Pressable>
+							</>
+						) : (
+							<>
 						{mode === "register" ? (
 							<TextInput
 								accessibilityLabel="Имя"
@@ -227,6 +339,27 @@ export function AuthScreen() {
 									: "У меня уже есть аккаунт"}
 							</Text>
 						</Pressable>
+								<Pressable
+									accessibilityRole="button"
+									onPress={() => {
+										setMagicState("idle");
+										setMagicLink(null);
+										setMagicError(null);
+										setMode("magic-link");
+									}}
+									style={({ pressed }) => [
+										styles.secondary,
+										pressed && styles.pressed,
+									]}
+								>
+									<Text
+										style={[styles.secondaryText, { color: colors.foreground }]}
+									>
+										Войти по ссылке
+									</Text>
+								</Pressable>
+							</>
+						)}
 					</View>
 				</View>
 			</KeyboardAvoidingView>
@@ -240,41 +373,53 @@ const styles = StyleSheet.create({
 	content: {
 		flex: 1,
 		justifyContent: "center",
-		paddingHorizontal: 24,
-		paddingBottom: 24,
+		paddingHorizontal: Layout.edgeInset + Spacing.sm,
+		paddingBottom: Spacing.xxl,
 	},
-	brand: { alignItems: "center", marginBottom: 42 },
+	brand: { alignItems: "center", marginBottom: Spacing.xxxl + Spacing.sm },
 	mark: {
 		alignItems: "center",
-		borderRadius: 22,
+		borderRadius: Radius.control,
 		height: 64,
 		justifyContent: "center",
-		marginBottom: 18,
+		marginBottom: Layout.composerInset,
 		width: 64,
 	},
-	markText: { fontSize: 28, fontWeight: "800" },
-	title: { fontSize: 32, fontWeight: "700", letterSpacing: -1 },
-	subtitle: { fontSize: 15, marginTop: 6, textAlign: "center" },
-	form: { gap: 12 },
-	input: {
-		borderRadius: Radius.md,
-		borderWidth: StyleSheet.hairlineWidth,
-		fontSize: 16,
-		minHeight: 54,
-		paddingHorizontal: 16,
+	markText: typography.amountXL,
+	title: { ...typography.hScreen, letterSpacing: LetterSpacing.tighter },
+	subtitle: {
+		...typography.body,
+		marginTop: Spacing.sm,
+		textAlign: "center",
 	},
-	hint: { fontSize: 13, lineHeight: 18, paddingHorizontal: 4 },
-	error: { fontSize: 14, lineHeight: 19, paddingHorizontal: 4 },
+	form: { gap: Spacing.lg },
+	input: {
+		borderRadius: Radius.input,
+		borderWidth: StyleSheet.hairlineWidth,
+		...typography.body,
+		minHeight: 56,
+		paddingHorizontal: Spacing.lg,
+	},
+	hint: {
+		fontSize: FontSize.footnote,
+		lineHeight: LineHeight.compact,
+		paddingHorizontal: Spacing.xs,
+	},
+	error: {
+		fontSize: FontSize.small,
+		lineHeight: LineHeight.small,
+		paddingHorizontal: Spacing.xs,
+	},
 	primary: {
 		alignItems: "center",
 		borderRadius: Radius.circle,
-		height: 54,
+		height: 56,
 		justifyContent: "center",
-		marginTop: 4,
+		marginTop: Spacing.xs,
 	},
-	primaryText: { fontSize: 17, fontWeight: "700" },
-	secondary: { alignItems: "center", padding: 12 },
-	secondaryText: { fontSize: 15, fontWeight: "600" },
+	primaryText: { ...typography.pillLabel },
+	secondary: { alignItems: "center", padding: Spacing.md },
+	secondaryText: { ...typography.settingsRow },
 	disabled: { opacity: 0.36 },
 	pressed: { opacity: 0.68 },
 });

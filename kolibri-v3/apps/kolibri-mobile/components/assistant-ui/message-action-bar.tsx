@@ -2,8 +2,8 @@ import * as Clipboard from "expo-clipboard";
 import { StyleSheet, View } from "react-native";
 import { ActionBarPrimitive } from "@assistant-ui/react-native";
 
-import { Icon } from "@/components/ui/icon";
-import { Radius } from "@/constants/theme";
+import { Icon } from "@/src/components/icons/Icon";
+import { Radius, Spacing } from "@/constants/theme";
 import { useTheme } from "@/hooks/use-theme";
 import { haptics } from "@/lib/haptics";
 
@@ -44,6 +44,6 @@ export function MessageActionBar() {
 }
 
 const styles = StyleSheet.create({
-	root: { alignItems: "center", flexDirection: "row", gap: 2 },
-	button: { borderRadius: Radius.sm, padding: 7 },
+	root: { alignItems: "center", flexDirection: "row", gap: Spacing.xs },
+	button: { borderRadius: Radius.sm, padding: Spacing.sm },
 });

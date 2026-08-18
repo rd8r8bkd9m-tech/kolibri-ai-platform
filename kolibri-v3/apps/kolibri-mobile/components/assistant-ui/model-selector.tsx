@@ -8,8 +8,16 @@ import {
 	View,
 } from "react-native";
 
-import { Icon } from "@/components/ui/icon";
-import { Radius } from "@/constants/theme";
+import { Icon } from "@/src/components/icons/Icon";
+import {
+	FontSize,
+	FontWeight,
+	Layout,
+	LetterSpacing,
+	LineHeight,
+	Radius,
+	Spacing,
+} from "@/constants/theme";
 import { useTheme } from "@/hooks/use-theme";
 import { haptics } from "@/lib/haptics";
 import { API_BASE_URL, useMobileSession } from "@/src/auth/mobile-session";
@@ -19,7 +27,11 @@ import {
 	type MobileModel,
 } from "@/src/models/client";
 
-export function ModelSelector() {
+export function ModelSelector({
+	variant = "pill",
+}: {
+	variant?: "pill" | "label";
+}) {
 	const session = useMobileSession();
 	const { colors } = useTheme();
 	const [open, setOpen] = useState(false);
@@ -54,12 +66,12 @@ export function ModelSelector() {
 	}, [client]);
 
 	useEffect(() => {
-		if (open && status === "idle" && !catalog) {
+		if (status === "idle" && !catalog) {
 			const timer = setTimeout(() => void load(), 0);
 			return () => clearTimeout(timer);
 		}
 		return undefined;
-	}, [catalog, load, open, status]);
+	}, [catalog, load, status]);
 
 	const user = session.user;
 	const selectedName = effectiveMobileModelName(
@@ -119,34 +131,73 @@ export function ModelSelector() {
 
 	return (
 		<>
-			<Pressable
-				accessibilityHint="Выбор модели для чата"
-				accessibilityLabel={`Модель: ${selectedName}`}
-				accessibilityRole="button"
-				onPress={() => {
-					haptics.selection();
-					setOpen(true);
-				}}
-				style={({ pressed }) => [
-					styles.pill,
-					{ backgroundColor: colors.surface, borderColor: colors.border },
-					pressed && styles.pressed,
-				]}
-			>
-				<Icon name="model" size={15} color={colors.mutedForeground} />
-				<Text numberOfLines={1} style={[styles.pillText, { color: colors.foreground }]}>
-					{selectedName}
-				</Text>
-				<Icon name="chevron-down" size={14} color={colors.mutedForeground} />
-			</Pressable>
+			{variant === "label" ? (
+				<Pressable
+					accessibilityHint="Выбор модели для чата"
+					accessibilityLabel={`Модель: ${selectedName}`}
+					accessibilityRole="button"
+					accessibilityState={{ expanded: open }}
+					hitSlop={6}
+					onPress={() => {
+						haptics.selection();
+						setOpen(true);
+					}}
+					style={({ pressed }) => [
+						styles.label,
+						pressed && styles.pressed,
+					]}
+				>
+					<Text
+						numberOfLines={1}
+						style={[styles.labelText, { color: colors.foreground }]}
+					>
+						{selectedName}
+					</Text>
+					<Icon name="chevron-down" size={14} color={colors.mutedForeground} />
+				</Pressable>
+			) : (
+				<Pressable
+					accessibilityHint="Выбор модели для чата"
+					accessibilityLabel={`Модель: ${selectedName}`}
+					accessibilityRole="button"
+					hitSlop={6}
+					onPress={() => {
+						haptics.selection();
+						setOpen(true);
+					}}
+					style={({ pressed }) => [
+						styles.pill,
+						{
+							backgroundColor: colors.surface,
+							borderColor: colors.border,
+						},
+						pressed && styles.pressed,
+					]}
+				>
+					<Icon name="model" size={15} color={colors.mutedForeground} />
+					<Text
+						numberOfLines={1}
+						style={[styles.pillText, { color: colors.foreground }]}
+					>
+						{selectedName}
+					</Text>
+					<Icon name="chevron-down" size={14} color={colors.mutedForeground} />
+				</Pressable>
+			)}
 
 			<Modal
-				animationType="fade"
+				animationType="slide"
 				onRequestClose={() => setOpen(false)}
 				transparent
 				visible={open}
 			>
-				<View style={styles.backdrop}>
+				<View
+					style={[
+						styles.backdrop,
+						styles.sheetBackdrop,
+						{ backgroundColor: colors.overlay },
+					]}
+				>
 					<Pressable
 						accessibilityLabel="Закрыть выбор модели"
 						onPress={() => setOpen(false)}
@@ -259,64 +310,89 @@ export function ModelSelector() {
 const styles = StyleSheet.create({
 	pill: {
 		alignItems: "center",
-		borderRadius: 999,
+		borderRadius: Radius.circle,
 		borderWidth: StyleSheet.hairlineWidth,
 		flexDirection: "row",
-		gap: 6,
+		gap: Spacing.sm,
 		maxWidth: 150,
 		minHeight: 34,
-		paddingHorizontal: 12,
+		paddingHorizontal: Spacing.md,
 	},
-	pillText: { flexShrink: 1, fontSize: 13, fontWeight: "600" },
+	pillText: {
+		flexShrink: 1,
+		fontSize: FontSize.footnote,
+		fontWeight: FontWeight.semibold,
+	},
+	label: {
+		alignItems: "center",
+		flexDirection: "row",
+		gap: Spacing.xs,
+		justifyContent: "center",
+		minHeight: 30,
+		paddingHorizontal: Spacing.sm,
+	},
+	labelText: { fontSize: FontSize.small, fontWeight: FontWeight.semibold },
 	pressed: { opacity: 0.6 },
 	disabled: { opacity: 0.45 },
 	backdrop: {
 		alignItems: "center",
-		backgroundColor: "rgba(0, 0, 0, 0.45)",
 		flex: 1,
-		justifyContent: "center",
-		padding: 24,
+		justifyContent: "flex-end",
 	},
+	sheetBackdrop: { justifyContent: "flex-end" },
 	sheet: {
-		borderRadius: Radius.card,
-		maxHeight: 520,
+		borderTopLeftRadius: Radius.sheet,
+		borderTopRightRadius: Radius.sheet,
+		maxHeight: "72%",
 		maxWidth: 460,
 		overflow: "hidden",
 		width: "100%",
 	},
 	sheetHeader: {
-		paddingHorizontal: 18,
-		paddingVertical: 15,
+		paddingHorizontal: Layout.composerInset,
+		paddingVertical: Spacing.lg,
 	},
-	sheetTitle: { fontSize: 19, fontWeight: "700", letterSpacing: -0.3 },
-	sheetHint: { fontSize: 12, marginTop: 3 },
+	sheetTitle: {
+		fontSize: FontSize.sheet,
+		fontWeight: FontWeight.bold,
+		letterSpacing: LetterSpacing.base,
+	},
+	sheetHint: { fontSize: FontSize.caption, marginTop: Spacing.xs },
 	center: {
 		alignItems: "center",
 		justifyContent: "center",
 		minHeight: 160,
-		padding: 20,
+		padding: Spacing.xl,
 	},
-	errorText: { fontSize: 13, lineHeight: 18, textAlign: "center" },
+	errorText: {
+		fontSize: FontSize.footnote,
+		lineHeight: LineHeight.compact,
+		textAlign: "center",
+	},
 	retry: {
-		borderRadius: 18,
-		marginTop: 14,
+		borderRadius: Radius.card,
+		marginTop: Spacing.lg,
 		minHeight: 38,
-		paddingHorizontal: 18,
+		paddingHorizontal: Layout.composerInset,
 		justifyContent: "center",
 	},
-	retryText: { fontSize: 14, fontWeight: "700" },
-	options: { paddingBottom: 8 },
+	retryText: { fontSize: FontSize.small, fontWeight: FontWeight.bold },
+	options: { paddingBottom: Spacing.sm },
 	option: {
 		alignItems: "center",
 		borderTopWidth: StyleSheet.hairlineWidth,
 		flexDirection: "row",
-		gap: 12,
+		gap: Spacing.md,
 		minHeight: 62,
-		paddingHorizontal: 18,
-		paddingVertical: 10,
+		paddingHorizontal: Layout.composerInset,
+		paddingVertical: Spacing.md,
 	},
 	optionCopy: { flex: 1 },
-	optionTitle: { fontSize: 16, fontWeight: "600" },
-	optionDescription: { fontSize: 12, lineHeight: 16, marginTop: 2 },
-	saving: { marginVertical: 10 },
+	optionTitle: { fontSize: FontSize.body, fontWeight: FontWeight.semibold },
+	optionDescription: {
+		fontSize: FontSize.caption,
+		lineHeight: LineHeight.caption,
+		marginTop: Spacing.xs,
+	},
+	saving: { marginVertical: Spacing.md },
 });

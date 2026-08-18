@@ -13,8 +13,9 @@ import json
 import sqlite3
 import threading
 import uuid
+from pathlib import Path
 
-from .database import connect_database, transaction
+from .database import connect_database, database_path, transaction
 
 
 DIRECT_RUN_INTERRUPTED_CODE = "direct_run_interrupted"
@@ -57,6 +58,10 @@ class DirectRunClaim:
 
 class DirectRunStore:
     def __init__(self, database_url: str) -> None:
+        if database_url.startswith("sqlite:///"):
+            path = database_path(database_url)
+            if isinstance(path, Path):
+                database_url = f"sqlite:///{path.resolve()}"
         self.database_url = database_url
 
     @staticmethod

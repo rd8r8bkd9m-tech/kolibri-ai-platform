@@ -3,9 +3,9 @@
 import { useEffect, useRef, useState } from "react";
 
 const stats = [
-	{ value: 1, label: "тариф запуска из серверного каталога" },
-	{ value: 5, label: "форматов документов и экспорта" },
-	{ value: 3, label: "шага контура: запрос, смета, документы" },
+	{ value: 2, label: "источника цен и нормативов: ФСНБ-2024 и ФГИС ЦС" },
+	{ value: 4, label: "документа в контуре: смета, КП, счёт, ведомость" },
+	{ value: 3, label: "формата экспорта: XLSX, PDF и DOCX" },
 ];
 
 function CountStat({ label, value }: { label: string; value: number }) {

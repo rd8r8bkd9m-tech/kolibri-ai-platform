@@ -57,6 +57,49 @@ After a runtime restart, verify all of the following before claiming success:
 Never bootstrap, rename, rotate, or overwrite the existing owner credential
 unless the product owner explicitly requests that mutation.
 
+## Commands and verification
+
+- Full local product: `npm run dev` (alias `dev:stack`). For a
+  terminal-independent background stack: `npm run dev:persistent` (screen
+  session; `dev:persistent:status|restart|stop`; live log in
+  `var/dev-runtime/screen.log`). launchd is deliberately not used — macOS
+  blocks LaunchAgents from reading `Documents/`.
+- Verification pipeline: `npm run verify` (quick) or `npm run verify:full`.
+  Gate order in `scripts/verify.sh`: structure -> architecture -> ruff ->
+  compileall -> backend pytest -> frontend typecheck -> `npm test` -> cargo
+  fmt/clippy/test for every `packages/*/Cargo.toml`. `--full` additionally
+  runs `next build` and mobile typecheck/test/lint.
+- Focused gates: `npm run verify:structure` and `npm run verify:architecture`
+  are the executable architecture contracts; run them for structural changes.
+  `npm run typecheck` alone is not a substitute for `npm run verify`.
+- Single backend test:
+  `PYTHONPATH=backend backend/venv/bin/python -m pytest backend/tests/<file>.py -q`.
+- Single web contract test: `node --test tests/<file>.test.mjs`. Root `tests/`
+  is node test-runner web/architecture tests; the whole set is `npm test`.
+- Browser E2E (`tests/e2e/`) is Playwright against the live dev stack
+  (`npm run test:e2e:desktop`), tolerates retries, and is NOT part of
+  `npm run verify`.
+- Mobile (Expo in `apps/kolibri-mobile/`) is verified only in `verify:full`;
+  `npm run mobile:typecheck` is the standalone check.
+
+## Environment and setup
+
+- The only Python environment is `backend/venv`, created with
+  `backend/venv/bin/python -m pip install -r backend/requirements-dev.txt`.
+  Never use a `.venv` or the parent repository `backend/venv`.
+- `scripts/dev-backend.sh` loads a whitelist of keys from `.env.local`
+  (`KOLIBRI_V3_*`, `NEXT_PUBLIC_*`, provider API keys). The existing platform
+  owner credential is canonical — never bootstrap or rotate it.
+- Generated artifacts (`generated/` from `server/`, root `openapi.json`,
+  `dist/`) are generator output; do not hand-edit them.
+
+## Repository boundary
+
+- Only this directory (`kolibri-v3/`) is the active product. Parent-level
+  `backend/`, `frontend/`, `kolibri-backend/`, `kolibri-v2/` are legacy
+  contours: not fallbacks, not code sources. Do not copy code from them or run
+  them for V3 work.
+
 ## Release lane
 
 - `deploy/portable` is the only V3 production release lane.
@@ -70,3 +113,35 @@ unless the product owner explicitly requests that mutation.
 - Production requires a clean committed candidate, the portable release gates,
   backup/restore and rollback rehearsal, canary evidence, and explicit owner
   GO.
+
+## Agent skill system (обязательно)
+
+Все agent-скиллы живут в `.agents/skills/` (16 групп 00–15 + плоские
+`kolibri-*`/Expo/assistant-ui скиллы).
+
+Для задач на `@assistant-ui/*`: канонический индекс API —
+`https://www.assistant-ui.com/llms.txt`, полный дамп —
+`https://www.assistant-ui.com/llms-full.txt`; если подключён MCP-сервер
+`assistant-ui-docs`, используй его инструменты (`assistantUIDocs`,
+`assistantUIExamples`) вместо загрузки полного дампа в контекст.
+
+Для каждой задачи соблюдай цикл:
+
+1. **DISCOVER** — определи затронутую поверхность (mobile/backend/ai/release)
+   и entry point.
+2. **SELECT SKILLS** — выполни
+   `node .agents/scripts/skill-router.mjs "<формулировка задачи>" --top 5`
+   и прочитай целиком `SKILL.md` выбранных скиллов (не весь каталог).
+3. **PLAN** — вертикальный slice + acceptance criteria; зафиксируй запись в
+   `.agents/progress-ledger.md` (состояние `IMPLEMENTING`).
+4. **IMPLEMENT → INTEGRATE → VERIFY → FIX** — production-код раньше тестов;
+   узкая проверка поведения; не перезапускай одну и ту же проверку без
+   изменения кода или гипотезы; без mock вместо реальной интеграции.
+5. **DONE** — по `definition-of-done`: поведение работает через реальный
+   entry point, контракты/типы обновлены, нет плейсхолдеров, diff без
+   постороннего хлама; обнови `progress-ledger` (состояние + evidence).
+
+Состояния задачи: `DISCOVERING | IMPLEMENTING | INTEGRATING | VERIFYING |
+BLOCKED | DONE`. После проверки текущей задачи продолжай следующей
+production-задачей из раздела `Next` леджера. Контроллер и роутер описаны в
+скиллах `development-controller` и `skill-router`.

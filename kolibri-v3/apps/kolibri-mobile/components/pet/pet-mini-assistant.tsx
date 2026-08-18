@@ -21,7 +21,7 @@ import Animated, {
 
 import { PetSprite } from "@/components/pet/pet-sprite";
 import { usePetMotion } from "@/components/pet/use-pet-motion";
-import { Icon } from "@/components/ui/icon";
+import { Icon } from "@/src/components/icons/Icon";
 import { Radius } from "@/constants/theme";
 import { useTheme } from "@/hooks/use-theme";
 import { haptics } from "@/lib/haptics";

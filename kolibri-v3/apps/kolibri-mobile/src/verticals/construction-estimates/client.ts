@@ -8,6 +8,12 @@ import {
 	type NativeEstimate,
 	type NativeEstimateRow,
 } from "@/src/verticals/construction-estimates/contracts";
+import {
+	estimateExportMediaType,
+	isEstimateExportFormat,
+	type EstimateExportFormat,
+	type EstimateExportResult,
+} from "@/src/verticals/construction-estimates/export";
 
 const SAFE_PROJECT_ID = /^project_[A-Za-z0-9._~-]{8,96}$/;
 
@@ -96,5 +102,48 @@ export class ConstructionEstimateClient {
 		);
 		if (!response.ok) throw await responseError(response);
 		return parseEstimate(await response.json());
+	}
+
+	async export(
+		projectId: string,
+		format: EstimateExportFormat,
+		version?: number,
+	): Promise<EstimateExportResult> {
+		if (!SAFE_PROJECT_ID.test(projectId)) {
+			throw new Error("Invalid estimate project ID.");
+		}
+		if (!isEstimateExportFormat(format)) {
+			throw new Error("Unsupported estimate export format.");
+		}
+		const query = new URLSearchParams();
+		if (version !== undefined && Number.isInteger(version) && version >= 1) {
+			query.set("version", String(version));
+		}
+		const suffix = query.toString() ? `?${query.toString()}` : "";
+		const response = await this.request(
+			`${API_BASE_URL}/v1/projects/${encodeURIComponent(projectId)}/estimate/export/${format}${suffix}`,
+			{ headers: { Accept: estimateExportMediaType(format) } },
+		);
+		if (!response.ok) throw await responseError(response);
+		const blob = await response.blob();
+		const disposition = response.headers.get("content-disposition") ?? "";
+		const utfName = disposition.match(/filename\*=UTF-8''([^;]+)/i)?.[1];
+		const fallbackName = disposition.match(/filename="([^"]+)"/i)?.[1];
+		const filename = decodeURIComponent(
+			utfName ?? fallbackName ?? `estimate.${format}`,
+		);
+		return {
+			blob,
+			filename,
+			mimeType:
+				response.headers.get("content-type") ?? estimateExportMediaType(format),
+			format,
+			version:
+				version ??
+				Number.parseInt(
+					response.headers.get("x-kolibri-estimate-version") ?? "1",
+					10,
+				),
+		};
 	}
 }

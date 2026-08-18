@@ -168,6 +168,15 @@ class MobileLogoutRequest(MobileRefreshRequest):
     pass
 
 
+class MobileMagicLinkRequest(APIModel):
+    email: EmailStr
+    device: MobileDeviceMetadata
+
+
+class MobileMagicLinkVerifyRequest(MobileMagicLinkRequest):
+    token: SecretStr = Field(min_length=32, max_length=256)
+
+
 class ProfilePatch(APIModel):
     name: DisplayName | None = None
     preferred_agent_profile: AgentProfile | None = Field(

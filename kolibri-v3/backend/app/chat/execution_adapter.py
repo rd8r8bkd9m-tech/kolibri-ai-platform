@@ -360,11 +360,33 @@ def _required_runtime_mode(
     chat profile even when that runtime correctly advertised ``chat``.
     """
 
-    if execution_mode == "developer":
-        return "developer"
     if is_estimate_generation_prompt(prompt):
         return "structured"
+    if execution_mode == "developer":
+        return "developer"
     return "chat"
+
+
+def _default_platform_model_id(database: sqlite3.Connection) -> str | None:
+    """Resolve the admin's default enabled platform model, if any.
+
+    This is the deployment's canonical developer runtime ("Only-DeepSeek"):
+    the id is persisted in the execution context so a durable continuation
+    reuses the exact same model as the source chat.
+    """
+
+    default_model = database.execute(
+        """
+        SELECT id, model_id
+        FROM platform_models
+        WHERE is_enabled = 1 AND is_default = 1
+        ORDER BY auto_priority DESC
+        LIMIT 1
+        """
+    ).fetchone()
+    if default_model is None:
+        return None
+    return f"platform:{str(default_model['id'])[:8]}:{default_model['model_id']}"
 
 
 def prepare_chat_execution(
@@ -396,20 +418,7 @@ def prepare_chat_execution(
         # to the admin's default enabled platform model and is persisted in
         # the execution context so the durable estimate continuation uses the
         # exact same model as the source chat.
-        default_model = database.execute(
-            """
-            SELECT id, model_id
-            FROM platform_models
-            WHERE is_enabled = 1 AND is_default = 1
-            ORDER BY auto_priority DESC
-            LIMIT 1
-            """
-        ).fetchone()
-        if default_model is not None:
-            model_id = (
-                f"platform:{str(default_model['id'])[:8]}:"
-                f"{default_model['model_id']}"
-            )
+        model_id = _default_platform_model_id(database)
     execution_plane = settings.chat_execution_plane(execution_mode)
     current_message = run_input.messages[-1]
     explicit_image_request = resolve_image_prompt(
@@ -478,11 +487,34 @@ def prepare_chat_execution(
         profile_catalog is not None
         and required_runtime_mode not in profile_catalog.modes
     ):
-        raise _error(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
-            "agent_mode_not_supported",
-            "Выбранный runtime не поддерживает этот режим.",
-        )
+        if run_input.forwarded_props.agent_profile is not None:
+            # Явный, противоречивый выбор: никогда не подменяем его молча.
+            raise _error(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                "agent_mode_not_supported",
+                (
+                    f"Runtime «{profile.value}» не поддерживает "
+                    f"режим «{required_runtime_mode}». Выберите другой профиль."
+                ),
+            )
+        # Chat-only preferred-профиль (например Qwen) не может обслужить этот
+        # режим. Перенаправляем на AUTO как при отсутствии профиля: целью
+        # становится дефолтная платформенная модель, а её отсутствие падает
+        # синхронно той же developer-ошибкой, что и AUTO-ветка.
+        runtime_profile = AgentProfile.AUTO.value
+        profile = AgentProfile.AUTO
+        profile_catalog = None
+        model_id = _default_platform_model_id(database)
+        reasoning_effort = None
+        service_tier = None
+        if execution_mode == "developer" and model_id is None:
+            raise _error(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                "developer_model_selection_required",
+                (
+                    "Для developer-режима выберите конкретный runtime или модель."
+                ),
+            )
     if execution_plane == "home" and service_tier is not None:
         raise _error(
             status.HTTP_422_UNPROCESSABLE_ENTITY,

@@ -8,6 +8,7 @@ import {
 	createWebBillingIdempotencyKey,
 	createWebBillingPayment,
 	getWebBillingPayment,
+	getWebBillingPayments,
 	getWebBillingPlans,
 	getWebBillingSubscriptions,
 } from "@/src/billing/client";
@@ -109,6 +110,7 @@ export function useWebBillingAccount({
 	const checkoutInFlight = useRef(false);
 	const [plans, setPlans] = useState<BillingPlan[]>([]);
 	const [subscriptions, setSubscriptions] = useState<BillingSubscription[]>([]);
+	const [payments, setPayments] = useState<BillingPaymentIntent[]>([]);
 	const [loading, setLoading] = useState(true);
 	const [loadError, setLoadError] = useState<string | null>(null);
 	const [creatingPlan, setCreatingPlan] = useState<string | null>(null);
@@ -127,13 +129,15 @@ export function useWebBillingAccount({
 	const loadAccount = useCallback(
 		async (signal?: AbortSignal) => {
 			try {
-				const [nextPlans, nextSubscriptions] = await Promise.all([
+				const [nextPlans, nextSubscriptions, nextPayments] = await Promise.all([
 					getWebBillingPlans(authorizedFetch, signal),
 					getWebBillingSubscriptions(authorizedFetch, signal),
+					getWebBillingPayments(authorizedFetch, signal),
 				]);
 				if (signal?.aborted) return;
 				setPlans(nextPlans);
 				setSubscriptions(nextSubscriptions);
+				setPayments(nextPayments);
 				setLoadError(null);
 			} catch (error) {
 				if (!signal?.aborted) setLoadError(errorMessage(error));
@@ -269,6 +273,7 @@ export function useWebBillingAccount({
 		loading,
 		payment,
 		paymentError,
+		payments,
 		plans,
 		refreshAccount: () => {
 			setLoading(true);

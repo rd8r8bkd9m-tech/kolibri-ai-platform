@@ -1,105 +1,82 @@
-import type { ComponentProps } from "react";
-import type MaterialIcons from "@expo/vector-icons/MaterialIcons";
-import type { SymbolViewProps, SymbolWeight } from "expo-symbols";
+/**
+ * Back-compat re-export: keeps the legacy `IconName` alias used by
+ * components/ui/*, src/data/*, and src/components/icons/Icon.tsx.
+ */
 
 export type IconName =
-	| "compose"
-	| "bubble"
-	| "plus"
-	| "send"
-	| "stop"
-	| "copy"
-	| "check"
-	| "reload"
-	| "chevron-left"
-	| "chevron-right"
-	| "folder"
-	| "library"
-	| "settings"
-	| "search"
-	| "archive"
-	| "pin"
-	| "document"
-	| "person"
-	| "appearance"
-	| "agent"
-	| "model"
-	| "shield"
-	| "info"
-	| "chevron-down"
-	| "chevron-up"
-	| "save"
-	| "close"
-	| "logout";
-
-export type IconProps = {
-	name: IconName;
-	size?: number;
-	color: string;
-	weight?: SymbolWeight;
-};
-
-export const SF_SYMBOLS: Record<IconName, SymbolViewProps["name"]> = {
-	compose: "square.and.pencil",
-	bubble: "bubble.left",
-	plus: "plus",
-	send: "arrow.up",
-	stop: "stop.fill",
-	copy: "doc.on.doc",
-	check: "checkmark",
-	reload: "arrow.clockwise",
-	"chevron-left": "chevron.left",
-	"chevron-right": "chevron.right",
-	folder: "folder",
-	library: "books.vertical",
-	settings: "gearshape",
-	search: "magnifyingglass",
-	archive: "archivebox",
-	pin: "pin",
-	document: "doc.text",
-	person: "person.crop.circle",
-	appearance: "circle.lefthalf.filled",
-	agent: "sparkles",
-	model: "slider.horizontal.3",
-	shield: "checkmark.shield",
-	info: "info.circle",
-	"chevron-down": "chevron.down",
-	"chevron-up": "chevron.up",
-	save: "checkmark.circle",
-	close: "xmark",
-	logout: "rectangle.portrait.and.arrow.right",
-};
-
-export const MATERIAL_ICONS: Record<
-	IconName,
-	ComponentProps<typeof MaterialIcons>["name"]
-> = {
-	compose: "edit",
-	bubble: "chat-bubble-outline",
-	plus: "add",
-	send: "arrow-upward",
-	stop: "stop",
-	copy: "content-copy",
-	check: "check",
-	reload: "refresh",
-	"chevron-left": "chevron-left",
-	"chevron-right": "chevron-right",
-	folder: "folder",
-	library: "local-library",
-	settings: "settings",
-	search: "search",
-	archive: "archive",
-	pin: "push-pin",
-	document: "description",
-	person: "account-circle",
-	appearance: "brightness-6",
-	agent: "auto-awesome",
-	model: "tune",
-	shield: "verified-user",
-	info: "info-outline",
-	"chevron-down": "keyboard-arrow-down",
-	"chevron-up": "keyboard-arrow-up",
-	save: "check-circle",
-	close: "close",
-	logout: "logout",
-};
+	| "compose" | "bubble" | "plus" | "minus" | "send" | "stop" | "copy" | "check"
+	| "reload" | "chevron-left" | "chevron-right" | "chevron-down" | "chevron-up"
+	| "folder" | "library" | "settings" | "search" | "archive" | "pin" | "pinOff"
+	| "document" | "person" | "appearance" | "agent" | "model" | "shield" | "info"
+	| "save" | "close" | "logout" | "more" | "mic" | "voice" | "share" | "image"
+	| "globe" | "history" | "book" | "monitor" | "trash" | "smile" | "graduation"
+	| "penTool" | "sparkles" | "penLine" | "squarePen" | "audioWaveform"
+	| "ellipsis" | "messageCircle" | "minimize" | "maximize" | "home"
+	| "edit" | "add" | "remove" | "star" | "heart" | "notifications"
+	| "lock" | "unlock" | "camera" | "play" | "pause" | "refresh"
+	| "download" | "upload" | "link" | "external" | "calendar" | "clock"
+	| "location" | "flag" | "bookmark" | "attach" | "paperclip" | "code"
+	| "terminal" | "bug" | "wrench" | "chart" | "trending" | "wallet"
+	| "card" | "receipt" | "invoice" | "estimate" | "project" | "task"
+	| "check-circle" | "x-circle" | "alert" | "alert-circle" | "help"
+	| "question" | "eye" | "eye-off" | "menu" | "filter" | "sort"
+	| "grid" | "list" | "columns" | "bold" | "italic" | "underline"
+	| "heading" | "paragraph" | "quote" | "list-ordered" | "list-unordered"
+	| "undo" | "redo" | "zoom-in" | "zoom-out" | "crop" | "rotate"
+	| "layers" | "duplicate" | "group" | "ungroup" | "ruler" | "compass"
+	| "map" | "route" | "directions" | "language" | "translate" | "currency"
+	| "percent" | "calculate" | "discount" | "coupon" | "gift" | "reward"
+	| "trophy" | "medal" | "crown" | "diamond" | "gem" | "ring"
+	| "watch" | "glasses" | "hat" | "shirt" | "pants" | "shoes"
+	| "bag" | "cart" | "checkout" | "shipping" | "delivery" | "package"
+	| "warehouse" | "truck" | "plane" | "train" | "car" | "bike"
+	| "boat" | "rocket" | "satellite" | "wifi" | "bluetooth" | "nfc"
+	| "qr" | "barcode" | "fingerprint" | "face-id" | "touch-id" | "pattern"
+	| "password" | "key" | "shield-check" | "user-check" | "user-x"
+	| "user-plus" | "user-minus" | "users" | "team" | "org" | "building"
+	| "factory" | "office" | "store" | "school" | "university" | "hospital"
+	| "pharmacy" | "lab" | "gym" | "park" | "beach" | "mountain"
+	| "city" | "town" | "village" | "region" | "state" | "country"
+	| "world" | "universe" | "planet" | "sun" | "moon" | "star"
+	| "rainbow" | "cloud" | "rain" | "snow" | "lightning" | "wind"
+	| "sunrise" | "sunset" | "night" | "day" | "hour" | "minute"
+	| "second" | "date" | "time" | "datetime" | "timezone" | "utc"
+	| "local" | "global" | "admin" | "moderator" | "editor" | "viewer"
+	| "owner" | "member" | "follower" | "friend" | "partner" | "colleague"
+	| "manager" | "director" | "ceo" | "legal" | "compliance" | "audit"
+	| "security" | "privacy" | "gdpr" | "sox" | "iso" | "nist"
+	| "attack" | "defend" | "breach" | "incident" | "response" | "evidence"
+	| "witness" | "verdict" | "appeal" | "settlement" | "litigation"
+	| "lawsuit" | "claim" | "damages" | "remedy" | "injunction"
+	| "subpoena" | "warrant" | "summons" | "citation" | "ticket" | "fine"
+	| "penalty" | "fee" | "charge" | "bill" | "statement" | "refund"
+	| "credit" | "debit" | "balance" | "account" | "ledger" | "journal"
+	| "register" | "log" | "record" | "timeline" | "schedule" | "agenda"
+	| "itinerary" | "program" | "plan" | "blueprint" | "design" | "draft"
+	| "sketch" | "mockup" | "prototype" | "wireframe" | "flowchart"
+	| "diagram" | "graph" | "plot" | "histogram" | "pie" | "donut"
+	| "bar" | "column" | "line" | "area" | "stack" | "waterfall"
+	| "funnel" | "gauge" | "meter" | "progress" | "spinner" | "loader"
+	| "skeleton" | "empty" | "zero" | "null" | "undefined" | "default"
+	| "custom" | "preset" | "template" | "layout" | "theme" | "style"
+	| "font" | "color" | "size" | "weight" | "italic" | "underline"
+	| "strike" | "caps" | "lower" | "upper" | "sentence" | "title"
+	| "heading" | "subheading" | "body" | "caption" | "footnote" | "label"
+	| "tag" | "badge" | "chip" | "pill" | "button" | "link" | "nav"
+	| "menu" | "sidebar" | "drawer" | "modal" | "dialog" | "alert"
+	| "toast" | "snackbar" | "popover" | "tooltip" | "dropdown" | "select"
+	| "input" | "textarea" | "checkbox" | "radio" | "switch" | "toggle"
+	| "slider" | "range" | "stepper" | "picker" | "date-picker"
+	| "time-picker" | "color-picker" | "file-upload" | "drag-drop"
+	| "dropzone" | "preview" | "thumbnail" | "avatar" | "icon" | "emoji"
+	| "sticker" | "gif" | "video" | "audio" | "stream" | "live" | "record"
+	| "broadcast" | "publish" | "unpublish" | "archive" | "trash"
+	| "restore" | "recover" | "backup" | "sync" | "offline" | "online"
+	| "connected" | "disconnected" | "available" | "busy" | "away"
+	| "dnd" | "invisible" | "status" | "presence" | "activity" | "idle"
+	| "active" | "paused" | "stopped" | "playing" | "buffering" | "loading"
+	| "ready" | "error" | "warning" | "success" | "info" | "help"
+	| "question" | "tip" | "hint" | "trick" | "hack" | "shortcut"
+	| "hotkey" | "gesture" | "swipe" | "tap" | "press" | "long-press"
+	| "double-tap" | "pinch" | "zoom" | "pan" | "drag" | "drop" | "flick"
+	| "scroll" | "hover" | "focus" | "blur" | "click" | "double-click";

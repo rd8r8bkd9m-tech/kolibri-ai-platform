@@ -1,3 +1,9 @@
+---
+name: estimate-generation
+description: "Legacy Kolibri estimate generation workflow: intake, price research, structured estimate layout, validation, and document pack handoff. Deprecated in favor of kolibri-estimates-engine — keep this skill for reference only and route new estimate work to kolibri-estimates-engine."
+license: MIT
+---
+
 # Estimate Generation Skill
 
 This skill guides the AI through generating construction estimates.

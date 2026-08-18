@@ -25,6 +25,10 @@ import { API_BASE_URL, useMobileSession } from "@/src/auth/mobile-session";
 import { ProductChatClient } from "@/src/product-chat/client";
 import { MobileAttachmentClient } from "@/src/product-chat/attachments";
 import {
+	readOfflineCache,
+	writeOfflineCache,
+} from "@/lib/mobile/offline-cache";
+import {
 	isSafeProductId,
 	type ProductMessage,
 	type ProductThread,
@@ -59,11 +63,11 @@ export const MOBILE_DEV_MODE_LABELS: Record<MobileDeveloperMode, string> = {
 const MOBILE_DEVELOPER_MODE_KEY = "kolibri.ui.mobile-developer-access-mode";
 
 const readMobileDeveloperMode = (): MobileDeveloperMode => {
-	if (typeof globalThis.localStorage === "undefined") return "full";
+	if (typeof globalThis.localStorage === "undefined") return "standard";
 	const saved = globalThis.localStorage.getItem(MOBILE_DEVELOPER_MODE_KEY);
 	return saved === "standard" || saved === "auto" || saved === "full"
 		? saved
-		: "full";
+		: "standard";
 };
 
 const persistMobileDeveloperMode = (next: MobileDeveloperMode) => {
@@ -79,7 +83,7 @@ export const MobileDeveloperModeContext =
 		mode: MobileDeveloperMode;
 		setMode: (next: MobileDeveloperMode) => void;
 	}>({
-		mode: "full",
+		mode: "standard",
 		setMode: () => undefined,
 	});
 
@@ -478,7 +482,17 @@ function ProductRuntimeScope({
 			});
 			return { threadId: draft, persisted: false };
 		}
-		return applyThreads(await client.listThreads());
+		try {
+			const threads = await client.listThreads();
+			await writeOfflineCache("mobile:threads", threads);
+			return applyThreads(threads);
+		} catch (reason) {
+			const cached = await readOfflineCache<readonly ProductThread[]>(
+				"mobile:threads",
+			);
+			if (cached) return applyThreads(cached);
+			throw reason;
+		}
 	}, [applyThreads, authenticated, client, commit]);
 
 	const ensureBootstrap = useCallback(() => {

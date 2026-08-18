@@ -312,7 +312,9 @@ export function KolibriPet({ className }: { className?: string }) {
 	const [petId, setPetId] = useState<KolibriPetId>("kolibri");
 	const [gaze, setGaze] = useState({ x: 0, y: 0 });
 	const [moodIndex, setMoodIndex] = useState(0);
-	const [position, setPosition] = useState({ x: 72, y: 150 });
+		const [position, setPosition] = useState(() =>
+			clampPetPosition({ x: 72, y: 150 }),
+		);
 	const [collapsed, setCollapsed] = useState(false);
 	const [collapsedSide, setCollapsedSide] = useState<"left" | "right">("left");
 	const [assistantOpen, setAssistantOpen] = useState(false);
@@ -341,11 +343,9 @@ export function KolibriPet({ className }: { className?: string }) {
 			setReducedMotion(Boolean(reducedMotionQuery?.matches));
 		};
 
-		syncReducedData();
-		syncReducedMotion();
-		setMounted(true);
-		setPetId(readKolibriPetId());
-		setPosition((current) => clampPetPosition(current));
+			syncReducedData();
+			syncReducedMotion();
+			setPetId(readKolibriPetId());
 		try {
 			const rawPosition = globalThis.localStorage.getItem(
 				"kolibri.ui.pet-position",
@@ -372,9 +372,11 @@ export function KolibriPet({ className }: { className?: string }) {
 					? "right"
 					: "left",
 			);
-		} catch {
-			// The pet stays usable without durable browser preferences.
-		}
+			} catch {
+				// The pet stays usable without durable browser preferences.
+			}
+
+			setMounted(true);
 
 		const keepInsideViewport = () => {
 			setPosition((current) => clampPetPosition(current));

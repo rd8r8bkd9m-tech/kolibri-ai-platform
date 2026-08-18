@@ -5006,7 +5006,11 @@ _ESTIMATE_DURABLE_ROLES = (
     "procurement",
     "reviewer",
 )
-_ESTIMATE_TASK_BATCH_SIZE = 8
+# Параллелизм сметных задач. Web-сессия chat.qwen.ai ловит risk-control
+# (RGV587_ERROR::SM) на пачке одновременных запросов — держим 1 (строго
+# последовательно). Для DashScope (sk-ключ, risk-control нет) можно поднять
+# через env KOLIBRI_V3_ESTIMATE_BATCH_SIZE=8.
+_ESTIMATE_TASK_BATCH_SIZE = max(1, int(os.environ.get("KOLIBRI_V3_ESTIMATE_BATCH_SIZE", "1")))
 _ESTIMATE_PLAN_MAX_ATTEMPTS = 3
 _ESTIMATE_PLAN_RETRY_BACKOFF_SECONDS = 3
 _ESTIMATE_TASK_RETRY_BACKOFF_SECONDS = 5

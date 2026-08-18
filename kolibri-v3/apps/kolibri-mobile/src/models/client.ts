@@ -162,12 +162,21 @@ export function effectiveMobileModelName(
 	preferredProfile: string | null,
 	preferredModel: string | null,
 ): string {
-	if (!catalog) return preferredModel ?? "Авто";
 	if (preferredModel) {
-		const match = catalog.models.find((model) => model.id === preferredModel);
-		if (match) return match.displayName;
-		return preferredModel;
+		const exact = catalog?.models.find((model) => model.id === preferredModel);
+		if (exact) return exact.displayName;
+		const suffixed = preferredModel.match(
+			/^(?:platform|user):[A-Za-z0-9._:-]{1,8}:(.+)$/,
+		);
+		const slug = suffixed ? suffixed[1] : preferredModel;
+		const bySlug = catalog?.models.find(
+			(model) => model.id === slug || model.id.endsWith(`:${slug}`),
+		);
+		if (bySlug) return bySlug.displayName;
+		const cleaned = slug.replace(/[._-]+/g, " ").trim();
+		return cleaned ? cleaned.charAt(0).toUpperCase() + cleaned.slice(1) : slug;
 	}
+	if (!catalog) return "Авто";
 	if (preferredProfile && preferredProfile !== "auto") {
 		const profile = catalog.profiles.find((p) => p.id === preferredProfile);
 		if (profile) return profile.displayName;

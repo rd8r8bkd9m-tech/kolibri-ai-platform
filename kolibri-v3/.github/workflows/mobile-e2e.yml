@@ -1,0 +1,74 @@
+name: Mobile device E2E
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "apps/kolibri-mobile/**"
+      - ".github/workflows/mobile-e2e.yml"
+
+jobs:
+  android-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install mobile dependencies
+        working-directory: apps/kolibri-mobile
+        run: npm install
+
+      - name: Install Maestro
+        run: |
+          curl -Ls "https://get.maestro.mobile.dev" | bash
+          echo "$HOME/.maestro/bin" >> "$GITHUB_PATH"
+
+      - name: Build Android app
+        working-directory: apps/kolibri-mobile
+        run: npx expo export --platform android --output-dir dist-android
+
+      - name: Run Android Maestro flows
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          script: |
+            maestro test apps/kolibri-mobile/.maestro/auth.yaml
+            maestro test apps/kolibri-mobile/.maestro/chat-estimate.yaml
+
+  ios-e2e:
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install mobile dependencies
+        working-directory: apps/kolibri-mobile
+        run: npm install
+
+      - name: Install Maestro
+        run: |
+          curl -Ls "https://get.maestro.mobile.dev" | bash
+          echo "$HOME/.maestro/bin" >> "$GITHUB_PATH"
+
+      - name: Start iOS Simulator
+        uses: futureware-tech/simulator-action@v4
+        with:
+          model: "iPhone 15"
+
+      - name: Build iOS app
+        working-directory: apps/kolibri-mobile
+        run: npx expo export --platform ios --output-dir dist-ios
+
+      - name: Run iOS Maestro flows
+        run: |
+          maestro test apps/kolibri-mobile/.maestro/auth.yaml
+          maestro test apps/kolibri-mobile/.maestro/chat-estimate.yaml

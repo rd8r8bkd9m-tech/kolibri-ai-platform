@@ -1,44 +1,46 @@
 .kp-public-shell {
-	/* Тёмная палитра в стиле samreshuuu: тёплый графит + светлый текст. */
-	--kp-bg: #1a1817;
-	--kp-bg-soft: #201e1d;
-	--kp-surface: #2c2a28;
-	--kp-surface-strong: #37322d;
-	--kp-text: #fafaf7;
-	--kp-text-soft: #d2d1cc;
-	--kp-muted: #bfbfba;
-	--kp-faint: #91918d;
-	--kp-line: rgb(255 255 255 / 10%);
-	--kp-line-strong: rgb(255 255 255 / 16%);
-	--kp-line-soft: rgb(255 255 255 / 6%);
-	--kp-cta: #f0f0eb;
-	--kp-cta-ink: #1a1817;
-	--kp-teal: #a0d7d1;
-	--kp-leaf: #75e0a7;
-	--kp-sky: #7bdcf1;
-	--kp-violet: #a999ff;
-	--kp-coral: #ff8b68;
-	--kp-peach: #f4cf93;
-	--kp-rose: #e79bb0;
+	/* Тёмная палитра (samreshuuu-like): база #0A0A0B + акцент #ff6a3d (Kolibri orange). */
+	--kp-bg: #0a0a0b;
+	--kp-bg-soft: #111113;
+	--kp-surface: #141416;
+	--kp-surface-strong: #1b1b1e;
+	--kp-text: #fafafa;
+	--kp-text-soft: #d6d2cc;
+	--kp-muted: #a5a19b;
+	--kp-faint: #7d7974;
+	--kp-fainter: #57534f;
+	--kp-line: #26262a;
+	--kp-line-strong: #343439;
+	--kp-line-soft: rgb(250 250 250 / 7%);
+	--kp-cta: #fafafa;
+	--kp-cta-ink: #0a0a0b;
+	--kp-teal: #ff6a3d;   /* Kolibri orange accent */
+	--kp-leaf: #34d399;
+	--kp-sky: #ff8a5c;
+	--kp-violet: #ff6a3d;
+	--kp-coral: #f87171;
+	--kp-peach: #fb923c;
+	--kp-rose: #f87171;
+	--kp-ease: cubic-bezier(0.16, 1, 0.3, 1);
 	/* Совместимость с прежним кодом. */
-	--kp-ink: #10241d;
+	--kp-ink: #fafafa;
 	--kp-white: #ffffff;
 	--kp-warm: var(--kp-bg-soft);
 	--kp-paper: var(--kp-bg);
 	--kp-muted-legacy: var(--kp-muted);
-	--kp-shadow: 0 24px 70px rgb(0 0 0 / 42%);
-	--kp-glow-teal: rgb(160 215 209 / 16%);
-	--kp-glow-sky: rgb(123 220 241 / 12%);
-	--kp-radius-sm: 0.75rem;
-	--kp-radius-md: 1.125rem;
-	--kp-radius-lg: 1.875rem;
+	--kp-shadow: 0 16px 32px -8px rgb(0 0 0 / 45%), 0 8px 16px -8px rgb(0 0 0 / 35%);
+	--kp-glow-teal: rgb(255 106 61 / 14%);
+	--kp-glow-sky: rgb(255 106 61 / 12%);
+	--kp-radius-sm: 0.5rem;
+	--kp-radius-md: 0.75rem;
+	--kp-radius-lg: 1rem;
 	--kp-max: 75rem;
-	min-height: 100vh;
+min-height: 100vh;
 	overflow-x: clip;
 	background: var(--kp-bg);
 	color: var(--kp-text);
 	color-scheme: dark;
-	font-family: "Inter", "Manrope", ui-sans-serif, -apple-system, BlinkMacSystemFont,
+	font-family: "Inter", "Geist", ui-sans-serif, -apple-system, BlinkMacSystemFont,
 		"Segoe UI", sans-serif;
 	font-size: 1rem;
 	line-height: 1.5;
@@ -131,18 +133,18 @@
 }
 
 .kp-button-primary:hover {
-	background: #ffffff;
+	background: var(--kp-text-soft);
 }
 
 .kp-button-secondary {
 	border-color: var(--kp-line-strong);
-	background: rgb(255 255 255 / 4%);
+	background: var(--kp-surface);
 	color: var(--kp-text);
 }
 
 .kp-button-secondary:hover {
-	border-color: rgb(255 255 255 / 28%);
-	background: rgb(255 255 255 / 9%);
+	border-color: var(--kp-line-strong);
+	background: var(--kp-bg-soft);
 }
 
 .kp-button-small {

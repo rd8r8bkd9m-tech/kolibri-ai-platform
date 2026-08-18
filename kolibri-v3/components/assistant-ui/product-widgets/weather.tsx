@@ -12,6 +12,7 @@ import {
 	SunIcon,
 	WindIcon,
 	DropletsIcon,
+	LoaderCircleIcon,
 } from "lucide-react";
 import Image from "next/image";
 import { useEffect, useRef, useState } from "react";
@@ -435,8 +436,11 @@ export const WeatherToolUI: ToolCallMessagePartComponent<
 					role="status"
 					aria-live="polite"
 				>
-					Получаю погоду для{" "}
-					{typeof args.location === "string" ? args.location : "города"}…
+					<span className="inline-flex items-center gap-2">
+						<LoaderCircleIcon aria-hidden="true" className="size-4 animate-spin" />
+						Получаю погоду для{" "}
+						{typeof args.location === "string" ? args.location : "города"}…
+					</span>
 				</div>
 			);
 		}

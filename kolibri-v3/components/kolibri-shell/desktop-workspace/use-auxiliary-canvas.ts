@@ -263,13 +263,11 @@ export function useAuxiliaryCanvas({
 			onInteraction();
 			return;
 		}
-		openTab({
-			content: { kind: "launcher" },
-			id: "auxiliary:launcher",
-			placement: "right",
-			title: "Инструменты",
-		});
-	}, [activeTab?.placement, onInteraction, open, openTab, session.tabs]);
+		// No right-canvas history: open Files, the default useful surface.
+		// The static "Инструменты" launcher page is intentionally gone
+		// (redesign spec §3.1/§8).
+		openTool("files");
+	}, [activeTab?.placement, onInteraction, open, openTab, openTool, session.tabs]);
 
 	const updateTool = useCallback(
 		(mode: ContextPanelMode | null) => {
@@ -277,13 +275,11 @@ export function useAuxiliaryCanvas({
 			setSession((current) =>
 				updateCanvasTab(current, activeTab.id, {
 					content:
-						mode === null
-							? { kind: "launcher" }
-							: mode === "files"
-								? { kind: "files", category: "all" }
-								: { kind: "tool", mode },
+						mode === null || mode === "files"
+							? { kind: "files", category: "all" }
+							: { kind: "tool", mode },
 					selectedFile: null,
-					title: mode === null ? "Инструменты" : toolTitle(mode),
+					title: toolTitle(mode ?? "files"),
 				}),
 			);
 		},

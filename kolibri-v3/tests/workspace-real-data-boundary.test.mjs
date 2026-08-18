@@ -25,7 +25,10 @@ test("project files default to an honest empty collection", async () => {
 
   assert.match(manager, /\bfiles\s*=\s*\[\]/);
   assert.match(manager, /files\?:\s*readonly\s+WorkspaceFile\[\]/);
-  assert.match(states, /В проекте пока нет файлов/);
+  // Redesign spec §7: empty Files state reads «Документов пока нет» and
+  // offers the «Создать в чате» action.
+  assert.match(states, /Документов пока нет/);
+  assert.match(states, /Создать в чате/);
   assert.doesNotMatch(manager, /\bDEMO_FILES\b/);
   assert.doesNotMatch(
     manager,

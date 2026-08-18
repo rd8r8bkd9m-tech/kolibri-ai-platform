@@ -8,7 +8,13 @@ import {
 	View,
 } from "react-native";
 
-import { Radius } from "@/constants/theme";
+import {
+	FontSize,
+	FontWeight,
+	LineHeight,
+	Radius,
+	Spacing,
+} from "@/constants/theme";
 import { useTheme } from "@/hooks/use-theme";
 
 type ProfileNameEditorProps = {
@@ -83,28 +89,41 @@ export function ProfileNameEditor({
 }
 
 const styles = StyleSheet.create({
-	root: { padding: 14 },
-	label: { fontSize: 12, fontWeight: "600", lineHeight: 17, marginBottom: 6 },
+	root: { padding: Spacing.lg },
+	label: {
+		fontSize: FontSize.caption,
+		fontWeight: FontWeight.semibold,
+		lineHeight: LineHeight.footnote,
+		marginBottom: Spacing.sm,
+	},
 	input: {
 		borderRadius: Radius.md,
 		borderWidth: StyleSheet.hairlineWidth,
-		fontSize: 16,
-		lineHeight: 21,
+		fontSize: FontSize.body,
+		lineHeight: LineHeight.base,
 		minHeight: 48,
-		paddingHorizontal: 13,
+		paddingHorizontal: Spacing.lg,
 		...Platform.select({
 			web: { outlineStyle: "none" } as never,
 			default: {},
 		}),
 	},
-	error: { fontSize: 13, lineHeight: 18, marginTop: 7 },
+	error: {
+		fontSize: FontSize.footnote,
+		lineHeight: LineHeight.compact,
+		marginTop: Spacing.sm,
+	},
 	save: {
 		alignItems: "center",
 		borderRadius: Radius.circle,
 		justifyContent: "center",
-		marginTop: 12,
+		marginTop: Spacing.md,
 		minHeight: 46,
 	},
-	saveText: { fontSize: 15, fontWeight: "700", lineHeight: 20 },
+	saveText: {
+		fontSize: FontSize.medium,
+		fontWeight: FontWeight.bold,
+		lineHeight: LineHeight.normal,
+	},
 	pressed: { opacity: 0.7 },
 });

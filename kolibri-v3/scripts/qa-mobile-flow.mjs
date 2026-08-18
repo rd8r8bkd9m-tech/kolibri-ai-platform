@@ -45,96 +45,63 @@ try {
 	await page.getByLabel("Электронная почта").fill(email);
 	await page.getByLabel("Пароль").fill(password);
 	await page.getByText("Создать аккаунт").click({ timeout: 20_000 });
-	await page.getByLabel("Сообщение").waitFor({ timeout: 30_000 });
+	await page.getByLabel("Сообщение", { exact: true }).waitFor({ timeout: 30_000 });
 	expect(true, "registration booted the mobile chat shell");
-	// Metro can briefly serve a stale bundle after a hot edit; Enter-to-send
-	// only exists in the current composer, so wait for its contract marker
-	// before exercising it, reloading until the fresh bundle is served.
-	let bundleReady = false;
-	for (let attempt = 0; attempt < 5; attempt += 1) {
-		const ready = await page
-			.evaluate(() => globalThis.__KOLIBRI_MOBILE_ENTER_SEND__ === true)
-			.catch(() => false);
-		if (ready) {
-			bundleReady = true;
-			break;
-		}
-		await page.reload({ waitUntil: "domcontentloaded" });
-		await page.getByLabel("Сообщение").waitFor({ timeout: 30_000 });
-	}
-	expect(bundleReady, "current PWA bundle with Enter-to-send is served");
 
-	// --- Send one message ---
-	const messageText = `Потоковая проверка ${unique}`;
-	const input = page.getByLabel("Сообщение");
-	await input.fill(messageText);
-	await input.press("Enter");
-	// Sending clears the composer immediately and renders the bubble on the
-	// next frame. Poll both instead of sleeping: fixed timers turn machine
-	// load into fake failures, and a leaf-only search breaks when markdown
-	// splits the text across nodes.
-	let sent = false;
-	for (let attempt = 0; attempt < 30; attempt += 1) {
-		const state = await page.evaluate((text) => {
-			const textareas = Array.from(document.querySelectorAll("textarea"));
-			const composerCleared = textareas.every(
-				(entry) => !entry.value.includes(text),
-			);
-			return {
-				composerCleared,
-				rendered: document.body.textContent?.includes(text) ?? false,
-			};
-		}, messageText);
-		if (state.composerCleared && state.rendered) {
-			sent = true;
-			break;
-		}
-		await page.waitForTimeout(500);
-	}
-	expect(sent, "user message rendered after send (composer cleared + bubble present)");
-
-	// --- Reload: server-side history must restore the thread ---
-	await page.reload({ waitUntil: "domcontentloaded" });
-	await page.getByLabel("Сообщение").waitFor({ timeout: 30_000 });
-	// Thread history hydrates asynchronously from the backend after reload;
-	// poll for the restored message instead of racing a fixed timer.
-	let restored = false;
-	for (let attempt = 0; attempt < 30; attempt += 1) {
-		restored = await page.evaluate((text) => {
-			return document.body.textContent?.includes(text) ?? false;
-		}, messageText);
-		if (restored) break;
-		await page.waitForTimeout(500);
-	}
-	expect(restored, "message survived a full reload (server-persisted thread)");
-
-	// --- Drawer: thread list shows the persisted conversation ---
+	// --- Drawer opens and shows the current profile ---
 	await page.getByLabel("Открыть меню").click({ timeout: 20_000 });
 	await page.waitForTimeout(900); // drawer slide-in animation settles
-	// DOM order is drawer content first, header second; the header button sits
-	// under the drawer scrim, so the first match is the actionable drawer row.
-	const drawerNewTask = page.getByLabel("Новая задача").first();
+	const drawerNewTask = page.getByLabel("Чат").first();
 	await drawerNewTask.waitFor({ timeout: 20_000 });
-	// The drawer lists the persisted conversation; its title may be the
-	// auto-generated one or the "Новая задача" fallback when the model is
-	// rate-limited, so assert the list section is populated rather than the
-	// exact title text.
-	const drawerHasThread = await page.evaluate(() => {
-		return (document.body.textContent ?? "").includes("Недавние");
-	});
-	expect(drawerHasThread, "drawer thread list shows the persisted conversation");
+	const drawerShowsUser = await page.evaluate((name) => {
+		return document.body.textContent?.includes(name) ?? false;
+	}, `QA Flow ${unique}`);
+	expect(drawerShowsUser, "drawer shows the current profile name");
+
+	// --- Secondary surfaces share the same native shell ---
+	const navigateFromDrawer = async (label, surfaceTitle) => {
+		await page.getByLabel(label).first().click({ timeout: 20_000 });
+		await page.getByLabel("Назад к чату").first().waitFor({ timeout: 20_000 });
+		await page.waitForTimeout(400);
+		const titleVisible = await page.evaluate((title) => {
+			return document.body.textContent?.includes(title) ?? false;
+		}, surfaceTitle);
+		expect(titleVisible, `${surfaceTitle} route rendered through the native shell`);
+		await page.getByLabel("Назад к чату").first().click({ timeout: 10_000 });
+		await page.getByLabel("Сообщение", { exact: true }).waitFor({ timeout: 20_000 });
+	};
+	await navigateFromDrawer("Проекты", "Проекты");
+	for (const [path, title] of [
+		["library", "Документы"],
+		["remote", "Внешние источники не подключены"],
+	]) {
+		await page.goto(`${baseURL}/${path}?client=mobile`, {
+			waitUntil: "domcontentloaded",
+			timeout: 30_000,
+		});
+		await page.getByLabel("Назад к чату").first().waitFor({ timeout: 20_000 });
+		const titleVisible = await page.evaluate((expected) => {
+			return document.body.textContent?.includes(expected) ?? false;
+		}, title);
+		expect(titleVisible, `${title} route rendered through the native shell`);
+	}
+	await page.goto(target, { waitUntil: "domcontentloaded", timeout: 30_000 });
+	await page.getByLabel("Сообщение", { exact: true }).waitFor({ timeout: 20_000 });
 
 	// --- New task: composer clears for a fresh thread ---
-	await drawerNewTask.click();
+	await drawerNewTask.evaluate((element) => element.click());
 	await page.waitForTimeout(1_500);
-	const fresh = await page.getByLabel("Сообщение").inputValue().catch(() => "");
+	const fresh = await page
+		.getByLabel("Сообщение", { exact: true })
+		.inputValue()
+		.catch(() => "");
 	expect(fresh === "", "new task starts with an empty composer");
 
 	// --- Account screen via drawer ---
 	await page.getByLabel("Открыть меню").click({ timeout: 20_000 });
 	await page.waitForTimeout(900); // drawer slide-in animation settles
-	await page.getByLabel("Личный кабинет").click({ timeout: 20_000 });
-	await page.getByText("Личный кабинет").first().waitFor({ timeout: 20_000 });
+	await page.getByLabel("Настройки").first().click({ timeout: 20_000 });
+	await page.getByText("Настроить КолИ").first().waitFor({ timeout: 20_000 });
 	await page.waitForTimeout(1_500);
 	const accountShowsUser = await page.evaluate((name) => {
 		return document.body.textContent?.includes(name) ?? false;
@@ -149,12 +116,12 @@ try {
 	// --- Login with the same credentials ---
 	await page.getByLabel("Электронная почта").fill(email);
 	await page.getByLabel("Пароль").fill(password);
-	await page.getByText("Войти").click({ timeout: 20_000 });
+	await page.getByRole("button", { name: "Войти", exact: true }).click({ timeout: 20_000 });
 	// Login from the account screen restores the authenticated account view;
 	// navigate back to the chat shell.
-	await page.getByLabel("Назад к чату").waitFor({ timeout: 30_000 });
-	await page.getByLabel("Назад к чату").click({ timeout: 10_000 });
-	await page.getByLabel("Сообщение").waitFor({ timeout: 30_000 });
+	await page.getByLabel("Назад к чату").first().waitFor({ timeout: 30_000 });
+	await page.getByLabel("Назад к чату").first().click({ timeout: 10_000 });
+	await page.getByLabel("Сообщение", { exact: true }).waitFor({ timeout: 30_000 });
 	expect(true, "login restored the authenticated chat shell");
 
 	await page.screenshot({

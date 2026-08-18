@@ -14,6 +14,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import { AuthScreen } from "@/components/auth/auth-screen";
 import { NativeScreenHeader } from "@/components/shell/native-screen-header";
+import { NativeScreenShell } from "@/components/shell/native-screen-shell";
 import { CircleButton } from "@/components/shell/circle-button";
 import { IdentitySummary } from "@/components/settings/identity-summary";
 import { ProfileNameEditor } from "@/components/settings/profile-name-editor";
@@ -21,8 +22,15 @@ import { SettingsGroup } from "@/components/settings/settings-group";
 import { SettingsRow } from "@/components/settings/settings-row";
 import { WebBillingSettings } from "@/components/settings/web-billing-settings";
 import { NativeBillingSettings } from "@/components/settings/native-billing-settings";
-import { Icon } from "@/components/ui/icon";
-import { Layout } from "@/constants/theme";
+import { Icon } from "@/src/components/icons/Icon";
+import {
+	FontSize,
+	FontWeight,
+	Layout,
+	LineHeight,
+	Radius,
+	Spacing,
+} from "@/constants/theme";
 import { useTheme } from "@/hooks/use-theme";
 import type { ThemePreference } from "@/hooks/use-theme";
 import { haptics } from "@/lib/haptics";
@@ -226,26 +234,23 @@ export default function AccountScreen() {
 	};
 
 	return (
-		<SafeAreaView
-			edges={["top", "bottom"]}
-			style={[styles.safe, { backgroundColor: colors.settingsBackground }]}
+		<NativeScreenShell
+			backgroundColor={colors.settingsBackground}
+			onBack={requestBack}
+			title="Настроить КолИ"
+			trailing={
+				<CircleButton
+					accessibilityLabel="Закрыть настройки"
+					accessibilityRole="button"
+					onPress={() => {
+						haptics.selection();
+						requestBack();
+					}}
+				>
+					<Icon name="close" size={22} color={colors.foreground} />
+				</CircleButton>
+			}
 		>
-			<NativeScreenHeader
-				onBack={requestBack}
-				title="Настроить КолИ"
-				trailing={
-					<CircleButton
-						accessibilityLabel="Закрыть настройки"
-						accessibilityRole="button"
-						onPress={() => {
-							haptics.selection();
-							requestBack();
-						}}
-					>
-						<Icon name="close" size={22} color={colors.foreground} />
-					</CircleButton>
-				}
-			/>
 			<KeyboardAvoidingView
 				behavior={Platform.OS === "ios" ? "padding" : undefined}
 				style={styles.flex}
@@ -394,7 +399,7 @@ export default function AccountScreen() {
 					</Text>
 				</ScrollView>
 			</KeyboardAvoidingView>
-		</SafeAreaView>
+		</NativeScreenShell>
 	);
 }
 
@@ -402,30 +407,51 @@ const styles = StyleSheet.create({
 	safe: { flex: 1 },
 	flex: { flex: 1 },
 	content: {
-		gap: 20,
-		paddingBottom: 28,
+		gap: Spacing.xl,
+		paddingBottom: Spacing.xxl,
 		paddingHorizontal: Layout.edgeInset,
 	},
 	accessDetails: {
 		borderTopWidth: StyleSheet.hairlineWidth,
-		gap: 10,
-		marginLeft: 56,
-		paddingBottom: 14,
-		paddingRight: 14,
-		paddingTop: 12,
+		gap: Spacing.md,
+		marginLeft: Layout.headerControl + Spacing.lg,
+		paddingBottom: Spacing.lg,
+		paddingRight: Spacing.lg,
+		paddingTop: Spacing.md,
 	},
-	accessDetailRow: { alignItems: "center", flexDirection: "row", gap: 12 },
-	accessLabel: { flex: 1, fontSize: 13, lineHeight: 18 },
-	accessValue: { fontSize: 13, fontWeight: "600", lineHeight: 18 },
-	version: { fontSize: 12, lineHeight: 17, textAlign: "center" },
+	accessDetailRow: {
+		alignItems: "center",
+		flexDirection: "row",
+		gap: Spacing.md,
+	},
+	accessLabel: {
+		flex: 1,
+		fontSize: FontSize.footnote,
+		lineHeight: LineHeight.compact,
+	},
+	accessValue: {
+		fontSize: FontSize.footnote,
+		fontWeight: FontWeight.semibold,
+		lineHeight: LineHeight.compact,
+	},
+	version: {
+		fontSize: FontSize.caption,
+		lineHeight: LineHeight.footnote,
+		textAlign: "center",
+	},
 	themeChoices: { borderTopWidth: StyleSheet.hairlineWidth },
 	choicePlaceholder: { height: 18, width: 18 },
-	skeletonContent: { gap: 20, paddingHorizontal: Layout.edgeInset },
-	skeletonHero: { alignItems: "center", flexDirection: "row", minHeight: 92, paddingHorizontal: 4 },
-	skeletonAvatar: { borderRadius: 32, height: 64, width: 64 },
-	skeletonCopy: { flex: 1, gap: 9, marginLeft: 15 },
-	skeletonName: { borderRadius: 6, height: 20, width: "46%" },
-	skeletonEmail: { borderRadius: 5, height: 14, width: "72%" },
-	skeletonGroup: { borderRadius: 18, height: 112 },
+	skeletonContent: { gap: Spacing.xl, paddingHorizontal: Layout.edgeInset },
+	skeletonHero: {
+		alignItems: "center",
+		flexDirection: "row",
+		minHeight: 92,
+		paddingHorizontal: Spacing.xs,
+	},
+	skeletonAvatar: { borderRadius: Radius.badge, height: 64, width: 64 },
+	skeletonCopy: { flex: 1, gap: Spacing.md, marginLeft: Spacing.lg },
+	skeletonName: { borderRadius: Radius.xs, height: 20, width: "46%" },
+	skeletonEmail: { borderRadius: Radius.xs, height: 14, width: "72%" },
+	skeletonGroup: { borderRadius: Radius.card, height: 112 },
 	skeletonSpinner: { position: "absolute", right: Layout.edgeInset + 4, top: 4 },
 });

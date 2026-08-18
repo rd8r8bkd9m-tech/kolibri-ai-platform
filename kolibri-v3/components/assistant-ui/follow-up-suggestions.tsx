@@ -14,13 +14,14 @@ export const ThreadFollowupSuggestions: FC = () => {
 			}
 		>
 			<div
+				role="group"
 				className="aui-thread-followup-suggestions flex min-h-8 max-w-full flex-wrap items-center justify-center gap-2"
 				aria-label="Варианты продолжения"
 			>
 				{suggestions.map((suggestion, idx) => (
 					<ThreadPrimitive.Suggestion
 						key={idx}
-						className="aui-thread-followup-suggestion bg-background hover:bg-muted/80 rounded-full border px-3 py-1 text-sm transition-colors ease-in"
+						className="aui-thread-followup-suggestion bg-background hover:bg-muted/80 rounded-full border px-3 py-1 text-sm transition-colors ease-in focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
 						prompt={suggestion.prompt}
 						send
 						clearComposer

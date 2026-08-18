@@ -1,4 +1,3 @@
-import MaterialIcons from "@expo/vector-icons/MaterialIcons";
 import { useFonts } from "expo-font";
 import { Drawer } from "expo-router/drawer";
 import { StatusBar } from "expo-status-bar";
@@ -13,9 +12,9 @@ import { Platform, useWindowDimensions } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import "react-native-reanimated";
 
-import { DrawerContent } from "@/components/thread-list/drawer-content";
+import { DrawerContentAdapter } from "@/src/components/overlays/DrawerContentAdapter";
 import { DialogsHost } from "@/lib/dialogs";
-import { Layout } from "@/constants/theme";
+import { Layout, Radius } from "@/constants/theme";
 import { useTheme } from "@/hooks/use-theme";
 import { KolibriThemeProvider } from "@/hooks/theme-provider";
 import {
@@ -83,21 +82,17 @@ function Navigation() {
 	return (
 		<NavigationThemeProvider value={theme}>
 			<Drawer
-				drawerContent={(props) => <DrawerContent {...props} />}
+				drawerContent={(props) => <DrawerContentAdapter {...props} />}
 				screenListeners={{
 					blur: releaseWebFocus,
 				}}
 				screenOptions={{
 					drawerStyle: {
 						backgroundColor: colors.background,
-						borderBottomRightRadius: 28,
-						borderTopRightRadius: 28,
+						borderBottomRightRadius: Radius.composer,
+						borderTopRightRadius: Radius.composer,
 						overflow: "hidden",
 						width: Math.min(width * Layout.drawerFraction, 340),
-						// On react-native-web the scrim overlay is appended after
-						// the drawer panel in the DOM, so without an explicit
-						// z-index taps on drawer items land on the full-screen
-						// "Close drawer" button instead. Lift the panel above it.
 						...Platform.select({
 							web: { zIndex: 10 } as never,
 							default: { elevation: 10 },
@@ -132,6 +127,35 @@ function Navigation() {
 						title: "Сметы",
 					}}
 				/>
+				<Drawer.Screen
+					name="projects"
+					options={{
+						drawerItemStyle: { display: "none" },
+						title: "Проекты",
+					}}
+				/>
+				<Drawer.Screen
+					name="library"
+					options={{
+						drawerItemStyle: { display: "none" },
+						title: "Библиотека",
+					}}
+				/>
+				<Drawer.Screen
+					name="remote"
+					options={{
+						drawerItemStyle: { display: "none" },
+						title: "Удаленно",
+					}}
+				/>
+				<Drawer.Screen
+					name="auth/magic-link"
+					options={{
+						drawerItemStyle: { display: "none" },
+						headerShown: false,
+						title: "Вход",
+					}}
+				/>
 			</Drawer>
 			<StatusBar style={isDark ? "light" : "dark"} />
 		</NavigationThemeProvider>
@@ -139,9 +163,7 @@ function Navigation() {
 }
 
 export default function RootLayout() {
-	const [fontsLoaded] = useFonts(
-		Platform.OS === "ios" ? {} : MaterialIcons.font,
-	);
+	const [fontsLoaded] = useFonts({});
 	if (!fontsLoaded) return null;
 
 	return (

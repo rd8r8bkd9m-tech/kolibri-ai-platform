@@ -7,16 +7,13 @@ const read = (relativePath) =>
 
 test("mobile navigation opens the real bearer-backed account route", () => {
 	const layout = read("app/_layout.tsx");
-	const drawer = read("components/thread-list/drawer-content.tsx");
+	const drawer = read("src/components/overlays/Sidebar.tsx");
 	const account = read("app/account.tsx");
 	const session = read("src/auth/mobile-session.tsx");
 
 	assert.match(layout, /<Drawer\.Screen\s+name="account"/);
-	assert.match(drawer, /accessibilityLabel="Личный кабинет"/);
-	assert.match(
-		drawer,
-		/navigation\.navigate\("account", \{ client: "mobile" \}\);\s*navigation\.closeDrawer\(\)/,
-	);
+	assert.match(drawer, /accessibilityLabel=\{COPY\.settingsLabel\}/);
+	assert.match(drawer, /navigate\("\/account\?client=mobile"\)/);
 	assert.match(account, /router\.replace\("\/app\?client=mobile"\)/);
 	assert.match(account, /router\.push\("\/estimates\?client=mobile"\)/);
 
@@ -82,7 +79,7 @@ test("mobile account is a reusable native settings surface, not a debug dashboar
 	const identity = read("components/settings/identity-summary.tsx");
 	const editor = read("components/settings/profile-name-editor.tsx");
 
-	assert.match(account, /<NativeScreenHeader[^>]+title="Настроить КолИ"/);
+	assert.match(account, /<NativeScreenShell[\s\S]*title="Настроить КолИ"/);
 	assert.match(account, /<ScrollView/);
 	assert.match(account, /contentInsetAdjustmentBehavior="automatic"/);
 	assert.match(account, /<SettingsGroup title="Аккаунт">/);
@@ -112,7 +109,7 @@ test("mobile appearance preference is real, persistent, and platform-aware", () 
 });
 
 test("closed mobile drawer is removed from assistive navigation", () => {
-	const drawer = read("components/thread-list/drawer-content.tsx");
+	const drawer = read("src/components/overlays/Sidebar.tsx");
 
 	assert.match(drawer, /accessibilityElementsHidden=\{!drawerOpen\}/);
 	assert.match(drawer, /accessibilityViewIsModal=\{drawerOpen\}/);

@@ -7,7 +7,6 @@ import type {
 export type CanvasTabPlacement = "right" | "bottom" | "primary";
 
 export type CanvasTabContent =
-	| { kind: "launcher" }
 	| { kind: "projects" }
 	| { kind: "references" }
 	| { kind: "settings"; section: string }

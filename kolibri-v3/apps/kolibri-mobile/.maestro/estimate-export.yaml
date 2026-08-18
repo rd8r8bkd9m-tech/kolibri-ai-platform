@@ -1,0 +1,11 @@
+appId: ru.kolibriai.mobile
+---
+- launchApp
+- tapOn: "Открыть меню"
+- tapOn: "Сметы"
+- tapOn: "Сметы"
+- tapOn: "Поделиться"
+- assertVisible: "PDF"
+- assertVisible: "XLSX"
+- assertVisible: "DOCX"
+- assertVisible: "CSV"

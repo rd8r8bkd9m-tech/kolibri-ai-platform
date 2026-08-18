@@ -45,7 +45,7 @@ try {
 		.fill(`qa-mobile-${unique}+qa@example.com`);
 	await page.getByLabel("Пароль").fill(`qa-only-${unique}-correct-horse`);
 	await page.getByText("Создать аккаунт").click({ timeout: 20_000 });
-	await page.getByLabel("Сообщение").waitFor({ timeout: 30_000 });
+	await page.getByLabel("Сообщение", { exact: true }).waitFor({ timeout: 30_000 });
 	expect(true, "mobile registration and chat shell booted");
 
 	// Six short messages fit inside a 390x844 viewport, so the old test never
@@ -56,7 +56,7 @@ try {
 			3,
 		);
 	for (let index = 0; index < 12; index += 1) {
-		const input = page.getByLabel("Сообщение");
+		const input = page.getByLabel("Сообщение", { exact: true });
 		await input.fill(`Проверка скролла сообщение номер ${index + 1}. ${longText}`);
 		// Pressing Enter submits through the composer form and avoids the
 		// element-detach race when the send button re-renders mid-stream.
@@ -76,10 +76,9 @@ try {
 				element.scrollHeight > element.clientHeight + 10
 			);
 		});
-		const targetElement =
-			candidates.find((element) =>
-				element.textContent?.includes("Проверка скролла"),
-			) ?? candidates[0];
+		const targetElement = [...candidates].sort(
+			(left, right) => right.scrollHeight - left.scrollHeight,
+		)[0];
 		if (!targetElement) return null;
 		return {
 			scrollHeight: targetElement.scrollHeight,
@@ -106,11 +105,13 @@ try {
 		const afterUp = await page.evaluate(() => {
 			const element = Array.from(
 				document.querySelectorAll("div"),
-			).find(
-				(entry) =>
-					window.getComputedStyle(entry).overflowY === "auto" &&
-					entry.scrollHeight > entry.clientHeight + 10,
-			);
+			)
+				.filter(
+					(entry) =>
+						window.getComputedStyle(entry).overflowY === "auto" &&
+						entry.scrollHeight > entry.clientHeight + 10,
+				)
+				.sort((left, right) => right.scrollHeight - left.scrollHeight)[0];
 			return element?.scrollTop ?? 0;
 		});
 		expect(
@@ -123,11 +124,13 @@ try {
 		const after = await page.evaluate(() => {
 			const element = Array.from(
 				document.querySelectorAll("div"),
-			).find(
-				(entry) =>
-					window.getComputedStyle(entry).overflowY === "auto" &&
-					entry.scrollHeight > entry.clientHeight + 10,
-			);
+			)
+				.filter(
+					(entry) =>
+						window.getComputedStyle(entry).overflowY === "auto" &&
+						entry.scrollHeight > entry.clientHeight + 10,
+				)
+				.sort((left, right) => right.scrollHeight - left.scrollHeight)[0];
 			return element?.scrollTop ?? 0;
 		});
 		expect(
@@ -137,18 +140,44 @@ try {
 
 		// Auto-scroll: a new message while at/near the bottom must bring the
 		// newest message into view (scrollTop grows by the added height).
-		const beforeNew = after;
-		await page.getByLabel("Сообщение").fill(`Финальное сообщение ${Date.now()}`);
-		await page.getByLabel("Сообщение").press("Enter");
+		await page.evaluate(() => {
+			const element = Array.from(document.querySelectorAll("div"))
+				.filter(
+					(entry) =>
+						window.getComputedStyle(entry).overflowY === "auto" &&
+						entry.scrollHeight > entry.clientHeight + 10,
+				)
+				.sort((left, right) => right.scrollHeight - left.scrollHeight)[0];
+			if (element) element.scrollTop = element.scrollHeight;
+		});
+		// Emulate a real wheel movement so React receives the scroll event and
+		// updates its at-bottom state before the next message is appended.
+		await page.mouse.move(195, 300);
+		await page.mouse.wheel(0, 3_000);
+		await page.waitForTimeout(800);
+		const beforeNew = await page.evaluate(() => {
+			const element = Array.from(document.querySelectorAll("div"))
+				.filter(
+					(entry) =>
+						window.getComputedStyle(entry).overflowY === "auto" &&
+						entry.scrollHeight > entry.clientHeight + 10,
+				)
+				.sort((left, right) => right.scrollHeight - left.scrollHeight)[0];
+			return element?.scrollTop ?? 0;
+		});
+		await page.getByLabel("Сообщение", { exact: true }).fill(`Финальное сообщение ${Date.now()}`);
+		await page.getByLabel("Сообщение", { exact: true }).press("Enter");
 		await page.waitForTimeout(3_000);
 		const afterNew = await page.evaluate(() => {
 			const element = Array.from(
 				document.querySelectorAll("div"),
-			).find(
-				(entry) =>
-					window.getComputedStyle(entry).overflowY === "auto" &&
-					entry.scrollHeight > entry.clientHeight + 10,
-			);
+			)
+				.filter(
+					(entry) =>
+						window.getComputedStyle(entry).overflowY === "auto" &&
+						entry.scrollHeight > entry.clientHeight + 10,
+				)
+				.sort((left, right) => right.scrollHeight - left.scrollHeight)[0];
 			return element?.scrollTop ?? 0;
 		});
 		expect(

@@ -6,10 +6,12 @@ import type { ContextPanelMode } from "@/components/kolibri-workspace/context-pa
 export const KOLIBRI_GLOBAL_SAVE_EVENT = "kolibri:global-save";
 
 export function useDesktopWorkspaceShortcuts({
+	onEscape,
 	onOpenTool,
 	onToggleCommandPalette,
 	onToggleNavigation,
 }: {
+	onEscape?: () => void;
 	onOpenTool: (mode: ContextPanelMode) => void;
 	onToggleCommandPalette: () => void;
 	onToggleNavigation: () => void;
@@ -57,6 +59,10 @@ export function useDesktopWorkspaceShortcuts({
 			} else if (event.ctrlKey && event.shiftKey && key === "g") {
 				event.preventDefault();
 				onOpenTool("review");
+			} else if (key === "escape" && !command && !event.altKey) {
+				// Redesign spec §6: Escape walks the canvas chain
+				// fullscreen → docked → closed, then closes overlay navigation.
+				onEscape?.();
 			}
 		};
 

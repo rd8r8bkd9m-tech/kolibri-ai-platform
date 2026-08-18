@@ -18,7 +18,7 @@ function durationLabel(seconds: number) {
 const rubles = new Intl.NumberFormat("ru-RU", {
 	style: "currency",
 	currency: "RUB",
-	maximumFractionDigits: 2,
+	maximumFractionDigits: 0,
 });
 
 function PriceCard({
@@ -49,12 +49,12 @@ function PriceCard({
 			<p className="klp-price-sub">{subtitle}</p>
 			<div className="klp-price-value">{price}</div>
 			<div className="klp-price-period">{period}</div>
-			<div style={{ marginTop: "auto" }}>{cta}</div>
 			<ul className="klp-price-features">
 				{features.map((feature) => (
 					<li key={feature}><Check aria-hidden="true" /> {feature}</li>
 				))}
 			</ul>
+			<div className="klp-price-cta-slot">{cta}</div>
 		</article>
 	);
 }
@@ -67,10 +67,13 @@ function PricingGrid({ plan }: { plan: BillingPlan | null }) {
 		<>
 			<div className="klp-pricing-toggle" role="group" aria-label="Период оплаты">
 				<button className="is-active" type="button">Ежемесячно</button>
-				<button type="button" disabled aria-label="Ежегодная оплата скоро">
+				<button type="button" disabled aria-label="Ежегодная оплата в разработке">
 					Ежегодно <small>скоро</small>
 				</button>
 			</div>
+			<p className="klp-pricing-toggle-note">
+				Ежегодная оплата — в разработке. Сейчас действует единый тариф запуска.
+			</p>
 			<div className="klp-pricing-grid">
 				<Reveal delay={0}>
 					<PriceCard
@@ -95,8 +98,8 @@ function PricingGrid({ plan }: { plan: BillingPlan | null }) {
 						price={serverPrice}
 						period={serverPeriod}
 						features={[
-							"Полный контур: смета, КП, договор, акт",
-							"ФСНБ-2022, ГЭСН и цены ФГИС ЦС",
+							"Полный контур: смета, КП, счёт, ведомость",
+							"ФСНБ-2024 и цены ФГИС ЦС",
 							"Экспорт XLSX, PDF, DOCX",
 							"Версии и основания расчёта",
 							"Оплата через защищённую страницу Т‑Банка",
@@ -129,7 +132,7 @@ function PricingGrid({ plan }: { plan: BillingPlan | null }) {
 				<Reveal delay={270}>
 					<PriceCard
 						name="Командный"
-						subtitle="Корпоративный доступ и договор"
+						subtitle="Корпоративный доступ и поддержка"
 						price="по запросу"
 						period="/ чел. / месяц"
 						features={[

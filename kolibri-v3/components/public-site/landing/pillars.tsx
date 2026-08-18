@@ -5,7 +5,7 @@ import {
 	FileCheck2,
 	ReceiptText,
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import type { ReactElement } from "react";
 
 type PillarId = "work" | "routine" | "dev";
@@ -23,7 +23,7 @@ const pillars = [
 		title: "Рутина",
 		subtitle: "Для документов, которые не хочется готовить руками.",
 		description:
-			"КП, договоры и акты формируются из согласованных данных проекта и приходят готовыми файлами.",
+			"КП, счёт и ведомость формируются из согласованных данных проекта и приходят готовыми файлами.",
 	},
 	{
 		id: "dev" as const,
@@ -75,14 +75,14 @@ function RoutineDemo() {
 		},
 		{
 			icon: FileCheck2,
-			title: "КП и договор готовы",
+			title: "КП и счёт готовы",
 			text: "Реквизиты и сроки из проекта, два черновика на согласование.",
 			time: "10:15",
 		},
 		{
 			icon: FileClock,
 			title: "Просрочка по документам",
-			text: "Акт за прошлый месяц не подписан — напоминание готово к отправке.",
+			text: "Счёт за прошлый месяц не оплачен — напоминание готово к отправке.",
 			time: "11:30",
 		},
 	];
@@ -166,45 +166,12 @@ export function PillarsSection() {
 	const navRef = useRef<HTMLDivElement>(null);
 	const Demo = demos[active];
 
-	useEffect(() => {
-		const section = sectionRef.current;
-		if (!section) return;
-
-		const update = () => {
-			if (window.innerWidth <= 900) return;
-			const rect = section.getBoundingClientRect();
-			const total = section.offsetHeight - window.innerHeight;
-			const progress = total > 0 ? Math.min(1, Math.max(0, -rect.top / total)) : 0;
-			const step = 1 / 3;
-			const index = progress < step ? 0 : progress < step * 2 ? 1 : 2;
-			setActive(pillars[index].id);
-
-			const buttons = navRef.current?.querySelectorAll<HTMLButtonElement>(".klp-pillar-btn");
-			buttons?.forEach((button, i) => {
-				const fill = Math.min(1, Math.max(0, (progress - i * step) / step));
-				button.style.setProperty("--progress", String(fill));
-			});
-		};
-
-		update();
-		window.addEventListener("scroll", update, { passive: true });
-		window.addEventListener("resize", update);
-		return () => {
-			window.removeEventListener("scroll", update);
-			window.removeEventListener("resize", update);
-		};
-	}, []);
-
-	const scrollToPillar = (index: number) => {
-		const section = sectionRef.current;
-		if (!section) return;
-		if (window.innerWidth <= 900) {
-			setActive(pillars[index].id);
-			return;
-		}
-		const total = section.offsetHeight - window.innerHeight;
-		const target = Math.max(0, window.scrollY + section.getBoundingClientRect().top + ((index + 0.5) / 3) * total);
-		window.scrollTo({ top: target, behavior: "smooth" });
+	const activatePillar = (index: number) => {
+		setActive(pillars[index].id);
+		const buttons = navRef.current?.querySelectorAll<HTMLButtonElement>(".klp-pillar-btn");
+		buttons?.forEach((button, i) => {
+			button.style.setProperty("--progress", i === index ? "1" : "0");
+		});
 	};
 
 	return (
@@ -217,7 +184,7 @@ export function PillarsSection() {
 							className={`klp-pillar-btn${active === pillar.id ? " is-active" : ""}`}
 							key={pillar.id}
 							type="button"
-							onClick={() => scrollToPillar(index)}
+							onClick={() => activatePillar(index)}
 						>
 							<span className="klp-pillar-title">{pillar.title}</span>
 							<span className="klp-pillar-desc">

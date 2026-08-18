@@ -297,7 +297,7 @@ def has_estimate_scope_input(prompt: str) -> bool:
         or re.search(
             r"""\b(?:
                 дом|коттедж|фундамент|кровл\w*|электр\w*|сантех\w*|
-                отделк\w*|фасад\w*
+                отделк\w*|фасад\w*|ремонт\w*|квартир\w*|офис\w*|помещен\w*
             )\b""",
             prompt,
             flags=re.IGNORECASE | re.VERBOSE,

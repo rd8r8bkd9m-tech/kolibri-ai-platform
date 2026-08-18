@@ -1,0 +1,1836 @@
+{
+  "version": "3.1.0",
+  "count": 305,
+  "skills": [
+    {
+      "name": "agent-handoff",
+      "path": ".agents/skills/00-orchestration/agent-handoff/SKILL.md",
+      "category": "00-orchestration",
+      "description": "\"Передача работы между агентами. Use when: Задачу нужно продолжить другим агентом.\""
+    },
+    {
+      "name": "agent-orchestrator",
+      "path": ".agents/skills/00-orchestration/agent-orchestrator/SKILL.md",
+      "category": "00-orchestration",
+      "description": "\"Оркестрация задач между специализированными агентами. Use when: Новая задача затрагивает более одного домена или требует выбора исполнителя.\""
+    },
+    {
+      "name": "autonomous-development",
+      "path": ".agents/skills/00-orchestration/autonomous-development/SKILL.md",
+      "category": "00-orchestration",
+      "description": "\"Автономный цикл разработки до проверенного результата. Use when: Пользователь просит выполнить задачу end-to-end.\""
+    },
+    {
+      "name": "checkpoint-recovery",
+      "path": ".agents/skills/00-orchestration/checkpoint-recovery/SKILL.md",
+      "category": "00-orchestration",
+      "description": "\"Kolibri V3 skill. Persist recoverable checkpoints for long-running autonomous work and resume safely after interruption. Use when the task matches this capability.\""
+    },
+    {
+      "name": "context-budgeting",
+      "path": ".agents/skills/00-orchestration/context-budgeting/SKILL.md",
+      "category": "00-orchestration",
+      "description": "\"Kolibri V3 skill. Control context loading so agents read only relevant skill sections and references. Use when the task matches this capability.\""
+    },
+    {
+      "name": "decision-log",
+      "path": ".agents/skills/00-orchestration/decision-log/SKILL.md",
+      "category": "00-orchestration",
+      "description": "\"Kolibri V3 skill. Maintain a concise decision record for material architecture, API, security, and release choices. Use when the task matches this capability.\""
+    },
+    {
+      "name": "definition-of-done",
+      "path": ".agents/skills/00-orchestration/definition-of-done/SKILL.md",
+      "category": "00-orchestration",
+      "description": "\"Единый Definition of Done для агентных задач. Use when: Перед финальным verdict любой задачи.\""
+    },
+    {
+      "name": "dependency-analysis",
+      "path": ".agents/skills/00-orchestration/dependency-analysis/SKILL.md",
+      "category": "00-orchestration",
+      "description": "\"Анализ технических и логических зависимостей. Use when: Изменение API, пакета, схемы данных или shared component.\""
+    },
+    {
+      "name": "execution-budget",
+      "path": ".agents/skills/00-orchestration/execution-budget/SKILL.md",
+      "category": "00-orchestration",
+      "description": "\"Ограничивает повторения, команды и попытки исправления, чтобы агент двигался вперёд. Use this skill when an agent must implement, modify, or deliver this behavior.\""
+    },
+    {
+      "name": "feature-slice-delivery",
+      "path": ".agents/skills/00-orchestration/feature-slice-delivery/SKILL.md",
+      "category": "00-orchestration",
+      "description": "\"Делит feature на вертикальные slices и требует реального пользовательского результата на каждом slice. Use this skill when an agent must implement, modify, or deliver this behavior.\""
+    },
+    {
+      "name": "implementation-proof",
+      "path": ".agents/skills/00-orchestration/implementation-proof/SKILL.md",
+      "category": "00-orchestration",
+      "description": "\"Доказательно подтверждает, что заявленная production-функция действительно существует и работает. Use this skill when an agent must implement, modify, or deliver this behavior.\""
+    },
+    {
+      "name": "mission-control",
+      "path": ".agents/skills/00-orchestration/mission-control/SKILL.md",
+      "category": "00-orchestration",
+      "description": "\"Управляет выполнением задачи как production-миссии, а не как тестового задания. Use this skill when an agent must implement, modify, or deliver this behavior.\""
+    },
+    {
+      "name": "parallel-execution",
+      "path": ".agents/skills/00-orchestration/parallel-execution/SKILL.md",
+      "category": "00-orchestration",
+      "description": "\"Безопасное распараллеливание независимых работ. Use when: Есть несколько задач без общих изменяемых зависимостей.\""
+    },
+    {
+      "name": "progress-ledger",
+      "path": ".agents/skills/00-orchestration/progress-ledger/SKILL.md",
+      "category": "00-orchestration",
+      "description": "\"Ведёт проверяемый журнал прогресса по файлам, функциям и acceptance criteria. Use this skill when an agent must implement, modify, or deliver this behavior.\""
+    },
+    {
+      "name": "risk-gating",
+      "path": ".agents/skills/00-orchestration/risk-gating/SKILL.md",
+      "category": "00-orchestration",
+      "description": "\"Kolibri V3 skill. Classify changes by blast radius and require stronger verification for high-risk operations. Use when the task matches this capability.\""
+    },
+    {
+      "name": "scope-lock",
+      "path": ".agents/skills/00-orchestration/scope-lock/SKILL.md",
+      "category": "00-orchestration",
+      "description": "\"Фиксирует цель и запрещает агенту незаметно менять задачу. Use this skill when an agent must implement, modify, or deliver this behavior.\""
+    },
+    {
+      "name": "skill-discovery",
+      "path": ".agents/skills/00-orchestration/skill-discovery/SKILL.md",
+      "category": "00-orchestration",
+      "description": "\"Kolibri V3 skill. Dynamically discover the smallest relevant skills from task language, repository signals, and changed files. Use when the task matches this capability.\""
+    },
+    {
+      "name": "task-decomposition",
+      "path": ".agents/skills/00-orchestration/task-decomposition/SKILL.md",
+      "category": "00-orchestration",
+      "description": "\"Декомпозиция большой задачи на проверяемые подзадачи. Use when: Feature содержит несколько компонентов, слоёв или репозиториев.\""
+    },
+    {
+      "name": "task-state-machine",
+      "path": ".agents/skills/00-orchestration/task-state-machine/SKILL.md",
+      "category": "00-orchestration",
+      "description": "\"Фиксирует состояние задачи и запрещает бесконечные циклы между plan/test/fix. Use this skill when an agent must implement, modify, or deliver this behavior.\""
+    },
+    {
+      "name": "test-loop-breaker",
+      "path": ".agents/skills/00-orchestration/test-loop-breaker/SKILL.md",
+      "category": "00-orchestration",
+      "description": "\"Принудительно выводит агента из циклов, когда тестирование не приводит к изменению продукта. Use this skill when an agent must implement, modify, or deliver this behavior.\""
+    },
+    {
+      "name": "adr-management",
+      "path": ".agents/skills/01-project/adr-management/SKILL.md",
+      "category": "01-project",
+      "description": "\"Kolibri V3 skill. Create and maintain lightweight architecture decision records with explicit consequences. Use when the task matches this capability.\""
+    },
+    {
+      "name": "architecture-review",
+      "path": ".agents/skills/01-project/architecture-review/SKILL.md",
+      "category": "01-project",
+      "description": "\"Аудит архитектуры приложения. Use when: Добавление крупной feature или системный рефакторинг.\""
+    },
+    {
+      "name": "code-refactoring",
+      "path": ".agents/skills/01-project/code-refactoring/SKILL.md",
+      "category": "01-project",
+      "description": "\"Безопасный рефакторинг без изменения поведения. Use when: Требуется структурное улучшение кода.\""
+    },
+    {
+      "name": "dependency-management",
+      "path": ".agents/skills/01-project/dependency-management/SKILL.md",
+      "category": "01-project",
+      "description": "\"Управление npm/Expo/RN зависимостями. Use when: Добавление, обновление или удаление пакета.\""
+    },
+    {
+      "name": "existing-app-preservation",
+      "path": ".agents/skills/01-project/existing-app-preservation/SKILL.md",
+      "category": "01-project",
+      "description": "\"Переделывает существующее приложение без уничтожения уже работающих частей. Use this skill when an agent must implement, modify, or deliver this behavior.\""
+    },
+    {
+      "name": "feature-flags",
+      "path": ".agents/skills/01-project/feature-flags/SKILL.md",
+      "category": "01-project",
+      "description": "\"Kolibri V3 skill. Design safe server/client feature flags, rollout states, and kill switches. Use when the task matches this capability.\""
+    },
+    {
+      "name": "feature-planning",
+      "path": ".agents/skills/01-project/feature-planning/SKILL.md",
+      "category": "01-project",
+      "description": "\"Проектирование новой функциональности до кода. Use when: Новая user-visible feature.\""
+    },
+    {
+      "name": "implementation-plan",
+      "path": ".agents/skills/01-project/implementation-plan/SKILL.md",
+      "category": "01-project",
+      "description": "\"Превращает требование в конкретный план файлов, функций, API и acceptance criteria. Use this skill when an agent must implement, modify, or deliver this behavior.\""
+    },
+    {
+      "name": "monorepo-boundaries",
+      "path": ".agents/skills/01-project/monorepo-boundaries/SKILL.md",
+      "category": "01-project",
+      "description": "\"Kolibri V3 skill. Enforce package and workspace boundaries in a multi-app or monorepo repository. Use when the task matches this capability.\""
+    },
+    {
+      "name": "observability-contracts",
+      "path": ".agents/skills/01-project/observability-contracts/SKILL.md",
+      "category": "01-project",
+      "description": "\"Kolibri V3 skill. Define stable logs, metrics, traces, correlation IDs, and privacy-safe diagnostics. Use when the task matches this capability.\""
+    },
+    {
+      "name": "project-bootstrap",
+      "path": ".agents/skills/01-project/project-bootstrap/SKILL.md",
+      "category": "01-project",
+      "description": "\"Создаёт новый проект, конфигурацию и минимальный working slice вместо генерации пустого scaffold. Use this skill when an agent must implement, modify, or deliver this behavior.\""
+    },
+    {
+      "name": "project-discovery",
+      "path": ".agents/skills/01-project/project-discovery/SKILL.md",
+      "category": "01-project",
+      "description": "\"Первичное исследование репозитория. Use when: Перед существенным изменением существующего проекта.\""
+    },
+    {
+      "name": "repository-map",
+      "path": ".agents/skills/01-project/repository-map/SKILL.md",
+      "category": "01-project",
+      "description": "\"Построение карты репозитория и ownership. Use when: Большой монорепо или незнакомая кодовая база.\""
+    },
+    {
+      "name": "typescript-strict",
+      "path": ".agents/skills/01-project/typescript-strict/SKILL.md",
+      "category": "01-project",
+      "description": "\"Строгая и безопасная типизация TypeScript. Use when: Type errors, any, unsafe casts, public interfaces.\""
+    },
+    {
+      "name": "working-copy-safety",
+      "path": ".agents/skills/01-project/working-copy-safety/SKILL.md",
+      "category": "01-project",
+      "description": "\"Защищает незакоммиченные изменения и определяет безопасную стратегию модификации рабочего дерева. Use this skill when an agent must implement, modify, or deliver this behavior.\""
+    },
+    {
+      "name": "form-implementation",
+      "path": ".agents/skills/02-react-native/form-implementation/SKILL.md",
+      "category": "02-react-native",
+      "description": "\"Делает рабочие формы: schema, validation, submit, errors, loading, success. Use this skill when an agent must implement, modify, or deliver this behavior.\""
+    },
+    {
+      "name": "gestures-and-presses",
+      "path": ".agents/skills/02-react-native/gestures-and-presses/SKILL.md",
+      "category": "02-react-native",
+      "description": "\"Kolibri V3 skill. Implement gesture, press, swipe, drag, and touch interactions without accessibility regressions. Use when the task matches this capability.\""
+    },
+    {
+      "name": "lists-and-virtualization",
+      "path": ".agents/skills/02-react-native/lists-and-virtualization/SKILL.md",
+      "category": "02-react-native",
+      "description": "\"Kolibri V3 skill. Build performant FlatList/SectionList/virtualized interfaces for large datasets. Use when the task matches this capability.\""
+    },
+    {
+      "name": "react-native-architecture",
+      "path": ".agents/skills/02-react-native/react-native-architecture/SKILL.md",
+      "category": "02-react-native",
+      "description": "\"Архитектура React Native приложения и границы слоёв. Use when: Изменение мобильной архитектуры.\""
+    },
+    {
+      "name": "react-native-components",
+      "path": ".agents/skills/02-react-native/react-native-components/SKILL.md",
+      "category": "02-react-native",
+      "description": "\"Компонентная архитектура и reusable UI. Use when: Создание или рефакторинг компонентов.\""
+    },
+    {
+      "name": "react-native-hooks",
+      "path": ".agents/skills/02-react-native/react-native-hooks/SKILL.md",
+      "category": "02-react-native",
+      "description": "\"Проектирование и аудит React hooks. Use when: Custom hooks, effects или stateful logic.\""
+    },
+    {
+      "name": "react-native-native-modules",
+      "path": ".agents/skills/02-react-native/react-native-native-modules/SKILL.md",
+      "category": "02-react-native",
+      "description": "\"Использование native modules и native capabilities. Use when: Нужен системный API, которого нет в JS layer.\""
+    },
+    {
+      "name": "react-native-new-architecture",
+      "path": ".agents/skills/02-react-native/react-native-new-architecture/SKILL.md",
+      "category": "02-react-native",
+      "description": "\"Работа с React Native New Architecture. Use when: Fabric, TurboModules, JSI или compatibility issues.\""
+    },
+    {
+      "name": "react-native-performance",
+      "path": ".agents/skills/02-react-native/react-native-performance/SKILL.md",
+      "category": "02-react-native",
+      "description": "\"Оптимизация RN runtime и rendering. Use when: Jank, slow screens, excessive renders, long lists.\""
+    },
+    {
+      "name": "react-native-platforms",
+      "path": ".agents/skills/02-react-native/react-native-platforms/SKILL.md",
+      "category": "02-react-native",
+      "description": "\"Platform-specific design for iOS and Android. Use when: Поведение отличается между платформами.\""
+    },
+    {
+      "name": "real-device-verification",
+      "path": ".agents/skills/02-react-native/real-device-verification/SKILL.md",
+      "category": "02-react-native",
+      "description": "\"Проверяет критический пользовательский поток на реальном device или максимально близком runtime. Use this skill when an agent must implement, modify, or deliver this behavior.\""
+    },
+    {
+      "name": "render-performance",
+      "path": ".agents/skills/02-react-native/render-performance/SKILL.md",
+      "category": "02-react-native",
+      "description": "\"Kolibri V3 skill. Diagnose unnecessary renders, memoization misuse, expensive trees, and interaction latency. Use when the task matches this capability.\""
+    },
+    {
+      "name": "screen-implementation",
+      "path": ".agents/skills/02-react-native/screen-implementation/SKILL.md",
+      "category": "02-react-native",
+      "description": "\"Создаёт реальный экран от route до data/state/actions, а не только JSX-макет. Use this skill when an agent must implement, modify, or deliver this behavior.\""
+    },
+    {
+      "name": "eas-builds",
+      "path": ".agents/skills/03-expo/eas-builds/SKILL.md",
+      "category": "03-expo",
+      "description": "\"Kolibri V3 skill. Configure reproducible EAS development, preview, and production builds. Use when the task matches this capability.\""
+    },
+    {
+      "name": "eas-updates",
+      "path": ".agents/skills/03-expo/eas-updates/SKILL.md",
+      "category": "03-expo",
+      "description": "\"Kolibri V3 skill. Design safe OTA update channels, rollout gates, rollback, and compatibility checks. Use when the task matches this capability.\""
+    },
+    {
+      "name": "expo-app-bootstrap",
+      "path": ".agents/skills/03-expo/expo-app-bootstrap/SKILL.md",
+      "category": "03-expo",
+      "description": "\"Создаёт рабочий Expo app slice с native config и запускаемым entry point. Use this skill when an agent must implement, modify, or deliver this behavior.\""
+    },
+    {
+      "name": "expo-build",
+      "path": ".agents/skills/03-expo/expo-build/SKILL.md",
+      "category": "03-expo",
+      "description": "\"EAS Build и production build configuration. Use when: Создание или изменение mobile builds.\""
+    },
+    {
+      "name": "expo-data-fetching",
+      "path": ".agents/skills/03-expo/expo-data-fetching/SKILL.md",
+      "category": "03-expo",
+      "description": "\"Data fetching в Expo/React Native. Use when: API queries, mutations, loading/error states.\""
+    },
+    {
+      "name": "expo-dev-client",
+      "path": ".agents/skills/03-expo/expo-dev-client/SKILL.md",
+      "category": "03-expo",
+      "description": "\"Development builds и native development workflow. Use when: Нужны native dependencies или dev build.\""
+    },
+    {
+      "name": "expo-file-system",
+      "path": ".agents/skills/03-expo/expo-file-system/SKILL.md",
+      "category": "03-expo",
+      "description": "\"Файлы, uploads/downloads и local storage. Use when: Работа с documents, attachments или exports.\""
+    },
+    {
+      "name": "expo-native-ui",
+      "path": ".agents/skills/03-expo/expo-native-ui/SKILL.md",
+      "category": "03-expo",
+      "description": "\"Использование системных native UI возможностей Expo. Use when: Нужны native-feeling controls or surfaces.\""
+    },
+    {
+      "name": "expo-notifications",
+      "path": ".agents/skills/03-expo/expo-notifications/SKILL.md",
+      "category": "03-expo",
+      "description": "\"Push/local notifications. Use when: Notifications, deep-link open from notification.\""
+    },
+    {
+      "name": "expo-project-structure",
+      "path": ".agents/skills/03-expo/expo-project-structure/SKILL.md",
+      "category": "03-expo",
+      "description": "\"Официальные практики структуры Expo проекта. Use when: Создание или изменение Expo app structure.\""
+    },
+    {
+      "name": "expo-router",
+      "path": ".agents/skills/03-expo/expo-router/SKILL.md",
+      "category": "03-expo",
+      "description": "\"Маршрутизация через Expo Router. Use when: Новые routes, layouts, deep links, auth guards.\""
+    },
+    {
+      "name": "expo-tailwind",
+      "path": ".agents/skills/03-expo/expo-tailwind/SKILL.md",
+      "category": "03-expo",
+      "description": "\"Tailwind-подобная система стилей в Expo. Use when: Проект использует utility styling.\""
+    },
+    {
+      "name": "expo-ui",
+      "path": ".agents/skills/03-expo/expo-ui/SKILL.md",
+      "category": "03-expo",
+      "description": "\"Expo UI primitives и platform integration. Use when: UI собирается на Expo primitives.\""
+    },
+    {
+      "name": "expo-updates",
+      "path": ".agents/skills/03-expo/expo-updates/SKILL.md",
+      "category": "03-expo",
+      "description": "\"OTA updates и runtime compatibility. Use when: Изменение JS bundle или release strategy.\""
+    },
+    {
+      "name": "expo-upgrade",
+      "path": ".agents/skills/03-expo/expo-upgrade/SKILL.md",
+      "category": "03-expo",
+      "description": "\"Kolibri V3 skill. Upgrade Expo SDK and React Native dependencies using a compatibility-first migration workflow. Use when the task matches this capability.\""
+    },
+    {
+      "name": "native-dev-client",
+      "path": ".agents/skills/03-expo/native-dev-client/SKILL.md",
+      "category": "03-expo",
+      "description": "\"Kolibri V3 skill. Use development builds when Expo Go is insufficient and keep native configuration reproducible. Use when the task matches this capability.\""
+    },
+    {
+      "name": "accessibility",
+      "path": ".agents/skills/04-ui-ux/accessibility/SKILL.md",
+      "category": "04-ui-ux",
+      "description": "\"Accessibility для mobile UI. Use when: Любой интерактивный UI.\""
+    },
+    {
+      "name": "animation-motion",
+      "path": ".agents/skills/04-ui-ux/animation-motion/SKILL.md",
+      "category": "04-ui-ux",
+      "description": "\"Анимации и motion с контролем производительности. Use when: Добавление transition/gesture animation.\""
+    },
+    {
+      "name": "dark-mode",
+      "path": ".agents/skills/04-ui-ux/dark-mode/SKILL.md",
+      "category": "04-ui-ux",
+      "description": "\"Темная тема и theme switching. Use when: Добавление или исправление dark mode.\""
+    },
+    {
+      "name": "design-system",
+      "path": ".agents/skills/04-ui-ux/design-system/SKILL.md",
+      "category": "04-ui-ux",
+      "description": "\"Единая design system: tokens, components, states. Use when: Создание UI-компонента или визуальное изменение.\""
+    },
+    {
+      "name": "design-to-code",
+      "path": ".agents/skills/04-ui-ux/design-to-code/SKILL.md",
+      "category": "04-ui-ux",
+      "description": "\"Kolibri V3 skill. Translate approved visual references into reusable, faithful React Native components. Use when the task matches this capability.\""
+    },
+    {
+      "name": "empty-states",
+      "path": ".agents/skills/04-ui-ux/empty-states/SKILL.md",
+      "category": "04-ui-ux",
+      "description": "\"Empty states для списков и результатов. Use when: Новый data-dependent screen.\""
+    },
+    {
+      "name": "error-states",
+      "path": ".agents/skills/04-ui-ux/error-states/SKILL.md",
+      "category": "04-ui-ux",
+      "description": "\"UX ошибок и recovery. Use when: API/network/business errors.\""
+    },
+    {
+      "name": "interaction-completeness",
+      "path": ".agents/skills/04-ui-ux/interaction-completeness/SKILL.md",
+      "category": "04-ui-ux",
+      "description": "\"Проверяет keyboard, loading, error, empty, disabled и success states. Use this skill when an agent must implement, modify, or deliver this behavior.\""
+    },
+    {
+      "name": "loading-states",
+      "path": ".agents/skills/04-ui-ux/loading-states/SKILL.md",
+      "category": "04-ui-ux",
+      "description": "\"Loading/skeleton/progress states. Use when: Async screen or data load.\""
+    },
+    {
+      "name": "mobile-first-design",
+      "path": ".agents/skills/04-ui-ux/mobile-first-design/SKILL.md",
+      "category": "04-ui-ux",
+      "description": "\"Mobile-first UX для Kolibri. Use when: Новая screen или redesign.\""
+    },
+    {
+      "name": "platform-patterns",
+      "path": ".agents/skills/04-ui-ux/platform-patterns/SKILL.md",
+      "category": "04-ui-ux",
+      "description": "\"Kolibri V3 skill. Apply iOS and Android platform conventions without duplicating the whole UI stack. Use when the task matches this capability.\""
+    },
+    {
+      "name": "premium-mobile-ui",
+      "path": ".agents/skills/04-ui-ux/premium-mobile-ui/SKILL.md",
+      "category": "04-ui-ux",
+      "description": "\"Premium SaaS visual language для Kolibri. Use when: Дизайн ключевых screens.\""
+    },
+    {
+      "name": "responsive-layout",
+      "path": ".agents/skills/04-ui-ux/responsive-layout/SKILL.md",
+      "category": "04-ui-ux",
+      "description": "\"Адаптация mobile/tablet/desktop. Use when: Screen должна поддерживать несколько форм-факторов.\""
+    },
+    {
+      "name": "ui-from-design",
+      "path": ".agents/skills/04-ui-ux/ui-from-design/SKILL.md",
+      "category": "04-ui-ux",
+      "description": "\"Переводит дизайн в рабочий компонентный код с реальными интеракциями. Use this skill when an agent must implement, modify, or deliver this behavior.\""
+    },
+    {
+      "name": "ui-regression-review",
+      "path": ".agents/skills/04-ui-ux/ui-regression-review/SKILL.md",
+      "category": "04-ui-ux",
+      "description": "\"Kolibri V3 skill. Compare rendered UI against reference screenshots and classify visual regressions. Use when the task matches this capability.\""
+    },
+    {
+      "name": "cache-strategy",
+      "path": ".agents/skills/05-state-data/cache-strategy/SKILL.md",
+      "category": "05-state-data",
+      "description": "\"Caching policies. Use when: Performance or offline cache changes.\""
+    },
+    {
+      "name": "form-state",
+      "path": ".agents/skills/05-state-data/form-state/SKILL.md",
+      "category": "05-state-data",
+      "description": "\"Kolibri V3 skill. Manage form state, validation, dirty state, submit state, and error mapping. Use when the task matches this capability.\""
+    },
+    {
+      "name": "local-storage",
+      "path": ".agents/skills/05-state-data/local-storage/SKILL.md",
+      "category": "05-state-data",
+      "description": "\"Key-value persistence. Use when: Settings, session metadata, lightweight cache.\""
+    },
+    {
+      "name": "offline-first",
+      "path": ".agents/skills/05-state-data/offline-first/SKILL.md",
+      "category": "05-state-data",
+      "description": "\"Offline-first flows. Use when: Поле/feature должно работать без сети.\""
+    },
+    {
+      "name": "optimistic-updates",
+      "path": ".agents/skills/05-state-data/optimistic-updates/SKILL.md",
+      "category": "05-state-data",
+      "description": "\"Optimistic UI with rollback. Use when: Mutations with immediate feedback.\""
+    },
+    {
+      "name": "persistence-migrations",
+      "path": ".agents/skills/05-state-data/persistence-migrations/SKILL.md",
+      "category": "05-state-data",
+      "description": "\"Kolibri V3 skill. Migrate local persisted data without losing user state. Use when the task matches this capability.\""
+    },
+    {
+      "name": "query-invalidations",
+      "path": ".agents/skills/05-state-data/query-invalidations/SKILL.md",
+      "category": "05-state-data",
+      "description": "\"Kolibri V3 skill. Design deterministic query invalidation and cache lifecycle rules. Use when the task matches this capability.\""
+    },
+    {
+      "name": "react-query",
+      "path": ".agents/skills/05-state-data/react-query/SKILL.md",
+      "category": "05-state-data",
+      "description": "\"TanStack Query patterns. Use when: Server data, mutations, cache.\""
+    },
+    {
+      "name": "server-state-implementation",
+      "path": ".agents/skills/05-state-data/server-state-implementation/SKILL.md",
+      "category": "05-state-data",
+      "description": "\"Реализует запросы, cache, invalidation, retry и errors для реального backend. Use this skill when an agent must implement, modify, or deliver this behavior.\""
+    },
+    {
+      "name": "sqlite",
+      "path": ".agents/skills/05-state-data/sqlite/SKILL.md",
+      "category": "05-state-data",
+      "description": "\"SQLite data layer. Use when: Structured local data or large offline dataset.\""
+    },
+    {
+      "name": "state-architecture",
+      "path": ".agents/skills/05-state-data/state-architecture/SKILL.md",
+      "category": "05-state-data",
+      "description": "\"Разделение server, client и UI state. Use when: Новая shared state.\""
+    },
+    {
+      "name": "zustand",
+      "path": ".agents/skills/05-state-data/zustand/SKILL.md",
+      "category": "05-state-data",
+      "description": "\"Использование Zustand для локального/global client state. Use when: Нужен lightweight client store.\""
+    },
+    {
+      "name": "api-contracts",
+      "path": ".agents/skills/06-backend/api-contracts/SKILL.md",
+      "category": "06-backend",
+      "description": "\"Явные frontend/backend contracts. Use when: API shape changes.\""
+    },
+    {
+      "name": "api-error-handling",
+      "path": ".agents/skills/06-backend/api-error-handling/SKILL.md",
+      "category": "06-backend",
+      "description": "\"Consistent API error semantics. Use when: New or inconsistent errors.\""
+    },
+    {
+      "name": "api-feature-implementation",
+      "path": ".agents/skills/06-backend/api-feature-implementation/SKILL.md",
+      "category": "06-backend",
+      "description": "\"Реализует backend feature от route до database и response contract. Use this skill when an agent must implement, modify, or deliver this behavior.\""
+    },
+    {
+      "name": "authentication",
+      "path": ".agents/skills/06-backend/authentication/SKILL.md",
+      "category": "06-backend",
+      "description": "\"Authentication flows. Use when: Login, sessions, tokens, refresh.\""
+    },
+    {
+      "name": "authorization",
+      "path": ".agents/skills/06-backend/authorization/SKILL.md",
+      "category": "06-backend",
+      "description": "\"RBAC/permission checks. Use when: Protected resources/actions.\""
+    },
+    {
+      "name": "backend-health-check",
+      "path": ".agents/skills/06-backend/backend-health-check/SKILL.md",
+      "category": "06-backend",
+      "description": "\"Health/readiness/liveness. Use when: Deployment or infra changes.\""
+    },
+    {
+      "name": "background-jobs",
+      "path": ".agents/skills/06-backend/background-jobs/SKILL.md",
+      "category": "06-backend",
+      "description": "\"Kolibri V3 skill. Design durable asynchronous jobs, retries, dead-letter handling, and status reporting. Use when the task matches this capability.\""
+    },
+    {
+      "name": "contract-driven-feature",
+      "path": ".agents/skills/06-backend/contract-driven-feature/SKILL.md",
+      "category": "06-backend",
+      "description": "\"Синхронизирует backend endpoint, schema, client и error contract как одну feature. Use this skill when an agent must implement, modify, or deliver this behavior.\""
+    },
+    {
+      "name": "database-migrations",
+      "path": ".agents/skills/06-backend/database-migrations/SKILL.md",
+      "category": "06-backend",
+      "description": "\"Safe DB migrations. Use when: Schema changes.\""
+    },
+    {
+      "name": "fastapi",
+      "path": ".agents/skills/06-backend/fastapi/SKILL.md",
+      "category": "06-backend",
+      "description": "\"FastAPI backend conventions. Use when: Create/modify API routes or services.\""
+    },
+    {
+      "name": "idempotency",
+      "path": ".agents/skills/06-backend/idempotency/SKILL.md",
+      "category": "06-backend",
+      "description": "\"Kolibri V3 skill. Make mutating API operations safely repeatable under retries and reconnects. Use when the task matches this capability.\""
+    },
+    {
+      "name": "openapi-contract-testing",
+      "path": ".agents/skills/06-backend/openapi-contract-testing/SKILL.md",
+      "category": "06-backend",
+      "description": "\"Kolibri V3 skill. Keep OpenAPI schemas and client behavior aligned through contract checks. Use when the task matches this capability.\""
+    },
+    {
+      "name": "postgresql",
+      "path": ".agents/skills/06-backend/postgresql/SKILL.md",
+      "category": "06-backend",
+      "description": "\"PostgreSQL schema/query patterns. Use when: Relational backend changes.\""
+    },
+    {
+      "name": "rate-limiting",
+      "path": ".agents/skills/06-backend/rate-limiting/SKILL.md",
+      "category": "06-backend",
+      "description": "\"Kolibri V3 skill. Apply per-user, per-IP, per-route, and provider-aware rate limits. Use when the task matches this capability.\""
+    },
+    {
+      "name": "rest-api",
+      "path": ".agents/skills/06-backend/rest-api/SKILL.md",
+      "category": "06-backend",
+      "description": "\"REST API design. Use when: Новые resources/endpoints.\""
+    },
+    {
+      "name": "rust-gateway",
+      "path": ".agents/skills/06-backend/rust-gateway/SKILL.md",
+      "category": "06-backend",
+      "description": "\"Kolibri V3 skill. Integrate and validate a Rust gateway/proxy boundary for model and backend traffic. Use when the task matches this capability.\""
+    },
+    {
+      "name": "schema-migration-safe",
+      "path": ".agents/skills/06-backend/schema-migration-safe/SKILL.md",
+      "category": "06-backend",
+      "description": "\"Создаёт обратимо проверяемые migrations и data backfill. Use this skill when an agent must implement, modify, or deliver this behavior.\""
+    },
+    {
+      "name": "websocket-streaming",
+      "path": ".agents/skills/06-backend/websocket-streaming/SKILL.md",
+      "category": "06-backend",
+      "description": "\"Realtime/SSE/WebSocket streaming. Use when: LLM streaming or realtime events.\""
+    },
+    {
+      "name": "agent-evaluation",
+      "path": ".agents/skills/07-ai/agent-evaluation/SKILL.md",
+      "category": "07-ai",
+      "description": "\"Kolibri V3 skill. Create repeatable eval suites for agent accuracy, safety, latency, and cost. Use when the task matches this capability.\""
+    },
+    {
+      "name": "agent-loop",
+      "path": ".agents/skills/07-ai/agent-loop/SKILL.md",
+      "category": "07-ai",
+      "description": "\"Single-agent reasoning/execution loop. Use when: Agent must plan and use tools.\""
+    },
+    {
+      "name": "agent-task-execution",
+      "path": ".agents/skills/07-ai/agent-task-execution/SKILL.md",
+      "category": "07-ai",
+      "description": "\"Строит реальный agent loop: tool use → observation → action → verification. Use this skill when an agent must implement, modify, or deliver this behavior.\""
+    },
+    {
+      "name": "ai-feature-productionization",
+      "path": ".agents/skills/07-ai/ai-feature-productionization/SKILL.md",
+      "category": "07-ai",
+      "description": "\"Переводит AI prototype в production feature с timeout, retries, fallback и telemetry. Use this skill when an agent must implement, modify, or deliver this behavior.\""
+    },
+    {
+      "name": "ai-observability",
+      "path": ".agents/skills/07-ai/ai-observability/SKILL.md",
+      "category": "07-ai",
+      "description": "\"LLM tracing and metrics. Use when: Debugging quality, latency or cost.\""
+    },
+    {
+      "name": "context-management",
+      "path": ".agents/skills/07-ai/context-management/SKILL.md",
+      "category": "07-ai",
+      "description": "\"Context window and relevance management. Use when: Long conversations or large files.\""
+    },
+    {
+      "name": "conversation-memory",
+      "path": ".agents/skills/07-ai/conversation-memory/SKILL.md",
+      "category": "07-ai",
+      "description": "\"Persistent conversational memory. Use when: Need cross-session preferences/facts.\""
+    },
+    {
+      "name": "json-output-contracts",
+      "path": ".agents/skills/07-ai/json-output-contracts/SKILL.md",
+      "category": "07-ai",
+      "description": "\"Kolibri V3 skill. Produce schema-validated structured model output for deterministic downstream processing. Use when the task matches this capability.\""
+    },
+    {
+      "name": "llm-cost-control",
+      "path": ".agents/skills/07-ai/llm-cost-control/SKILL.md",
+      "category": "07-ai",
+      "description": "\"Token and inference cost control. Use when: Production AI costs need bounded behavior.\""
+    },
+    {
+      "name": "llm-fallback",
+      "path": ".agents/skills/07-ai/llm-fallback/SKILL.md",
+      "category": "07-ai",
+      "description": "\"Provider/model fallback. Use when: Primary model fails, times out or returns unsuitable result.\""
+    },
+    {
+      "name": "llm-provider-routing",
+      "path": ".agents/skills/07-ai/llm-provider-routing/SKILL.md",
+      "category": "07-ai",
+      "description": "\"Routing requests across LLM providers. Use when: Multiple providers/models or failover.\""
+    },
+    {
+      "name": "llm-streaming",
+      "path": ".agents/skills/07-ai/llm-streaming/SKILL.md",
+      "category": "07-ai",
+      "description": "\"Streaming LLM output. Use when: Chat responses need incremental tokens/events.\""
+    },
+    {
+      "name": "llm-tool-calling",
+      "path": ".agents/skills/07-ai/llm-tool-calling/SKILL.md",
+      "category": "07-ai",
+      "description": "\"Tool/function calling. Use when: LLM must invoke application actions.\""
+    },
+    {
+      "name": "model-routing",
+      "path": ".agents/skills/07-ai/model-routing/SKILL.md",
+      "category": "07-ai",
+      "description": "\"Model choice by task. Use when: Requests have different quality/cost/latency needs.\""
+    },
+    {
+      "name": "multi-agent-orchestration",
+      "path": ".agents/skills/07-ai/multi-agent-orchestration/SKILL.md",
+      "category": "07-ai",
+      "description": "\"Multi-agent task execution. Use when: Different specialist agents collaborate.\""
+    },
+    {
+      "name": "production-agent-observability",
+      "path": ".agents/skills/07-ai/production-agent-observability/SKILL.md",
+      "category": "07-ai",
+      "description": "\"Добавляет traceable наблюдаемость agent loop: шаги, tools, latency, failures и результат. Use this skill when an agent must implement, modify, or deliver this behavior.\""
+    },
+    {
+      "name": "prompt-engineering",
+      "path": ".agents/skills/07-ai/prompt-engineering/SKILL.md",
+      "category": "07-ai",
+      "description": "\"System/task prompt design. Use when: Agent behavior or tool use needs improvement.\""
+    },
+    {
+      "name": "prompt-versioning",
+      "path": ".agents/skills/07-ai/prompt-versioning/SKILL.md",
+      "category": "07-ai",
+      "description": "\"Kolibri V3 skill. Version, test, and roll back system prompts and agent policies. Use when the task matches this capability.\""
+    },
+    {
+      "name": "provider-adapters",
+      "path": ".agents/skills/07-ai/provider-adapters/SKILL.md",
+      "category": "07-ai",
+      "description": "\"Kolibri V3 skill. Normalize multiple LLM providers behind a stable internal interface. Use when the task matches this capability.\""
+    },
+    {
+      "name": "retrieval-grounding",
+      "path": ".agents/skills/07-ai/retrieval-grounding/SKILL.md",
+      "category": "07-ai",
+      "description": "\"Kolibri V3 skill. Implement retrieval with source attribution, freshness, and confidence boundaries. Use when the task matches this capability.\""
+    },
+    {
+      "name": "tool-permission-model",
+      "path": ".agents/skills/07-ai/tool-permission-model/SKILL.md",
+      "category": "07-ai",
+      "description": "\"Задаёт разрешения инструментов по роли агента и окружению. Use this skill when an agent must implement, modify, or deliver this behavior.\""
+    },
+    {
+      "name": "tool-permissions",
+      "path": ".agents/skills/07-ai/tool-permissions/SKILL.md",
+      "category": "07-ai",
+      "description": "\"Kolibri V3 skill. Apply least-privilege authorization to agent tools and side effects. Use when the task matches this capability.\""
+    },
+    {
+      "name": "agent-status-ui",
+      "path": ".agents/skills/08-assistant/agent-status-ui/SKILL.md",
+      "category": "08-assistant",
+      "description": "\"Agent execution status in chat. Use when: Long-running AI task.\""
+    },
+    {
+      "name": "assistant-action-execution",
+      "path": ".agents/skills/08-assistant/assistant-action-execution/SKILL.md",
+      "category": "08-assistant",
+      "description": "\"Подключает действия ассистента к реальным application commands. Use this skill when an agent must implement, modify, or deliver this behavior.\""
+    },
+    {
+      "name": "assistant-ui-architecture",
+      "path": ".agents/skills/08-assistant/assistant-ui-architecture/SKILL.md",
+      "category": "08-assistant",
+      "description": "\"Архитектура chat-first Assistant UI. Use when: Chat workspace or composer changes.\""
+    },
+    {
+      "name": "assistant-ui-streaming",
+      "path": ".agents/skills/08-assistant/assistant-ui-streaming/SKILL.md",
+      "category": "08-assistant",
+      "description": "\"Kolibri V3 skill. Build resilient token streaming with reconnects, cancellation, and partial message persistence. Use when the task matches this capability.\""
+    },
+    {
+      "name": "attachments-pipeline",
+      "path": ".agents/skills/08-assistant/attachments-pipeline/SKILL.md",
+      "category": "08-assistant",
+      "description": "\"Kolibri V3 skill. Handle file upload, validation, extraction, preview, and lifecycle safely. Use when the task matches this capability.\""
+    },
+    {
+      "name": "chat-feature-implementation",
+      "path": ".agents/skills/08-assistant/chat-feature-implementation/SKILL.md",
+      "category": "08-assistant",
+      "description": "\"Создаёт полноценный chat feature с persistence, streaming и error recovery. Use this skill when an agent must implement, modify, or deliver this behavior.\""
+    },
+    {
+      "name": "chat-history",
+      "path": ".agents/skills/08-assistant/chat-history/SKILL.md",
+      "category": "08-assistant",
+      "description": "\"Conversation history and pagination. Use when: Opening old conversations or long threads.\""
+    },
+    {
+      "name": "chat-interface",
+      "path": ".agents/skills/08-assistant/chat-interface/SKILL.md",
+      "category": "08-assistant",
+      "description": "\"Chat UI patterns. Use when: Composer, thread, message list.\""
+    },
+    {
+      "name": "citations-and-sources",
+      "path": ".agents/skills/08-assistant/citations-and-sources/SKILL.md",
+      "category": "08-assistant",
+      "description": "\"Kolibri V3 skill. Render trustworthy citations and source metadata in assistant responses. Use when the task matches this capability.\""
+    },
+    {
+      "name": "code-blocks",
+      "path": ".agents/skills/08-assistant/code-blocks/SKILL.md",
+      "category": "08-assistant",
+      "description": "\"Code block rendering and actions. Use when: Assistant emits code.\""
+    },
+    {
+      "name": "conversation-branching",
+      "path": ".agents/skills/08-assistant/conversation-branching/SKILL.md",
+      "category": "08-assistant",
+      "description": "\"Branch/regenerate/edit message flows. Use when: User edits or regenerates turns.\""
+    },
+    {
+      "name": "estimate-widget",
+      "path": ".agents/skills/08-assistant/estimate-widget/SKILL.md",
+      "category": "08-assistant",
+      "description": "\"Interactive construction estimate editor in chat. Use when: Assistant produces estimate positions.\""
+    },
+    {
+      "name": "file-attachments",
+      "path": ".agents/skills/08-assistant/file-attachments/SKILL.md",
+      "category": "08-assistant",
+      "description": "\"Attachments and file lifecycle. Use when: Chat supports uploads.\""
+    },
+    {
+      "name": "interactive-artifacts",
+      "path": ".agents/skills/08-assistant/interactive-artifacts/SKILL.md",
+      "category": "08-assistant",
+      "description": "\"Interactive UI artifacts inside assistant. Use when: Assistant should output forms/cards/editors.\""
+    },
+    {
+      "name": "long-running-tasks",
+      "path": ".agents/skills/08-assistant/long-running-tasks/SKILL.md",
+      "category": "08-assistant",
+      "description": "\"Kolibri V3 skill. Represent background agent tasks, progress, cancellation, and completion in chat UI. Use when the task matches this capability.\""
+    },
+    {
+      "name": "markdown-rendering",
+      "path": ".agents/skills/08-assistant/markdown-rendering/SKILL.md",
+      "category": "08-assistant",
+      "description": "\"Markdown and rich assistant content. Use when: Assistant emits markdown.\""
+    },
+    {
+      "name": "message-actions",
+      "path": ".agents/skills/08-assistant/message-actions/SKILL.md",
+      "category": "08-assistant",
+      "description": "\"Kolibri V3 skill. Design copy, regenerate, retry, edit, branch, export, and feedback actions. Use when the task matches this capability.\""
+    },
+    {
+      "name": "message-rendering",
+      "path": ".agents/skills/08-assistant/message-rendering/SKILL.md",
+      "category": "08-assistant",
+      "description": "\"Rendering assistant/user/tool messages. Use when: New message type or renderer.\""
+    },
+    {
+      "name": "model-selector",
+      "path": ".agents/skills/08-assistant/model-selector/SKILL.md",
+      "category": "08-assistant",
+      "description": "\"Kolibri V3 skill. Design transparent model selection, capability labels, and fallback behavior. Use when the task matches this capability.\""
+    },
+    {
+      "name": "streaming-messages",
+      "path": ".agents/skills/08-assistant/streaming-messages/SKILL.md",
+      "category": "08-assistant",
+      "description": "\"Streaming message UX. Use when: Token/delta streaming in chat.\""
+    },
+    {
+      "name": "estimate-audit-trail",
+      "path": ".agents/skills/09-estimator/estimate-audit-trail/SKILL.md",
+      "category": "09-estimator",
+      "description": "\"Kolibri V3 skill. Track who/what changed an estimate and why, with reproducible before/after state. Use when the task matches this capability.\""
+    },
+    {
+      "name": "estimate-calculation-engine",
+      "path": ".agents/skills/09-estimator/estimate-calculation-engine/SKILL.md",
+      "category": "09-estimator",
+      "description": "\"Детерминированный расчётный движок. Use when: Any total/subtotal/tax/discount computation.\""
+    },
+    {
+      "name": "estimate-domain",
+      "path": ".agents/skills/09-estimator/estimate-domain/SKILL.md",
+      "category": "09-estimator",
+      "description": "\"Доменная модель строительной сметы. Use when: Любая сметная feature.\""
+    },
+    {
+      "name": "estimate-editor-implementation",
+      "path": ".agents/skills/09-estimator/estimate-editor-implementation/SKILL.md",
+      "category": "09-estimator",
+      "description": "\"Создаёт рабочий редактор позиций с вычислениями, undo и persistence. Use this skill when an agent must implement, modify, or deliver this behavior.\""
+    },
+    {
+      "name": "estimate-end-to-end",
+      "path": ".agents/skills/09-estimator/estimate-end-to-end/SKILL.md",
+      "category": "09-estimator",
+      "description": "\"Строит полный поток сметы от пользовательского запроса до сохранённого результата. Use this skill when an agent must implement, modify, or deliver this behavior.\""
+    },
+    {
+      "name": "estimate-equipment",
+      "path": ".agents/skills/09-estimator/estimate-equipment/SKILL.md",
+      "category": "09-estimator",
+      "description": "\"Оборудование и механизмы. Use when: Equipment, rental, machine time.\""
+    },
+    {
+      "name": "estimate-import",
+      "path": ".agents/skills/09-estimator/estimate-import/SKILL.md",
+      "category": "09-estimator",
+      "description": "\"Kolibri V3 skill. Import estimate data from CSV/XLSX/PDF with validation and quarantine for uncertain rows. Use when the task matches this capability.\""
+    },
+    {
+      "name": "estimate-labor",
+      "path": ".agents/skills/09-estimator/estimate-labor/SKILL.md",
+      "category": "09-estimator",
+      "description": "\"Расчёт труда. Use when: Labor positions and hours/rates.\""
+    },
+    {
+      "name": "estimate-line-items",
+      "path": ".agents/skills/09-estimator/estimate-line-items/SKILL.md",
+      "category": "09-estimator",
+      "description": "\"Позиции сметы. Use when: Add/edit/delete/reorder line items.\""
+    },
+    {
+      "name": "estimate-materials",
+      "path": ".agents/skills/09-estimator/estimate-materials/SKILL.md",
+      "category": "09-estimator",
+      "description": "\"Расчёт материалов. Use when: Material consumption for a work item.\""
+    },
+    {
+      "name": "estimate-pdf-export",
+      "path": ".agents/skills/09-estimator/estimate-pdf-export/SKILL.md",
+      "category": "09-estimator",
+      "description": "\"Экспорт сметы в PDF. Use when: User requests printable/shareable estimate.\""
+    },
+    {
+      "name": "estimate-price-provenance",
+      "path": ".agents/skills/09-estimator/estimate-price-provenance/SKILL.md",
+      "category": "09-estimator",
+      "description": "\"Связывает каждую цену с источником, датой, регионом и правилами актуальности. Use this skill when an agent must implement, modify, or deliver this behavior.\""
+    },
+    {
+      "name": "estimate-pricing",
+      "path": ".agents/skills/09-estimator/estimate-pricing/SKILL.md",
+      "category": "09-estimator",
+      "description": "\"Региональное ценообразование. Use when: Need market/registry prices.\""
+    },
+    {
+      "name": "estimate-quantities",
+      "path": ".agents/skills/09-estimator/estimate-quantities/SKILL.md",
+      "category": "09-estimator",
+      "description": "\"Расчёт объёмов работ. Use when: User supplies area, lengths, counts or dimensions.\""
+    },
+    {
+      "name": "estimate-reconciliation",
+      "path": ".agents/skills/09-estimator/estimate-reconciliation/SKILL.md",
+      "category": "09-estimator",
+      "description": "\"Kolibri V3 skill. Reconcile work, material, equipment, overhead, tax, and total bridges. Use when the task matches this capability.\""
+    },
+    {
+      "name": "estimate-schema",
+      "path": ".agents/skills/09-estimator/estimate-schema/SKILL.md",
+      "category": "09-estimator",
+      "description": "\"Kolibri V3 skill. Define canonical estimate entities, IDs, revisions, status, and audit fields. Use when the task matches this capability.\""
+    },
+    {
+      "name": "estimate-validation",
+      "path": ".agents/skills/09-estimator/estimate-validation/SKILL.md",
+      "category": "09-estimator",
+      "description": "\"Проверка сметных данных. Use when: Before export or client delivery.\""
+    },
+    {
+      "name": "estimate-xlsx-export",
+      "path": ".agents/skills/09-estimator/estimate-xlsx-export/SKILL.md",
+      "category": "09-estimator",
+      "description": "\"Экспорт сметы в XLSX. Use when: User needs editable spreadsheet.\""
+    },
+    {
+      "name": "price-source-provenance",
+      "path": ".agents/skills/09-estimator/price-source-provenance/SKILL.md",
+      "category": "09-estimator",
+      "description": "\"Kolibri V3 skill. Record source URL/ID, observed date, region, unit, VAT treatment, and freshness. Use when the task matches this capability.\""
+    },
+    {
+      "name": "quantity-rules",
+      "path": ".agents/skills/09-estimator/quantity-rules/SKILL.md",
+      "category": "09-estimator",
+      "description": "\"Kolibri V3 skill. Implement explainable construction quantity formulas and unit normalization. Use when the task matches this capability.\""
+    },
+    {
+      "name": "rounding-policy",
+      "path": ".agents/skills/09-estimator/rounding-policy/SKILL.md",
+      "category": "09-estimator",
+      "description": "\"Kolibri V3 skill. Enforce deterministic decimal precision and explicit rounding at each financial stage. Use when the task matches this capability.\""
+    },
+    {
+      "name": "scenario-analysis",
+      "path": ".agents/skills/09-estimator/scenario-analysis/SKILL.md",
+      "category": "09-estimator",
+      "description": "\"Kolibri V3 skill. Compare estimate scenarios, contingencies, discounts, and margin assumptions. Use when the task matches this capability.\""
+    },
+    {
+      "name": "chaos-retry-tests",
+      "path": ".agents/skills/10-testing/chaos-retry-tests/SKILL.md",
+      "category": "10-testing",
+      "description": "\"Kolibri V3 skill. Test retries, timeouts, provider failures, offline transitions, and partial recovery. Use when the task matches this capability.\""
+    },
+    {
+      "name": "contract-tests",
+      "path": ".agents/skills/10-testing/contract-tests/SKILL.md",
+      "category": "10-testing",
+      "description": "\"Kolibri V3 skill. Validate frontend/backend contracts across versions and environments. Use when the task matches this capability.\""
+    },
+    {
+      "name": "development-smoke-check",
+      "path": ".agents/skills/10-testing/development-smoke-check/SKILL.md",
+      "category": "10-testing",
+      "description": "\"Минимально проверяет именно реализованный пользовательский сценарий. Use this skill when an agent must implement, modify, or deliver this behavior.\""
+    },
+    {
+      "name": "e2e-testing",
+      "path": ".agents/skills/10-testing/e2e-testing/SKILL.md",
+      "category": "10-testing",
+      "description": "\"End-to-end product flows. Use when: User-visible critical workflow.\""
+    },
+    {
+      "name": "failure-first-debugging",
+      "path": ".agents/skills/10-testing/failure-first-debugging/SKILL.md",
+      "category": "10-testing",
+      "description": "\"Начинает с первого фактического failure и исправляет его причину, а не перезапускает весь suite. Use this skill when an agent must implement, modify, or deliver this behavior.\""
+    },
+    {
+      "name": "integration-testing",
+      "path": ".agents/skills/10-testing/integration-testing/SKILL.md",
+      "category": "10-testing",
+      "description": "\"Integration tests across components/services. Use when: Feature spans multiple modules.\""
+    },
+    {
+      "name": "mobile-e2e",
+      "path": ".agents/skills/10-testing/mobile-e2e/SKILL.md",
+      "category": "10-testing",
+      "description": "\"iOS/Android mobile E2E. Use when: Navigation, auth, chat, estimate or export flow.\""
+    },
+    {
+      "name": "regression-testing",
+      "path": ".agents/skills/10-testing/regression-testing/SKILL.md",
+      "category": "10-testing",
+      "description": "\"Regression suite and change impact. Use when: Bug fix or shared component change.\""
+    },
+    {
+      "name": "test-data-factory",
+      "path": ".agents/skills/10-testing/test-data-factory/SKILL.md",
+      "category": "10-testing",
+      "description": "\"Kolibri V3 skill. Generate deterministic fixtures and realistic test data without leaking secrets. Use when the task matches this capability.\""
+    },
+    {
+      "name": "test-triage",
+      "path": ".agents/skills/10-testing/test-triage/SKILL.md",
+      "category": "10-testing",
+      "description": "\"Kolibri V3 skill. Triage failures into product defect, flaky test, environment issue, or invalid expectation. Use when the task matches this capability.\""
+    },
+    {
+      "name": "unit-testing",
+      "path": ".agents/skills/10-testing/unit-testing/SKILL.md",
+      "category": "10-testing",
+      "description": "\"Unit tests for pure logic and modules. Use when: New calculation, parser, utility or hook logic.\""
+    },
+    {
+      "name": "visual-e2e",
+      "path": ".agents/skills/10-testing/visual-e2e/SKILL.md",
+      "category": "10-testing",
+      "description": "\"Kolibri V3 skill. Run screenshot-based UI checks on critical mobile flows. Use when the task matches this capability.\""
+    },
+    {
+      "name": "android-debugging",
+      "path": ".agents/skills/11-debugging/android-debugging/SKILL.md",
+      "category": "11-debugging",
+      "description": "\"Android emulator/device debugging. Use when: Android-only issue.\""
+    },
+    {
+      "name": "crash-reproduction",
+      "path": ".agents/skills/11-debugging/crash-reproduction/SKILL.md",
+      "category": "11-debugging",
+      "description": "\"Kolibri V3 skill. Turn crash reports into deterministic reproduction steps and regression tests. Use when the task matches this capability.\""
+    },
+    {
+      "name": "debugging",
+      "path": ".agents/skills/11-debugging/debugging/SKILL.md",
+      "category": "11-debugging",
+      "description": "\"Систематическая диагностика дефектов. Use when: Unexpected behavior or test failure.\""
+    },
+    {
+      "name": "expo-doctor",
+      "path": ".agents/skills/11-debugging/expo-doctor/SKILL.md",
+      "category": "11-debugging",
+      "description": "\"Expo diagnostics and configuration sanity. Use when: Dependency/config issues.\""
+    },
+    {
+      "name": "ios-debugging",
+      "path": ".agents/skills/11-debugging/ios-debugging/SKILL.md",
+      "category": "11-debugging",
+      "description": "\"iOS simulator/device debugging. Use when: iOS-only issue.\""
+    },
+    {
+      "name": "log-forensics",
+      "path": ".agents/skills/11-debugging/log-forensics/SKILL.md",
+      "category": "11-debugging",
+      "description": "\"Kolibri V3 skill. Correlate logs across mobile, API, gateway, agents, and jobs. Use when the task matches this capability.\""
+    },
+    {
+      "name": "memory-leaks",
+      "path": ".agents/skills/11-debugging/memory-leaks/SKILL.md",
+      "category": "11-debugging",
+      "description": "\"Memory growth and leak analysis. Use when: Long sessions or memory warnings.\""
+    },
+    {
+      "name": "network-debugging",
+      "path": ".agents/skills/11-debugging/network-debugging/SKILL.md",
+      "category": "11-debugging",
+      "description": "\"Network/API diagnosis. Use when: Timeouts, auth errors, streaming failures.\""
+    },
+    {
+      "name": "network-tracing",
+      "path": ".agents/skills/11-debugging/network-tracing/SKILL.md",
+      "category": "11-debugging",
+      "description": "\"Kolibri V3 skill. Trace DNS, TLS, proxy, auth, HTTP, SSE/WebSocket, and timeout failures. Use when the task matches this capability.\""
+    },
+    {
+      "name": "performance-budget",
+      "path": ".agents/skills/11-debugging/performance-budget/SKILL.md",
+      "category": "11-debugging",
+      "description": "\"Kolibri V3 skill. Define and enforce startup, interaction, memory, bundle, and API latency budgets. Use when the task matches this capability.\""
+    },
+    {
+      "name": "performance-profiling",
+      "path": ".agents/skills/11-debugging/performance-profiling/SKILL.md",
+      "category": "11-debugging",
+      "description": "\"CPU/render/network performance profiling. Use when: Slow experience.\""
+    },
+    {
+      "name": "root-cause-debugging",
+      "path": ".agents/skills/11-debugging/root-cause-debugging/SKILL.md",
+      "category": "11-debugging",
+      "description": "\"Требует воспроизводимость, гипотезу, минимальный fix и повторную проверку. Use this skill when an agent must implement, modify, or deliver this behavior.\""
+    },
+    {
+      "name": "agent-tool-security",
+      "path": ".agents/skills/12-security/agent-tool-security/SKILL.md",
+      "category": "12-security",
+      "description": "\"Kolibri V3 skill. Sandbox tools, validate arguments, scope credentials, and prevent unsafe agent side effects. Use when the task matches this capability.\""
+    },
+    {
+      "name": "api-security",
+      "path": ".agents/skills/12-security/api-security/SKILL.md",
+      "category": "12-security",
+      "description": "\"API security controls. Use when: New endpoint or external API.\""
+    },
+    {
+      "name": "authentication-security",
+      "path": ".agents/skills/12-security/authentication-security/SKILL.md",
+      "category": "12-security",
+      "description": "\"Secure auth/session handling. Use when: Login/session changes.\""
+    },
+    {
+      "name": "dependency-security",
+      "path": ".agents/skills/12-security/dependency-security/SKILL.md",
+      "category": "12-security",
+      "description": "\"Dependency risk management. Use when: Add/update packages or native modules.\""
+    },
+    {
+      "name": "mobile-security",
+      "path": ".agents/skills/12-security/mobile-security/SKILL.md",
+      "category": "12-security",
+      "description": "\"Mobile-specific security. Use when: Secure storage, deep links, permissions, screenshots, file access.\""
+    },
+    {
+      "name": "pii-redaction",
+      "path": ".agents/skills/12-security/pii-redaction/SKILL.md",
+      "category": "12-security",
+      "description": "\"Kolibri V3 skill. Prevent sensitive data leakage in logs, prompts, analytics, and test fixtures. Use when the task matches this capability.\""
+    },
+    {
+      "name": "secrets-management",
+      "path": ".agents/skills/12-security/secrets-management/SKILL.md",
+      "category": "12-security",
+      "description": "\"Secrets and credentials. Use when: API keys, signing keys, tokens, env vars.\""
+    },
+    {
+      "name": "security-fix-implementation",
+      "path": ".agents/skills/12-security/security-fix-implementation/SKILL.md",
+      "category": "12-security",
+      "description": "\"Исправляет security finding в коде и проверяет exploit path. Use this skill when an agent must implement, modify, or deliver this behavior.\""
+    },
+    {
+      "name": "security-review",
+      "path": ".agents/skills/12-security/security-review/SKILL.md",
+      "category": "12-security",
+      "description": "\"Application security review. Use when: New capability, auth, file upload or external integration.\""
+    },
+    {
+      "name": "supply-chain",
+      "path": ".agents/skills/12-security/supply-chain/SKILL.md",
+      "category": "12-security",
+      "description": "\"Kolibri V3 skill. Audit dependencies, lockfiles, scripts, registries, signatures, and CI execution paths. Use when the task matches this capability.\""
+    },
+    {
+      "name": "threat-modeling",
+      "path": ".agents/skills/12-security/threat-modeling/SKILL.md",
+      "category": "12-security",
+      "description": "\"Kolibri V3 skill. Model assets, trust boundaries, attackers, abuse cases, and mitigations. Use when the task matches this capability.\""
+    },
+    {
+      "name": "backup-restore",
+      "path": ".agents/skills/13-devops/backup-restore/SKILL.md",
+      "category": "13-devops",
+      "description": "\"Kolibri V3 skill. Validate backups, restore drills, retention, and recovery objectives. Use when the task matches this capability.\""
+    },
+    {
+      "name": "ci-pipeline",
+      "path": ".agents/skills/13-devops/ci-pipeline/SKILL.md",
+      "category": "13-devops",
+      "description": "\"CI pipeline design. Use when: Changes to automated validation.\""
+    },
+    {
+      "name": "configuration-management",
+      "path": ".agents/skills/13-devops/configuration-management/SKILL.md",
+      "category": "13-devops",
+      "description": "\"Kolibri V3 skill. Manage runtime config with schema validation and safe defaults. Use when the task matches this capability.\""
+    },
+    {
+      "name": "deployment-verification",
+      "path": ".agents/skills/13-devops/deployment-verification/SKILL.md",
+      "category": "13-devops",
+      "description": "\"Проверяет deployed artifact на реальном endpoint после rollout. Use this skill when an agent must implement, modify, or deliver this behavior.\""
+    },
+    {
+      "name": "eas-submit",
+      "path": ".agents/skills/13-devops/eas-submit/SKILL.md",
+      "category": "13-devops",
+      "description": "\"EAS Submit mobile releases. Use when: Submission to App Store/Google Play.\""
+    },
+    {
+      "name": "environment-parity",
+      "path": ".agents/skills/13-devops/environment-parity/SKILL.md",
+      "category": "13-devops",
+      "description": "\"Проверяет совпадение dev/staging/prod конфигурации по критическим параметрам. Use this skill when an agent must implement, modify, or deliver this behavior.\""
+    },
+    {
+      "name": "github-actions",
+      "path": ".agents/skills/13-devops/github-actions/SKILL.md",
+      "category": "13-devops",
+      "description": "\"GitHub Actions workflows. Use when: Workflow changes or CI failures.\""
+    },
+    {
+      "name": "health-readiness",
+      "path": ".agents/skills/13-devops/health-readiness/SKILL.md",
+      "category": "13-devops",
+      "description": "\"Kolibri V3 skill. Define liveness/readiness/dependency checks and rollout gates. Use when the task matches this capability.\""
+    },
+    {
+      "name": "release-gate",
+      "path": ".agents/skills/13-devops/release-gate/SKILL.md",
+      "category": "13-devops",
+      "description": "\"Final release gate. Use when: Before production release.\""
+    },
+    {
+      "name": "release-management",
+      "path": ".agents/skills/13-devops/release-management/SKILL.md",
+      "category": "13-devops",
+      "description": "\"Release orchestration. Use when: Production release.\""
+    },
+    {
+      "name": "rollback",
+      "path": ".agents/skills/13-devops/rollback/SKILL.md",
+      "category": "13-devops",
+      "description": "\"Rollback and recovery. Use when: Failed production deploy/update.\""
+    },
+    {
+      "name": "rollout-strategy",
+      "path": ".agents/skills/13-devops/rollout-strategy/SKILL.md",
+      "category": "13-devops",
+      "description": "\"Kolibri V3 skill. Execute canary, phased, and full rollouts with objective promotion gates. Use when the task matches this capability.\""
+    },
+    {
+      "name": "branch-hygiene",
+      "path": ".agents/skills/14-github/branch-hygiene/SKILL.md",
+      "category": "14-github",
+      "description": "\"Kolibri V3 skill. Keep branches clean, small, rebased/merged intentionally, and recoverable. Use when the task matches this capability.\""
+    },
+    {
+      "name": "code-review",
+      "path": ".agents/skills/14-github/code-review/SKILL.md",
+      "category": "14-github",
+      "description": "\"Structured code review. Use when: Reviewing another agent/developer change.\""
+    },
+    {
+      "name": "commit-quality",
+      "path": ".agents/skills/14-github/commit-quality/SKILL.md",
+      "category": "14-github",
+      "description": "\"Commit quality and history hygiene. Use when: Before merge/release.\""
+    },
+    {
+      "name": "git-workflow",
+      "path": ".agents/skills/14-github/git-workflow/SKILL.md",
+      "category": "14-github",
+      "description": "\"Git branch/commit workflow. Use when: Any source change.\""
+    },
+    {
+      "name": "github-issues",
+      "path": ".agents/skills/14-github/github-issues/SKILL.md",
+      "category": "14-github",
+      "description": "\"Issue creation/triage. Use when: Bug, feature or technical debt needs tracking.\""
+    },
+    {
+      "name": "github-pull-request",
+      "path": ".agents/skills/14-github/github-pull-request/SKILL.md",
+      "category": "14-github",
+      "description": "\"Pull request preparation. Use when: Ready change should be reviewed.\""
+    },
+    {
+      "name": "issue-to-code",
+      "path": ".agents/skills/14-github/issue-to-code/SKILL.md",
+      "category": "14-github",
+      "description": "\"Переводит issue в реализованный change set с traceability. Use this skill when an agent must implement, modify, or deliver this behavior.\""
+    },
+    {
+      "name": "issue-to-implementation",
+      "path": ".agents/skills/14-github/issue-to-implementation/SKILL.md",
+      "category": "14-github",
+      "description": "\"Kolibri V3 skill. Convert an issue into a traceable implementation and verification plan. Use when the task matches this capability.\""
+    },
+    {
+      "name": "merge-conflict-resolution",
+      "path": ".agents/skills/14-github/merge-conflict-resolution/SKILL.md",
+      "category": "14-github",
+      "description": "\"Safe conflict resolution. Use when: Git conflicts.\""
+    },
+    {
+      "name": "pr-quality-gate",
+      "path": ".agents/skills/14-github/pr-quality-gate/SKILL.md",
+      "category": "14-github",
+      "description": "\"Kolibri V3 skill. Enforce pull request completeness, test evidence, risk notes, and reviewer context. Use when the task matches this capability.\""
+    },
+    {
+      "name": "pr-readiness",
+      "path": ".agents/skills/14-github/pr-readiness/SKILL.md",
+      "category": "14-github",
+      "description": "\"Готовит PR с evidence, migrations, tests и rollback notes. Use this skill when an agent must implement, modify, or deliver this behavior.\""
+    },
+    {
+      "name": "canary-release",
+      "path": ".agents/skills/15-release/canary-release/SKILL.md",
+      "category": "15-release",
+      "description": "\"Выполняет canary только после functional implementation и release gate. Use this skill when an agent must implement, modify, or deliver this behavior.\""
+    },
+    {
+      "name": "change-management",
+      "path": ".agents/skills/15-release/change-management/SKILL.md",
+      "category": "15-release",
+      "description": "\"Control risky production changes. Use when: Database, auth, infra or public API changes.\""
+    },
+    {
+      "name": "data-migration-rollout",
+      "path": ".agents/skills/15-release/data-migration-rollout/SKILL.md",
+      "category": "15-release",
+      "description": "\"Safe data migration during release. Use when: Schema/data backfill.\""
+    },
+    {
+      "name": "environment-parity",
+      "path": ".agents/skills/15-release/environment-parity/SKILL.md",
+      "category": "15-release",
+      "description": "\"Detect local/staging/production drift. Use when: Environment-specific bugs.\""
+    },
+    {
+      "name": "feature-flags",
+      "path": ".agents/skills/15-release/feature-flags/SKILL.md",
+      "category": "15-release",
+      "description": "\"Feature flag lifecycle. Use when: Gradual rollout or kill switch.\""
+    },
+    {
+      "name": "incident-handoff",
+      "path": ".agents/skills/15-release/incident-handoff/SKILL.md",
+      "category": "15-release",
+      "description": "\"Transfer an incident between agents/teams. Use when: Operational failure exceeds current owner scope.\""
+    },
+    {
+      "name": "post-release-monitoring",
+      "path": ".agents/skills/15-release/post-release-monitoring/SKILL.md",
+      "category": "15-release",
+      "description": "\"Post-release monitoring. Use when: After deploy or OTA update.\""
+    },
+    {
+      "name": "production-readiness",
+      "path": ".agents/skills/15-release/production-readiness/SKILL.md",
+      "category": "15-release",
+      "description": "\"Проверяет feature на product, security, operational и rollback readiness. Use this skill when an agent must implement, modify, or deliver this behavior.\""
+    },
+    {
+      "name": "production-smoke-test",
+      "path": ".agents/skills/15-release/production-smoke-test/SKILL.md",
+      "category": "15-release",
+      "description": "\"Kolibri V3 skill. Run minimal high-value post-deploy smoke tests before declaring release healthy. Use when the task matches this capability.\""
+    },
+    {
+      "name": "production-verification",
+      "path": ".agents/skills/15-release/production-verification/SKILL.md",
+      "category": "15-release",
+      "description": "\"Verify production behavior against intended contract. Use when: After production deploy.\""
+    },
+    {
+      "name": "release-audit",
+      "path": ".agents/skills/15-release/release-audit/SKILL.md",
+      "category": "15-release",
+      "description": "\"Audit release evidence. Use when: Compliance, retrospective or failed release.\""
+    },
+    {
+      "name": "release-candidate",
+      "path": ".agents/skills/15-release/release-candidate/SKILL.md",
+      "category": "15-release",
+      "description": "\"Kolibri V3 skill. Prepare release candidate artifacts, checksums, versions, and verification evidence. Use when the task matches this capability.\""
+    },
+    {
+      "name": "release-evidence-pack",
+      "path": ".agents/skills/15-release/release-evidence-pack/SKILL.md",
+      "category": "15-release",
+      "description": "\"Формирует доказательный пакет перед production rollout: artifact, checks, health, rollback и change summary. Use this skill when an agent must implement, modify, or deliver this behavior.\""
+    },
+    {
+      "name": "release-notes",
+      "path": ".agents/skills/15-release/release-notes/SKILL.md",
+      "category": "15-release",
+      "description": "\"Kolibri V3 skill. Generate evidence-based release notes from merged changes and known limitations. Use when the task matches this capability.\""
+    },
+    {
+      "name": "release-smoke-test",
+      "path": ".agents/skills/15-release/release-smoke-test/SKILL.md",
+      "category": "15-release",
+      "description": "\"Production smoke testing. Use when: Immediately after deployment.\""
+    },
+    {
+      "name": "rollback-decision",
+      "path": ".agents/skills/15-release/rollback-decision/SKILL.md",
+      "category": "15-release",
+      "description": "\"Kolibri V3 skill. Define objective rollback triggers and execute rollback without guesswork. Use when the task matches this capability.\""
+    },
+    {
+      "name": "rollback-execution",
+      "path": ".agents/skills/15-release/rollback-execution/SKILL.md",
+      "category": "15-release",
+      "description": "\"Выполняет rollback по доказанному сигналу, а не как замену debugging. Use this skill when an agent must implement, modify, or deliver this behavior.\""
+    },
+    {
+      "name": "rollback-readiness",
+      "path": ".agents/skills/15-release/rollback-readiness/SKILL.md",
+      "category": "15-release",
+      "description": "\"Validate rollback path before release. Use when: High-risk release or migration.\""
+    },
+    {
+      "name": "versioning-policy",
+      "path": ".agents/skills/15-release/versioning-policy/SKILL.md",
+      "category": "15-release",
+      "description": "\"Versioning for mobile/API/package contracts. Use when: Breaking/non-breaking changes.\""
+    },
+    {
+      "name": "assistant-ui",
+      "path": ".agents/skills/assistant-ui/SKILL.md",
+      "category": "flat",
+      "description": "\"Overview and router for assistant-ui, the React library for building AI chat interfaces from composable primitives. Use for high-level, cross-cutting, or architecture-overview questions: choosing packages, picking a runtime, or understanding the layered model (RuntimeCore, Runtime, the aui client, primitives) and message model. Covers the `@assistant-ui/react` core plus `@assistant-ui/react-ai-sdk`, `@assistant-ui/react-langchain`, `@assistant-ui/react-langgraph`, `assistant-stream`, and `assistant-cloud`, and the platform bindings `@assistant-ui/react-native` and `@assistant-ui/react-ink`; `AssistantRuntimeProvider`; the primitives `ThreadPrimitive`, `MessagePrimitive`, `ComposerPrimitive`; the hooks `useAui`, `useAuiState`, `useAuiEvent`; and runtime selection across `useChatRuntime`, `useExternalStoreRuntime`, `useLangGraphRuntime`, `useLocalRuntime`. Current line is `@assistant-ui/react` 0.15.x on AI SDK v7. For a specific area route to a focused sibling instead: setup, runtime, primitives, tools, streaming, cloud, thread-list, copilots, markdown, react-mcp, observability, or update. Not for hands-on tasks already owned by those siblings.\""
+    },
+    {
+      "name": "cloud",
+      "path": ".agents/skills/cloud/SKILL.md",
+      "category": "flat",
+      "description": "\"Sets up assistant-ui Cloud persistence and authorization with the assistant-cloud package and AssistantCloud client. Use when adding cross-session thread/message persistence, multi-device chat history, file uploads, or auth to an assistant-ui app: passing the cloud option to useChatRuntime (with AssistantChatTransport from @assistant-ui/react-ai-sdk), configuring AssistantCloud with authToken (JWT), apiKey plus userId/workspaceId (server-side), or anonymous mode, and wiring auth providers like NextAuth, Clerk, or Firebase. Covers cloud.threads.list/get/create/update/delete, cloud.threads.messages.list/create/update(threadId, ...), cloud.files.generatePresignedUploadUrl and pdfToImages, cloud.projects, cloud.runs, the aui/v0 message format, custom adapters (CloudMessagePersistence, createFormattedPersistence, ThreadHistoryAdapter, RemoteThreadListAdapter), auto title generation, external_id/metadata mapping, and env vars NEXT_PUBLIC_ASSISTANT_BASE_URL and ASSISTANT_API_KEY. For the thread-list sidebar UI itself use thread-list.\""
+    },
+    {
+      "name": "copilots",
+      "path": ".agents/skills/copilots/SKILL.md",
+      "category": "flat",
+      "description": "\"Grounding an assistant in your app with assistant-ui copilots (@assistant-ui/react). Use when steering assistant behavior with useAssistantInstructions, feeding lazy app-state context via useAssistantContext({ getContext }), exposing rendered components with makeAssistantVisible(Component, { clickable, editable }), building two-way interactable state with unstable_useInteractable / unstable_Interactables() / unstable_interactableTool (the legacy useAssistantInteractable and Interactables() are deprecated and scheduled for removal after 2026-09-14), or registering instructions and tools imperatively through useAui().modelContext.register({ getModelContext }). Reach for this when the assistant should read the current page, click or edit UI, or read and update component state through auto-generated update_{name} tools. For LLM tools and tool-call UI use the tools skill; for runtime and thread state use the runtime skill.\""
+    },
+    {
+      "name": "development-controller",
+      "path": ".agents/skills/development-controller/SKILL.md",
+      "category": "flat",
+      "description": "\"Контроллер production-цикла Kolibri V3: DISCOVER → SELECT SKILLS → PLAN → IMPLEMENT → INTEGRATE → VERIFY → FIX → DONE, состояние в progress-ledger, anti-loop и definition-of-done. Use when: любая задача разработки/изменения продукта в kolibri-v3.\""
+    },
+    {
+      "name": "eas-app-stores",
+      "path": ".agents/skills/eas-app-stores/SKILL.md",
+      "category": "flat",
+      "description": "EAS service (paid). Deploy Expo apps to the app stores with EAS - build and submit to the iOS App Store, Google Play Store, and TestFlight, configure eas.json build and submit profiles, manage app versions and build numbers, and publish App Store metadata and ASO. Use whenever the user wants to deploy, release, or ship an app to production or the app stores, is preparing a production build, running eas build or eas submit, shipping to TestFlight, bumping version or build numbers, or setting up store listing metadata. For deploying an Expo website or API routes, use the eas-hosting skill."
+    },
+    {
+      "name": "eas-hosting",
+      "path": ".agents/skills/eas-hosting/SKILL.md",
+      "category": "flat",
+      "description": "EAS service (paid). Deploy Expo websites and Expo Router API routes to EAS Hosting - export the web bundle, run eas deploy for production and PR preview URLs, manage environment secrets and custom domains, and work within the Cloudflare Workers runtime. Also covers authoring API routes (+api.ts handlers, HTTP methods, request handling, CORS). Use when deploying an Expo web app or API routes, setting up EAS Hosting, or configuring hosting environments and domains. Not for native builds or store releases - use the eas-app-stores skill for those."
+    },
+    {
+      "name": "eas-observe",
+      "path": ".agents/skills/eas-observe/SKILL.md",
+      "category": "flat",
+      "description": "EAS service (paid). Use for anything related to EAS Observe - adding `expo-observe` to an Expo project (AppMetricsRoot/ObserveRoot HOC, markInteractive, the useObserve hook, the Expo Router / React Navigation integrations for per-route metrics, and user-defined events via `Observe.logEvent`), querying via the EAS CLI (`eas observe:metrics-summary`, `observe:metrics`, `observe:routes`, `observe:events`, `observe:versions`), or interpreting the resulting metrics (cold/warm launch, TTR, TTI, navigation cold/warm TTR, update download, and the TTI frameRate params for triaging slow startups)."
+    },
+    {
+      "name": "eas-simulator",
+      "path": ".agents/skills/eas-simulator/SKILL.md",
+      "category": "flat",
+      "description": "\"EAS service (paid). Run and control a user's app on a remote iOS/Android simulator hosted on EAS cloud. Read before running any `eas simulator:*` commands - it has the current syntax for this experimental API. Use whenever the user needs a simulator they can't run locally - 'run my app on a cloud simulator', 'use eas simulator to run/install/screenshot my app', 'I'm on Linux/Cursor and need an iOS device', 'no sim on this box / headless CI', 'let an agent click through my app and screenshot it', 'test my dev build on a remote sim with live reload', 'stream a sim to my browser' - even when they don't say 'EAS Simulator' or 'cloud'. On a host WITHOUT a local simulator (Linux, CI, cloud sandbox) it's the default; on macOS, do NOT auto-trigger for a plain 'run on the simulator' - use it only for a cloud/remote/shareable sim, an iOS version they lack, or an agent-driven session. NOT for local sims (expo run:ios, Xcode, Android Studio), EAS Build/Update, web preview, or physical devices.\""
+    },
+    {
+      "name": "eas-update-insights",
+      "path": ".agents/skills/eas-update-insights/SKILL.md",
+      "category": "flat",
+      "description": "\"EAS service (paid). Check the health of published EAS Update: crash rates, install/launch counts, unique users, payload size, and the split between embedded and OTA users per channel. Use when the user asks how an update is performing, whether a rollout is healthy, how many users are on the embedded build vs OTA, or wants to gate CI on update health.\""
+    },
+    {
+      "name": "eas-workflows",
+      "path": ".agents/skills/eas-workflows/SKILL.md",
+      "category": "flat",
+      "description": "EAS service (paid). Helps understand and write EAS workflow YAML files for Expo projects. Use this skill when the user asks about CI/CD or workflows in an Expo or EAS context, mentions .eas/workflows/, or wants help with EAS build pipelines or deployment automation."
+    },
+    {
+      "name": "estimate-generation",
+      "path": ".agents/skills/estimate-generation/SKILL.md",
+      "category": "flat",
+      "description": "\"Legacy Kolibri estimate generation workflow: intake, price research, structured estimate layout, validation, and document pack handoff. Deprecated in favor of kolibri-estimates-engine — keep this skill for reference only and route new estimate work to kolibri-estimates-engine.\""
+    },
+    {
+      "name": "expo-app-clip",
+      "path": ".agents/skills/expo-app-clip/SKILL.md",
+      "category": "flat",
+      "description": "Framework (OSS). Add an iOS App Clip target to an Expo app. Use when the user mentions App Clip, AASA, apple-app-site-association, appclips, smart app banner, or wants to ship a lightweight iOS Clip invoked from a URL alongside their parent app."
+    },
+    {
+      "name": "expo-brownfield",
+      "path": ".agents/skills/expo-brownfield/SKILL.md",
+      "category": "flat",
+      "description": "Framework (OSS). Integrate Expo and React Native into an existing native iOS or Android app. Use when the user mentions brownfield, embedding React Native in a native app, AAR/XCFramework, or adding Expo to an existing Kotlin/Swift project. Covers both the isolated approach and the integrated approach."
+    },
+    {
+      "name": "expo-data-fetching",
+      "path": ".agents/skills/expo-data-fetching/SKILL.md",
+      "category": "flat",
+      "description": "Framework (OSS). Use when implementing or debugging ANY network request, API call, or data fetching. Covers fetch API, React Query, SWR, error handling, caching, offline support, and Expo Router data loaders (`useLoaderData`)."
+    },
+    {
+      "name": "expo-dev-client",
+      "path": ".agents/skills/expo-dev-client/SKILL.md",
+      "category": "flat",
+      "description": "Framework (OSS). Build and distribute Expo development clients locally or via TestFlight for internal testing. For production TestFlight releases and store submission, use the eas-app-stores skill."
+    },
+    {
+      "name": "expo-dom",
+      "path": ".agents/skills/expo-dom/SKILL.md",
+      "category": "flat",
+      "description": "Framework (OSS). Use Expo DOM components to run web code in a webview on native and as-is on web. Migrate web code to native incrementally. For the end-to-end migration of a whole web app, use the expo-web-to-native skill."
+    },
+    {
+      "name": "expo-examples",
+      "path": ".agents/skills/expo-examples/SKILL.md",
+      "category": "flat",
+      "description": "Framework (OSS). Expo's official example projects - the expo/examples repo of ~70 `with-*` integrations (Stripe, Clerk, Supabase, OpenAI, maps, Reanimated, SQLite, Skia, NativeWind, and more). Use when integrating a third-party library or service into an existing Expo app and you want the canonical, version-matched pattern to adapt, or when scaffolding a new project from one with `npx create-expo --example`."
+    },
+    {
+      "name": "expo-migrate-module",
+      "path": ".agents/skills/expo-migrate-module/SKILL.md",
+      "category": "flat",
+      "description": "Framework (OSS). Migrate an existing Apple/Swift Expo native module from the Expo Modules API 1.0 definition DSL to the 2.0 macro API (sometimes called v2) while preserving its JavaScript and TypeScript contract. Use when converting or incrementally adopting @ExpoModule, @JS, @Event, @SharedObject, or @Record in an existing module. Do not use for creating a new module, general Expo SDK upgrades, or Android/Kotlin migrations."
+    },
+    {
+      "name": "expo-module",
+      "path": ".agents/skills/expo-module/SKILL.md",
+      "category": "flat",
+      "description": "Framework (OSS). Guide for creating and writing Expo native modules and views using the Expo Modules API (Swift, Kotlin, TypeScript). Covers module definition DSL, native views, shared objects, config plugins, lifecycle hooks, autolinking, and type system. Use when building or modifying native modules for Expo. Not for migrating an existing Swift module from the definition DSL to the Expo Modules API 2.0 macros; use expo-migrate-module (from the expo-experiments plugin) for that."
+    },
+    {
+      "name": "expo-native-ui",
+      "path": ".agents/skills/expo-native-ui/SKILL.md",
+      "category": "flat",
+      "description": "Framework (OSS). Build beautiful, native-feeling Expo screens. Covers Apple HIG styling, semantic colors, native controls, SF Symbols, media, animations, visual effects, gradients, storage, and responsive layout. For routing and navigation, use the expo-router skill."
+    },
+    {
+      "name": "expo-project-structure",
+      "path": ".agents/skills/expo-project-structure/SKILL.md",
+      "category": "flat",
+      "description": "Framework (OSS). Folder structure for a new Expo app. Use when scaffolding or laying out a new Expo project with Expo Router, or deciding where a file should live in one. For new projects only — never restructure an existing app to match."
+    },
+    {
+      "name": "expo-router",
+      "path": ".agents/skills/expo-router/SKILL.md",
+      "category": "flat",
+      "description": "Framework (OSS). Navigation and routing for Expo Router. Covers file-based routes, groups and dynamic routes, folder organization, Link with previews and context menus, native Stack, page titles, modals and form sheets, NativeTabs, headers and toolbars, and header search bars."
+    },
+    {
+      "name": "expo-skill-eval",
+      "path": ".agents/skills/expo-skill-eval/SKILL.md",
+      "category": "flat",
+      "description": "Evaluate Expo skills in this repo end-to-end - trigger accuracy, generated code quality, and runtime screenshots on iOS simulator and Android emulator via Expo Go (web optional). Use when the user wants to eval an Expo skill, test that a skill produces working code, benchmark a skill with device screenshots, or verify a skill's output renders correctly."
+    },
+    {
+      "name": "expo-skill-feedback",
+      "path": ".agents/skills/expo-skill-feedback/SKILL.md",
+      "category": "flat",
+      "description": "'Submit feedback on an Expo skill—or Expo itself—and control bundled anonymous usage telemetry (off by default / opt-in). Submit feedback with: npx --yes submit-expo-feedback@latest \"ACTIONABLE_FEEDBACK\". Optionally add either or both: --category \"CATEGORY\" and --subject \"SUBJECT\". Replace the uppercase placeholders before running. Use when a skill was useful, confusing, broken, missing context, or worth improving; when Expo, Expo CLI, EAS CLI, docs, or MCP worked well or fell short; when an AI agent repeatedly failed, got stuck, or needed the user to take over an Expo task (report it as an eval candidate); or when the user explicitly asks to enable or disable telemetry (tracking), check its status, or understand what it collects.'"
+    },
+    {
+      "name": "expo-tailwind-setup",
+      "path": ".agents/skills/expo-tailwind-setup/SKILL.md",
+      "category": "flat",
+      "description": "Framework (OSS). Set up Tailwind CSS v4 in Expo with react-native-css and NativeWind v5 for universal styling"
+    },
+    {
+      "name": "expo-ui",
+      "path": ".agents/skills/expo-ui/SKILL.md",
+      "category": "flat",
+      "description": "\"Framework (OSS). Build native UI with the @expo/ui package: real SwiftUI on iOS and Jetpack Compose on Android rendered from React in an Expo or React Native app. Covers universal cross-platform components (Host, Column, Row, Button, Text, List, and more imported from @expo/ui), drop-in replacements for popular React Native community libraries (BottomSheet, DateTimePicker, Slider, Menu, etc.), and platform-specific SwiftUI (@expo/ui/swift-ui, iOS only) and Jetpack Compose (@expo/ui/jetpack-compose, Android only) trees and modifiers. Use when adding or reviewing @expo/ui Host/RNHostView trees, building native-feeling UI where standard React Native components fall short (grouped settings forms with toggles, sections, menus, sheets, pickers, sliders), choosing between universal and platform-specific components, or replacing an RN community UI library with a native @expo/ui equivalent. Not for custom native modules, Expo Router navigation, Reanimated, or data fetching.\""
+    },
+    {
+      "name": "expo-upgrade",
+      "path": ".agents/skills/expo-upgrade/SKILL.md",
+      "category": "flat",
+      "description": "Framework (OSS). Guidelines for upgrading Expo SDK versions and fixing dependency issues"
+    },
+    {
+      "name": "expo-web-to-native",
+      "path": ".agents/skills/expo-web-to-native/SKILL.md",
+      "category": "flat",
+      "description": "Framework (OSS). Migrate an existing web React app to a native iOS/Android app with Expo. Use when the user wants to turn a website into a mobile app, port a Next.js/Vite/CRA React codebase to React Native, reuse web code on native incrementally, or asks how web idioms (the DOM, CSS, React Router, localStorage, window) map to native. This is the end-to-end migration guide; use the `expo-dom` skill for the DOM-component mechanism itself."
+    },
+    {
+      "name": "gemini-interactions-api",
+      "path": ".agents/skills/gemini-interactions-api/SKILL.md",
+      "category": "flat",
+      "description": "Use this skill when writing code that calls the Gemini API for text generation, multi-turn chat, multimodal understanding, image generation, video generation, streaming responses, background research tasks, function calling, structured output, or migrating from the old generateContent API. This skill covers the Interactions API, the recommended way to use Gemini models and agents in Python and TypeScript."
+    },
+    {
+      "name": "kolibri-agui-transport",
+      "path": ".agents/skills/kolibri-agui-transport/SKILL.md",
+      "category": "flat",
+      "description": "\"Kolibri AG-UI transport: SSE wire protocol, AG-UI events (RUN_STARTED, text-delta, RUN_FINISHED, RUN_ERROR), runtime-provider wiring, contracts in src/product-chat, and data part routing to cards. Use when chat streaming breaks, events misparse, or contracts drift.\""
+    },
+    {
+      "name": "kolibri-auth-session",
+      "path": ".agents/skills/kolibri-auth-session/SKILL.md",
+      "category": "flat",
+      "description": "\"Kolibri authentication: mobile-session.tsx Bearer token + refresh rotation, same-origin gateway auth, session lifecycle and owner credential rules. Use when auth breaks on mobile/web, tokens expire, or session state misbehaves.\""
+    },
+    {
+      "name": "kolibri-backend",
+      "path": ".agents/skills/kolibri-backend/SKILL.md",
+      "category": "flat",
+      "description": "\"Kolibri V3 FastAPI backend: backend/app domain modules, thin routers, append-only migrations, backend/venv environment, and pytest conventions. Use for any backend change, migration, or API fix.\""
+    },
+    {
+      "name": "kolibri-billing",
+      "path": ".agents/skills/kolibri-billing/SKILL.md",
+      "category": "flat",
+      "description": "\"Kolibri billing: backend billing service, renewals, T-Bank protocol, entitlements, and the mobile billing client. Use when billing state is wrong, subscriptions or renewals misbehave, or entitlement gates surface access incorrectly.\""
+    },
+    {
+      "name": "kolibri-dev-stack",
+      "path": ".agents/skills/kolibri-dev-stack/SKILL.md",
+      "category": "flat",
+      "description": "\"Operate the Kolibri V3 local dev stack: single-stack discipline, ports 3103/8002/4104, dev:persistent lifecycle, health gates, and the verify pipeline. Use when starting or restarting the stack, diagnosing startup failures, or deciding which verification gate to run.\""
+    },
+    {
+      "name": "kolibri-estimates-engine",
+      "path": ".agents/skills/kolibri-estimates-engine/SKILL.md",
+      "category": "flat",
+      "description": "\"Kolibri construction-estimates engine: deterministic calculation in backend/app/estimate_engine.py, durable generation orchestration (estimate_generation.py), intake normalization, catalog and market aggregates, arithmetic reconciliation, document packs and PDF/XLSX/DOCX/CSV/ZIP exports, and the mobile construction-estimates vertical. Use when generating, validating, pricing, reconciling, exporting, or fixing estimates, or when changing the mobile estimates surface.\""
+    },
+    {
+      "name": "kolibri-mobile-chat",
+      "path": ".agents/skills/kolibri-mobile-chat/SKILL.md",
+      "category": "flat",
+      "description": "\"Chat surface of the Kolibri Expo client driven by @assistant-ui/react-native + AG-UI: composer primitives, streaming states, attachments, dictation/voice, and result cards. Use when changing components/assistant-ui/composer/, message rendering, cards, attachments, or send/stop/streaming behavior.\""
+    },
+    {
+      "name": "kolibri-mobile-navigation",
+      "path": ".agents/skills/kolibri-mobile-navigation/SKILL.md",
+      "category": "flat",
+      "description": "\"Navigation and surfaces of the Kolibri Expo client: expo-router routes, drawer sidebar, bottom sheets, back transitions, and the vertical surface registry. Use when changing app routes (app/), the drawer, projects/library/remote screens, sheets, or draft/scroll preservation across navigation.\""
+    },
+    {
+      "name": "kolibri-mobile-perf",
+      "path": ".agents/skills/kolibri-mobile-perf/SKILL.md",
+      "category": "flat",
+      "description": "\"Performance for the Kolibri Expo client: FlatList chat scroll metrics, re-render storms, bundle size, Metro cache, and memory on web/native. Use when chat scroll stutters, UI janks, bundles grow, or Metro rebuilds lag.\""
+    },
+    {
+      "name": "kolibri-mobile-qa",
+      "path": ".agents/skills/kolibri-mobile-qa/SKILL.md",
+      "category": "flat",
+      "description": "\"Verifying the Kolibri mobile PWA in the browser: dev gateway routing, stale-bundle detection, Playwright, macOS Vision OCR pixel checks against design references, console-error triage, and regression tests. Use when a mobile UI change needs visual or runtime verification, or when the mobile app crashes or behaves wrong on web.\""
+    },
+    {
+      "name": "kolibri-mobile-state",
+      "path": ".agents/skills/kolibri-mobile-state/SKILL.md",
+      "category": "flat",
+      "description": "\"State discipline in the Kolibri Expo client: no external stores — React Context + @assistant-ui/react-native (useAuiState/useAui) only, runtime-provider wiring, and single-thread state flow. Use when state doesn't update, adding global state, or wiring the chat runtime.\""
+    },
+    {
+      "name": "kolibri-mobile-ui",
+      "path": ".agents/skills/kolibri-mobile-ui/SKILL.md",
+      "category": "flat",
+      "description": "\"Pixel-level mobile UI for the Kolibri Expo client (kolibri-v3/apps/kolibri-mobile): theme tokens, React Native Web quirks, the Liquid Glass material, and geometry driven by docs/design-evidence/mobile-chatgpt references. Use when styling or pixel-tuning mobile screens (composer, header, drawer, projects/library), implementing light/dark themes, or reproducing a ChatGPT-style layout 1:1.\""
+    },
+    {
+      "name": "kolibri-orchestration",
+      "path": ".agents/skills/kolibri-orchestration/SKILL.md",
+      "category": "flat",
+      "description": "\"Decompose Kolibri V3 tasks, run parallel sub-agent work, and declare a definition-of-done before acting. Use for any multi-step V3 task spanning two or more surfaces (mobile+backend, web+contracts) or when a change needs an explicit done checklist.\""
+    },
+    {
+      "name": "kolibri-v3-development",
+      "path": ".agents/skills/kolibri-v3-development/SKILL.md",
+      "category": "flat",
+      "description": "Guardrails and workflows for changing Kolibri V3 (kolibri-v3/): web/PWA, native mobile, chat runtime, model providers, billing, and dev-stack operations. Use whenever working on the Kolibri V3 product, fixing UI/chat/auth regressions, integrating models or payments, or running/verifying the local dev stack. Encodes hard-won fixes so known regressions (server restarts, broken mobile scroll/auth, selectable-but-unrunnable models, stale bundles, flaky E2E) are not repeated."
+    },
+    {
+      "name": "kolibri-vertical-registry",
+      "path": ".agents/skills/kolibri-vertical-registry/SKILL.md",
+      "category": "flat",
+      "description": "\"Add or change a Kolibri vertical surface (construction-estimates today): compile-time allowlist in apps/kolibri-mobile/src/verticals/registry.ts, capability/entitlement/rendererKey gating, and honest surface-boundary rendering. Use when wiring a new vertical, fixing surface visibility, or changing entitlement gates.\""
+    },
+    {
+      "name": "markdown",
+      "path": ".agents/skills/markdown/SKILL.md",
+      "category": "flat",
+      "description": "\"Render and customize assistant message text as markdown in assistant-ui. Use when displaying model output as formatted markdown with MarkdownTextPrimitive from @assistant-ui/react-markdown wired into the MessagePrimitive.Parts text branch, configuring remarkPlugins (remark-gfm, remark-math) and rehypePlugins (rehype-katex), or memoizing components with unstable_memoizeMarkdownComponents. Covers code-block syntax highlighting via react-shiki or react-syntax-highlighter registered as SyntaxHighlighter in components/componentsByLanguage, LaTeX math rendering with KaTeX, Mermaid diagrams gated on stream completion, custom math delimiters via preprocess, and the StreamdownTextPrimitive alternative from @assistant-ui/react-streamdown with built-in Shiki/KaTeX/Mermaid and block streaming. For general chat UI composition route to primitives.\""
+    },
+    {
+      "name": "observability",
+      "path": ".agents/skills/observability/SKILL.md",
+      "category": "flat",
+      "description": "\"Adds tracing, telemetry, and observability to an assistant-ui backend. Use when wiring an AI SDK route handler (streamText/generateText, toUIMessageStream, createUIMessageStreamResponse) to a tracing backend: Langfuse via OpenTelemetry (LangfuseSpanProcessor and NodeSDK in instrumentation.ts, experimental_telemetry isEnabled, propagateAttributes with traceName/userId/sessionId, langfuseSpanProcessor.forceFlush on serverless), LangSmith via wrapAISDK(ai) from langsmith/experimental/vercel (createLangSmithProviderOptions, awaitPendingTraceBatches), or Helicone via createOpenAI baseURL https://oai.helicone.ai/v1 with the Helicone-Auth header. Also covers rendering collected spans with @assistant-ui/react-o11y headless primitives (SpanResource, SpanPrimitive Root/Indent/CollapseToggle/StatusIndicator/TypeBadge/Name/Children, SpanByIndexProvider, SpanData/SpanState) mounted via useAui/AuiProvider from @assistant-ui/store. Use for missing or empty traces, edge vs nodejs runtime telemetry, serverless flush issues, or trace waterfalls.\""
+    },
+    {
+      "name": "primitives",
+      "path": ".agents/skills/primitives/SKILL.md",
+      "category": "flat",
+      "description": "\"Builds and customizes assistant-ui chat UI from composable, unstyled @assistant-ui/react primitives that follow Radix-style part composition. Use when assembling or styling a custom Thread, Composer, message rendering, action bar, or branch picker from building blocks: ThreadPrimitive (.Root, .Viewport, .ViewportFooter, .Messages, .Empty, .ScrollToBottom, .Suggestions), ComposerPrimitive (.Input, .Send, .Cancel, .Attachments, .AddAttachment, .AttachmentDropzone, .Quote, .Dictate, .Queue), MessagePrimitive (.Parts/.Content, .GroupedParts, .Attachments, .Quote, .GenerativeUI, .Error), ActionBarPrimitive (.Copy, .Edit, .Reload, .Speak, .StopSpeaking, feedback, .ExportMarkdown), BranchPickerPrimitive, AttachmentPrimitive, ThreadListPrimitive, ThreadListItemPrimitive, plus ChainOfThoughtPrimitive, SelectionToolbarPrimitive, SuggestionPrimitive, QueueItemPrimitive, ErrorPrimitive, and AssistantModalPrimitive. Covers MessagePrimitive.Parts children render functions for text, image, reasoning, tool-call, data, and generative-ui parts; part grouping with groupPartByType (the \\\"mcp-app\\\" key was removed in 0.15, use \\\"standalone-tool-call\\\"); conditional rendering with AuiIf (deprecated .If); and gotchas like wrapping in AssistantRuntimeProvider and adding className since primitives ship unstyled. For prebuilt drop-in UI and scaffolding use setup; for multi-thread sidebar behavior use thread-list.\""
+    },
+    {
+      "name": "react-mcp",
+      "path": ".agents/skills/react-mcp/SKILL.md",
+      "category": "flat",
+      "description": "\"Lets end users add, authenticate, and manage MCP servers from the browser in assistant-ui apps with @assistant-ui/react-mcp. Use when building user-managed MCP server UIs: mounting McpManagerResource via useAui({ mcp }), declaring presets with defineConnector, dropping in McpConfigDialog, or composing McpManagerPrimitive (Root, Connectors, CustomServers, AddCustomTrigger), McpServerPrimitive (Root, Name, Icon, Status, ConnectButton, DisconnectButton, OAuthLink, RemoveButton, Error, Tools, ToolName), McpAddFormPrimitive (NameField, UrlField, AuthSelect, AuthFields, Submit, Cancel), and McpElicitationPrimitive (Root, Message, Fields, Items, Accept, Decline, Cancel, Error) for server-initiated input requests. Covers auth modes none/bearer/oauth, the OAuth flow with McpOAuthCallback and useMcpOAuthCallback, connection states, storage via McpLocalStorage/McpMemoryStorage/McpCustomStorage, reading state with useAuiState (s.mcp, s.mcpServer) and useMcpElicitation/useMcpElicitationField/useMcpServerTool, and imperative addCustomServer/connect/callTool. Distinct from developer-defined backend @ai-sdk/mcp tools in the tools skill. Reach for this when connected-server tools are missing, OAuth never completes, an elicitation prompt does not render, or servers do not persist.\""
+    },
+    {
+      "name": "runtime",
+      "path": ".agents/skills/runtime/SKILL.md",
+      "category": "flat",
+      "description": "\"Guide to the assistant-ui runtime system, single-thread state, and the imperative aui client API in @assistant-ui/react. Use when creating a runtime (useLocalRuntime with a ChatModelAdapter, useExternalStoreRuntime for Redux/Zustand, useRemoteThreadListRuntime, useAssistantTransportRuntime), wiring AssistantRuntimeProvider, or reading/mutating thread, message, composer, and attachment state. Covers the unified hooks useAui, useAuiState, useAuiEvent and the v0.15 property accessors (aui.thread, aui.threads, aui.message, aui.composer, aui.part; availability via aui.thread.source != null), the s.optional.<scope> state view, scope methods (append, cancelRun, startRun, resumeRun, message({index}), part({index}), composer().send), capabilities, adapters (attachment, speech, dictation, suggestion, feedback, history), realtime voice, and types (ThreadMessage, MessageState, MessagePart, MessageStatus, ChatModelRunResult). The v0.12-era legacy context hooks (useAssistantRuntime, useThreadRuntime, useThread, useMessage, useComposer, useMessagePart, useAttachment) were removed in 0.15; route those to update. Use for provider \\\"Cannot read property of undefined\\\" errors or state not updating. For multi-thread list UI and switching between conversations use thread-list instead.\""
+    },
+    {
+      "name": "setup",
+      "path": ".agents/skills/setup/SKILL.md",
+      "category": "flat",
+      "description": "\"Installs and configures assistant-ui in a project via the CLI, and picks the right runtime for a backend. Use for first-time install, scaffold, or config: `npx assistant-ui@latest create my-app` (templates default, minimal, cloud, cloud-clerk, langchain, mcp, eve), `npx assistant-ui@latest init [--yes] [--overwrite]` in an existing Next.js app, or `npx assistant-ui@latest add` registry components (thread, markdown-text, thread-list, tool-fallback). Also covers the other CLI verbs: doctor, info, update, upgrade, mcp, and agent. Use to choose a runtime hook for a backend: useChatRuntime (AI SDK v7), useLangGraphRuntime, useAgUiRuntime, useA2ARuntime, useLocalRuntime (custom streaming API), or useExternalStoreRuntime (Redux/Zustand). Covers Vite/TanStack Start setup, Expo (--native) and React Ink (--ink) scaffolds, shadcn and Base UI registry styles, the playground --preset flag, and avoiding the deprecated @assistant-ui/styles and @assistant-ui/react-ui packages. For upgrading an existing install or post-upgrade breakage use update; for building UI from raw parts use primitives.\""
+    },
+    {
+      "name": "skill-router",
+      "path": ".agents/skills/skill-router/SKILL.md",
+      "category": "flat",
+      "description": "\"Автоматический подбор минимального набора .agents/skills под задачу Kolibri V3: keyword-скоринг по skills-index.json и явные оверрайды проекта (composer, streaming, смета, backend и т.д.). Use when: начало любой задачи в kolibri-v3 — до разработки выбрать и прочитать релевантные SKILL.md.\""
+    },
+    {
+      "name": "streaming",
+      "path": ".agents/skills/streaming/SKILL.md",
+      "category": "flat",
+      "description": "\"Streaming backends and wire protocols for assistant-ui via the assistant-stream package. Use when building a custom (non-AI-SDK) streaming endpoint with createAssistantStreamResponse or createAssistantStreamController, emitting parts through appendText/appendReasoning/appendSource/appendFile/addToolCallPart and setResponse; choosing between the AI SDK UI-message format (toUIMessageStream + createUIMessageStreamResponse) and the native Assistant Transport format; encoding or decoding streams with DataStreamEncoder/DataStreamDecoder, AssistantTransportEncoder/AssistantTransportDecoder, PlainTextEncoder, or UIMessageStreamDecoder; or wiring streamed chunks into useLocalRuntime or useChatRuntime. Use specifically for debugging stream wire issues: text-delta, part-start, result events, text/event-stream content-type, SSE format, tool calls not rendering, or partial text not showing. For general non-stream debugging route to the relevant focused skill, not the parent overview.\""
+    },
+    {
+      "name": "thread-list",
+      "path": ".agents/skills/thread-list/SKILL.md",
+      "category": "flat",
+      "description": "\"Implements multi-thread (conversation history) management in assistant-ui apps: rendering the prebuilt `ThreadList` next to `Thread`, or building a custom sidebar with `ThreadListPrimitive` and `ThreadListItemPrimitive` (Root, New, Items, Trigger, Title, Archive, Unarchive, Delete). Covers thread CRUD through the `useAui()`/`useAuiState()` API: `switchToThread`, `switchToNewThread`, and per item `rename`, `archive`, `unarchive`, `delete`, `generateTitle`, `initialize`, plus reading `s.threads.threadIds`/`archivedThreadIds`/`mainThreadId`. Includes cloud-backed persistence via `useChatRuntime` + `AssistantCloud` and a local `useRemoteThreadListRuntime` + `InMemoryThreadListAdapter` path. Use when a user wants a thread list/sidebar, switching, searching, sorting, drag-and-drop, or renaming/archiving/deleting conversations. For single-thread state, messages, or composer use runtime; for cloud auth/persistence setup use cloud.\""
+    },
+    {
+      "name": "tools",
+      "path": ".agents/skills/tools/SKILL.md",
+      "category": "flat",
+      "description": "\"Registers LLM tools and renders custom tool-call UI in assistant-ui (@assistant-ui/react). Covers the current authoring model: a \\\"use generative\\\" file exporting defineToolkit({...}) that co-locates schema, execute, and render and is split across the client/server boundary by the build plugin (withAui from @assistant-ui/next, aui() from @assistant-ui/vite, withAui from @assistant-ui/metro), mounted with Tools({ toolkit }) through useAui and exposed to the model with AISDKToolkit. Covers the tool kinds and their execute markers: backend (plain execute), frontend (\\\"use client\\\" inside execute), human via humanTool()/hitl, provider via providerTool(), external via externalTool(), stubs via stubTool() plus useAuiToolOverrides, and MCP via defineMcpToolkit. Also covers the component-scoped path (makeAssistantTool / useAssistantTool / makeAssistantToolUI / useAssistantToolUI), ToolCallMessagePartProps (status.type running/complete/incomplete/requires-action, args, argsText, result, artifact, addResult, resume, respondToApproval), server-side approval gates via the AI SDK v7 toolApproval option, generative UI from tool results, and the v0.15 s.tools.toolUIs registry. Reach for this when tool UI is not rendering, a tool is not being called, or a result is not showing.\""
+    },
+    {
+      "name": "update",
+      "path": ".agents/skills/update/SKILL.md",
+      "category": "flat",
+      "description": "\"Upgrades an existing assistant-ui project to current releases and executes the resulting migrations. Use when the user wants to update, upgrade, bump, or migrate @assistant-ui/react, @assistant-ui/react-ai-sdk, ai, or @ai-sdk/react, hits peer-dependency conflicts or post-upgrade type errors, or must apply renamed APIs after a version jump. Detects installed versus latest versions via npm ls / npm view, then routes through breaking-change references for each jump (AI SDK v4/v5 to v6 to v7; assistant-ui 0.8.x to 0.15.x): aui.thread() accessor calls to aui.thread properties, removal of the legacy context hooks useAssistantRuntime/useThreadRuntime/useThread/useMessage/useComposer in favor of useAui and useAuiState, s.tools.tools to s.tools.toolUIs, the groupPartByType mcp-app key to standalone-tool-call, useAssistantApi to useAui, runtime.threadList to runtime.threads, ThreadPrimitive.ViewportSlack removal, the primitives components prop to children render functions, toDataStreamResponse to toUIMessageStreamResponse, maxSteps to stopWhen: stepCountIs(n). Runs npx assistant-ui@latest upgrade, npx assistant-ui@latest update, npx assistant-ui@latest doctor, and npx tsc --noEmit to verify. For a first-time install or fresh scaffold (not an upgrade) use setup instead.\""
+    }
+  ]
+}

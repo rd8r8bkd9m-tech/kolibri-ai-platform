@@ -1,8 +1,14 @@
 import type { ReactNode } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
-import { Icon } from "@/components/ui/icon";
+import { Icon } from "@/src/components/icons/Icon";
 import type { IconName } from "@/components/ui/icon-mappings";
+import {
+	LineHeight,
+	Radius,
+	Spacing,
+	typography,
+} from "@/constants/theme";
 import { useTheme } from "@/hooks/use-theme";
 import { haptics } from "@/lib/haptics";
 
@@ -57,14 +63,21 @@ export function SettingsRow({
 			>
 				<Icon name={icon} size={18} color={contentColor} />
 			</View>
-			<Text numberOfLines={1} style={[styles.title, { color: contentColor }]}>
+			<Text
+				numberOfLines={1}
+				style={[typography.settingsRow, styles.title, { color: contentColor }]}
+			>
 				{title}
 			</Text>
 			<View style={styles.trailing}>
 				{value ? (
 					<Text
 						numberOfLines={1}
-						style={[styles.value, { color: colors.mutedForeground }]}
+						style={[
+							typography.settingsValue,
+							styles.value,
+							{ color: colors.mutedForeground },
+						]}
 					>
 						{value}
 					</Text>
@@ -82,29 +95,29 @@ const styles = StyleSheet.create({
 	row: {
 		alignItems: "center",
 		flexDirection: "row",
-		marginLeft: 14,
+		marginLeft: Spacing.lg,
 		minHeight: 56,
-		paddingRight: 14,
+		paddingRight: Spacing.lg,
 	},
 	icon: {
 		alignItems: "center",
-		borderRadius: 8,
+		borderRadius: Radius.sm,
 		height: 30,
 		justifyContent: "center",
-		marginRight: 12,
+		marginRight: Spacing.md,
 		width: 30,
 	},
-	title: { flexShrink: 0, fontSize: 16, fontWeight: "500", lineHeight: 21 },
+	title: { flexShrink: 0, lineHeight: LineHeight.base },
 	trailing: {
 		alignItems: "center",
 		flex: 1,
 		flexDirection: "row",
-		gap: 7,
+		gap: Spacing.sm,
 		justifyContent: "flex-end",
-		marginLeft: 12,
+		marginLeft: Spacing.md,
 		minWidth: 0,
 	},
-	value: { flexShrink: 1, fontSize: 14, lineHeight: 19 },
+	value: { flexShrink: 1, lineHeight: LineHeight.small },
 	pressed: { opacity: 0.62 },
 	disabled: { opacity: 0.46 },
 });

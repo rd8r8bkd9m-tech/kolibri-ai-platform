@@ -18,11 +18,14 @@ const DEVELOPER_ACCESS_MODE_KEY = "kolibri.ui.developer-access-mode";
  * history source of truth. Product Chat history itself stays server-backed.
  */
 export const readDeveloperAccessMode = (): DeveloperAccessMode => {
-	if (typeof globalThis.localStorage === "undefined") return "full";
+	// Dev-режим (coding-агент) выключен по умолчанию: смета и чат идут в
+	// "standard" и работают на chat-only runtime (Qwen). Кодинг включается
+	// пользователем явно через переключатель.
+	if (typeof globalThis.localStorage === "undefined") return "standard";
 	const saved = globalThis.localStorage.getItem(DEVELOPER_ACCESS_MODE_KEY);
 	return saved === "standard" || saved === "auto" || saved === "full"
 		? saved
-		: "full";
+		: "standard";
 };
 
 export const persistDeveloperAccessMode = (

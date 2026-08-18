@@ -1,0 +1,4 @@
+interface:
+  display_name: "Kolibri Mobile Navigation"
+  short_description: "Expo-router surfaces: drawer, sheets, back transitions"
+  default_prompt: "Add a bottom-sheet model picker to the mobile app"

@@ -7,6 +7,7 @@ import {
 	Files,
 	FileText,
 	LoaderCircle,
+	MessageSquarePlus,
 	type LucideIcon,
 	RefreshCw,
 	Search,
@@ -80,12 +81,14 @@ export function FileList({
 	activeCategoryLabel,
 	files,
 	hasQuery,
+	onCreateInChat,
 	onOpenFile,
 	totalFileCount,
 }: {
 	activeCategoryLabel: string;
 	files: readonly WorkspaceFile[];
 	hasQuery: boolean;
+	onCreateInChat?: () => void;
 	onOpenFile: (file: WorkspaceFile) => void;
 	totalFileCount: number;
 }) {
@@ -94,6 +97,7 @@ export function FileList({
 			<NoFiles
 				activeCategoryLabel={activeCategoryLabel}
 				hasQuery={hasQuery}
+				onCreateInChat={onCreateInChat}
 				totalFileCount={totalFileCount}
 			/>
 		);
@@ -153,13 +157,16 @@ export function FileList({
 function NoFiles({
 	activeCategoryLabel,
 	hasQuery,
+	onCreateInChat,
 	totalFileCount,
 }: {
 	activeCategoryLabel: string;
 	hasQuery: boolean;
+	onCreateInChat?: () => void;
 	totalFileCount: number;
 }) {
 	const categoryEmpty = !hasQuery && totalFileCount > 0;
+	const showCreateAction = !hasQuery && !categoryEmpty && onCreateInChat;
 	return (
 		<div className="text-muted-foreground flex min-h-64 flex-col items-center justify-center px-5 text-center">
 			{hasQuery ? (
@@ -172,7 +179,7 @@ function NoFiles({
 					? "Ничего не найдено"
 					: categoryEmpty
 						? `В разделе «${activeCategoryLabel}» пока пусто`
-						: "В проекте пока нет файлов"}
+						: "Документов пока нет"}
 			</p>
 			<p className="mt-1 max-w-64 text-[10px] leading-relaxed">
 				{hasQuery
@@ -181,6 +188,18 @@ function NoFiles({
 						? "Выберите «Все файлы», чтобы увидеть документы из других разделов."
 						: "Документы, сметы, договоры и вложения появятся здесь после создания или загрузки."}
 			</p>
+			{showCreateAction ? (
+				<Button
+					type="button"
+					variant="outline"
+					size="sm"
+					className="mt-4"
+					onClick={onCreateInChat}
+				>
+					<MessageSquarePlus aria-hidden="true" className="size-3.5" />
+					Создать в чате
+				</Button>
+			) : null}
 		</div>
 	);
 }

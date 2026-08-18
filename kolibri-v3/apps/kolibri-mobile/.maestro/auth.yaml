@@ -1,0 +1,9 @@
+appId: ru.kolibriai.mobile
+---
+- launchApp
+- assertVisible: "Kolibri AI"
+- tapOn: "Войти по ссылке"
+- tapOn: "Электронная почта"
+- inputText: "owner@example.com"
+- tapOn: "Отправить ссылку"
+- assertVisible: "Ссылка отправлена. Проверьте почту."

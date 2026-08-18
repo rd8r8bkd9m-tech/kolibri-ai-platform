@@ -8,7 +8,8 @@ const read = (relativePath) =>
 test("mobile navigation releases web focus before hiding a route or drawer", () => {
 	const focus = read("src/accessibility/release-web-focus.ts");
 	const header = read("components/shell/mobile-header.tsx");
-	const drawer = read("components/thread-list/drawer-content.tsx");
+	const adapter = read("src/components/overlays/DrawerContentAdapter.tsx");
+	const drawer = read("src/components/overlays/Sidebar.tsx");
 	const layout = read("app/_layout.tsx");
 
 	assert.match(focus, /Platform\.OS !== "web"/);
@@ -17,15 +18,9 @@ test("mobile navigation releases web focus before hiding a route or drawer", () 
 		header,
 		/releaseWebFocus\(\);[\s\S]*navigation\.openDrawer\(\)/,
 	);
-	assert.match(drawer, /const closeDrawer = \(\) => \{[\s\S]*releaseWebFocus\(\)/);
-	assert.match(
-		drawer,
-		/releaseWebFocus\(\);[\s\S]*navigation\.navigate\("estimates"/,
-	);
-	assert.match(
-		drawer,
-		/releaseWebFocus\(\);[\s\S]*navigation\.navigate\("account"/,
-	);
+	assert.match(adapter, /const closeDrawer = \(\) => \{[\s\S]*releaseWebFocus\(\)/);
+	assert.match(drawer, /router\.push\(path\)/);
+	assert.match(drawer, /navigate\("\/account\?client=mobile"\)/);
 	assert.match(layout, /blur: releaseWebFocus/);
 });
 

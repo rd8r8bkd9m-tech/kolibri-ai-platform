@@ -1,0 +1,11 @@
+appId: ru.kolibriai.mobile
+---
+- launchApp
+- tapOn: "Сообщение"
+- inputText: "Составь смету на ремонт квартиры"
+- pressKey: Enter
+- extendedWaitUntil:
+    visible: "Смета"
+    timeout: 90000
+- tapOn: "Смета"
+- assertVisible: "Сметы"

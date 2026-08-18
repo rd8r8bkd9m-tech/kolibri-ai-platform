@@ -24,6 +24,7 @@ import {
 import { usePublishWorkspaceContext } from "@/lib/workspace-context-provider";
 import { DesktopAuxiliaryCanvas } from "./desktop-auxiliary-canvas";
 import { DesktopWorkspaceView } from "./desktop-workspace-view";
+import { useAdaptiveWorkspaceLayout } from "./use-adaptive-workspace-layout";
 import { useAuxiliaryCanvas } from "./use-auxiliary-canvas";
 import { useDesktopWorkspaceShortcuts } from "./use-desktop-workspace-shortcuts";
 import { useWorkspaceDocumentCatalog } from "./use-workspace-document-catalog";
@@ -69,6 +70,22 @@ export function DesktopWorkspace() {
 		onInteraction: handleCanvasInteraction,
 		workspaceFiles,
 	});
+
+	// Redesign spec §5: docked 3-pane only when the viewport fits
+	// nav + 640 chat + auxiliary min; otherwise nav goes overlay first and
+	// auxiliary is rendered fullscreen when even tighter.
+	const adaptive = useAdaptiveWorkspaceLayout({
+		auxiliaryOpen: auxiliary.rightOpen,
+		navigationOpen,
+	});
+	const auxiliaryRenderFullscreen =
+		auxiliary.fullscreen || (auxiliary.rightOpen && !adaptive.auxiliaryDocked);
+	const navigationDockedOpen =
+		navigationOpen && !auxiliaryRenderFullscreen && !adaptive.navigationOverlay;
+	const navigationOverlayOpen =
+		navigationOpen && !auxiliaryRenderFullscreen && adaptive.navigationOverlay;
+	const auxiliaryDockedOpen =
+		auxiliary.rightOpen && adaptive.auxiliaryDocked && !auxiliary.fullscreen;
 	const settingsCanvasOpen =
 		auxiliary.open && auxiliary.activeTab?.content.kind === "settings";
 	const navigationBeforeSettingsRef = useRef<boolean | null>(null);
@@ -320,6 +337,15 @@ Preserve project, artifact version, source, capture date, and user approval boun
 	}, [settingsCanvasOpen]);
 
 	useDesktopWorkspaceShortcuts({
+		onEscape: () => {
+			if (auxiliary.fullscreen) {
+				auxiliary.toggleFullscreen();
+			} else if (auxiliary.rightOpen) {
+				auxiliary.dismiss();
+			} else if (navigationOverlayOpen) {
+				setNavigationOpen(false);
+			}
+		},
 		onOpenTool: auxiliary.openTool,
 		onToggleCommandPalette: () => setCommandPaletteOpen((open) => !open),
 		onToggleNavigation: toggleNavigation,
@@ -355,12 +381,16 @@ Preserve project, artifact version, source, capture date, and user approval boun
 			activeProject={activeProject}
 			auxiliary={auxiliary}
 			auxiliaryCanvas={auxiliaryCanvas}
+			auxiliaryDockedOpen={auxiliaryDockedOpen}
+			auxiliaryRenderFullscreen={auxiliaryRenderFullscreen}
 			commandPaletteOpen={commandPaletteOpen}
 			composerContextOverride={
 				activeComposerTask ? `Задача · ${activeComposerTask.runId}` : undefined
 			}
 			currentTitle={currentTitle}
+			navigationDockedOpen={navigationDockedOpen}
 			navigationOpen={navigationOpen}
+			navigationOverlayOpen={navigationOverlayOpen}
 			onNewTask={() => {
 				openChat();
 				void aui.threads().switchToNewThread();

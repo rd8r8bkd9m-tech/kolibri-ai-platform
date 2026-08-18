@@ -1,0 +1,4 @@
+interface:
+  display_name: "Kolibri Mobile UI"
+  short_description: "Pixel-perfect mobile UI: tokens, Liquid Glass, geometry"
+  default_prompt: "Make the mobile composer match the ChatGPT reference exactly"

@@ -398,7 +398,7 @@ function EstimateRowCardMobile({
 				</label>
 				<div className="text-xs font-medium text-muted-foreground">
 					Сумма
-					<output className="mt-1 flex min-h-12 items-center justify-end rounded-2xl bg-muted px-3 py-2 text-base font-semibold text-foreground tabular-nums">
+					<output className="mt-1 flex min-h-12 min-w-0 items-center justify-end break-words rounded-2xl bg-muted px-3 py-2 text-base font-semibold text-foreground tabular-nums">
 						{formatMoney(toAmount(row.quantity, row.unitPrice))}
 					</output>
 				</div>
@@ -426,180 +426,6 @@ function EstimateRowCardMobile({
 				) : null}
 			</div>
 		</article>
-	);
-}
-
-function EstimateRowTableRow({
-	row,
-	index,
-	dirty,
-	offerRowId,
-	onToggleOffer,
-	onDelete,
-	onUpdate,
-	applyPricedEstimate,
-	projectId,
-	version,
-}: EstimateRowPresenterProps) {
-	return (
-		<Fragment key={row.id}>
-			<tr className="border-b border-border last:border-0" data-row-id={row.id}>
-				<td className="px-2 py-1.5 text-center text-xs text-muted-foreground">
-					{index + 1}
-				</td>
-				<td className="px-2 py-1.5">
-					<div className="mb-0.5 flex flex-wrap items-center gap-2 px-2 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-						<span>{row.section}</span>
-						<span aria-hidden="true">·</span>
-						<span>{estimateKindLabel(row.kind)}</span>
-						<PriceStatusChip row={row} />
-					</div>
-					<input
-						name="description"
-						aria-label={`Наименование позиции ${index + 1}`}
-						className="w-full rounded-md border border-transparent bg-transparent px-2 py-1.5 outline-none hover:border-border focus:border-border focus:ring-2 focus:ring-ring"
-						placeholder="Введите наименование"
-						value={row.description}
-						maxLength={300}
-						onChange={(event) => onUpdate(row.id, "description", event.target.value)}
-					/>
-					<details className="px-2 pt-0.5 text-[10px] text-muted-foreground">
-						<summary className="cursor-pointer select-none">
-							Основание количества и цены
-						</summary>
-						<p className="mt-1">Количество: {row.quantityBasis}</p>
-						<p>Цена: {row.priceBasis}</p>
-						{row.priceEvidence ? (
-							<div className="mt-1 space-y-0.5">
-								<p>
-									Регион: {row.priceEvidence.region}
-									{row.priceEvidence.period ? ` · ${row.priceEvidence.period}` : ""}
-								</p>
-								<p>
-									{row.priceEvidence.freshnessBasis === "supplier_valid_until" ? "Действует до" : "Проверить актуальность после"}{" "}
-									{row.priceEvidence.freshUntil} · {row.priceEvidence.taxStatus === "included" ? "НДС включён" : row.priceEvidence.taxStatus === "excluded" ? "без НДС" : "НДС не указан"}
-								</p>
-								{row.priceEvidence.landedCostStatus === "not_calculated" ? (
-									<p>Справочная цена · доставка и складирование не рассчитаны</p>
-								) : (
-									<p>Цена с доставкой: {formatMoney(row.priceEvidence.landedUnitPrice)}</p>
-								)}
-								<a
-									className="inline-flex text-foreground underline underline-offset-2"
-									href={row.priceEvidence.sourceUrl}
-									target="_blank"
-									rel="noreferrer"
-								>
-									Источник · {row.priceEvidence.sourceReference}
-								</a>
-								<p title={row.priceEvidence.snapshotHash}>
-									Снимок: {row.priceEvidence.snapshotHash.slice(0, 18)}…
-								</p>
-							</div>
-						) : row.enginePriceProvenance ? (
-							<div className="mt-1 space-y-0.5">
-								<p className={row.enginePriceProvenance.verified ? "text-emerald-700" : "text-amber-700"}>
-									{enginePriceSourceLabel(row.enginePriceProvenance)}
-								</p>
-								<p>
-									{row.enginePriceProvenance.label} · {row.enginePriceProvenance.reference}
-								</p>
-								<p>
-									Регион: {row.enginePriceProvenance.region} · на {row.enginePriceProvenance.observedAt.slice(0, 10)}
-								</p>
-								<p>
-									{engineVatLabel(row.enginePriceProvenance.vatMode)} · уверенность {Math.round(Number(row.enginePriceProvenance.confidence) * 100)}%
-								</p>
-								{row.enginePriceProvenance.validUntil ? (
-									<p>Действует до {row.enginePriceProvenance.validUntil.slice(0, 10)}</p>
-								) : null}
-								{row.enginePriceProvenance.sourceUrl.startsWith("https://") ? (
-									<a
-										className="inline-flex text-foreground underline underline-offset-2"
-										href={row.enginePriceProvenance.sourceUrl}
-										target="_blank"
-										rel="noreferrer"
-									>
-										Открыть источник
-									</a>
-								) : (
-									<p>Источник сохранён в текущем расчёте</p>
-								)}
-							</div>
-						) : (
-							<p className="mt-1 text-amber-700">Цена введена без подтверждённого источника.</p>
-						)}
-					</details>
-					<div className="px-2 pt-1">
-						<Button
-							type="button"
-							variant="ghost"
-							size="xs"
-							disabled={dirty}
-							onClick={() => onToggleOffer(row.id)}
-						>
-							{offerRowId === row.id ? "Скрыть предложение" : "Цена поставщика"}
-						</Button>
-					</div>
-				</td>
-				<td className="px-2 py-1.5">
-					<input
-						name="unit"
-						aria-label={`Единица позиции ${index + 1}`}
-						className="w-full rounded-md border border-transparent bg-transparent px-2 py-1.5 outline-none hover:border-border focus:border-border focus:ring-2 focus:ring-ring"
-						value={row.unit}
-						maxLength={32}
-						onChange={(event) => onUpdate(row.id, "unit", event.target.value)}
-					/>
-				</td>
-				<td className="px-2 py-1.5">
-					<input
-						name="quantity"
-						aria-label={`Количество позиции ${index + 1}`}
-						inputMode="decimal"
-						className="w-full rounded-md border border-transparent bg-transparent px-2 py-1.5 text-right tabular-nums outline-none hover:border-border focus:border-border focus:ring-2 focus:ring-ring"
-						value={row.quantity}
-						onChange={(event) => onUpdate(row.id, "quantity", event.target.value)}
-					/>
-				</td>
-				<td className="px-2 py-1.5">
-					<input
-						name="unitPrice"
-						aria-label={`Цена позиции ${index + 1}`}
-						inputMode="decimal"
-						className="w-full rounded-md border border-transparent bg-transparent px-2 py-1.5 text-right tabular-nums outline-none hover:border-border focus:border-border focus:ring-2 focus:ring-ring"
-						value={row.unitPrice}
-						onChange={(event) => onUpdate(row.id, "unitPrice", event.target.value)}
-					/>
-				</td>
-				<td className="px-2 py-1.5 text-right font-medium tabular-nums">
-					{formatMoney(toAmount(row.quantity, row.unitPrice))}
-				</td>
-				<td className="px-1 py-1.5">
-					<Button
-						type="button"
-						variant="ghost"
-						size="icon-sm"
-						aria-label={`Удалить позицию ${index + 1}`}
-						onClick={() => onDelete(row.id)}
-					>
-						<Trash2Icon aria-hidden="true" className="size-4" />
-					</Button>
-				</td>
-			</tr>
-			{offerRowId === row.id ? (
-				<tr className="border-b border-border bg-muted/10">
-					<td colSpan={7} className="px-4 py-3">
-						<SupplierOfferForm
-							projectId={projectId}
-							row={row}
-							version={version}
-							onApplied={applyPricedEstimate}
-						/>
-					</td>
-				</tr>
-			) : null}
-		</Fragment>
 	);
 }
 
@@ -655,49 +481,6 @@ function EstimateRowList({
 						/>
 					))
 				)}
-			</div>
-			<div className="hidden overflow-x-auto min-[960px]:block">
-				<table className="w-full min-w-[700px] border-collapse text-sm">
-					<caption className="sr-only">Редактируемые позиции сметы</caption>
-					<thead>
-						<tr className="border-b border-border bg-muted/30 text-left text-[11px] font-medium text-muted-foreground">
-							<th className="w-10 px-2 py-2 text-center">№</th>
-							<th className="min-w-64 px-2 py-2">Работа или материал</th>
-							<th className="w-24 px-2 py-2">Ед.</th>
-							<th className="w-28 px-2 py-2 text-right">Кол-во</th>
-							<th className="w-36 px-2 py-2 text-right">Цена</th>
-							<th className="w-36 px-2 py-2 text-right">Сумма</th>
-							<th className="w-10 px-1 py-2">
-								<span className="sr-only">Действия</span>
-							</th>
-						</tr>
-					</thead>
-					<tbody>
-						{pagedRows.length === 0 ? (
-							<tr>
-								<td colSpan={7} className="px-4 py-8 text-center text-sm text-muted-foreground">
-									Позиций пока нет. Добавьте первую строку — расчёт появится автоматически.
-								</td>
-							</tr>
-						) : (
-							pagedRows.map(({ row, index }) => (
-								<EstimateRowTableRow
-									key={row.id}
-									row={row}
-									index={index}
-									dirty={dirty}
-									offerRowId={offerRowId}
-									onToggleOffer={onToggleOffer}
-									onDelete={onDelete}
-									onUpdate={onUpdate}
-									applyPricedEstimate={applyPricedEstimate}
-									projectId={projectId}
-									version={version}
-								/>
-							))
-						)}
-					</tbody>
-				</table>
 			</div>
 		</>
 	);
@@ -840,7 +623,7 @@ function SupplierOfferForm({
 				/>
 				<select
 					aria-label="Статус предложения"
-					className="h-9 rounded-md border border-input bg-transparent px-3 text-sm"
+					className="h-9 w-full min-w-0 rounded-md border border-input bg-transparent px-3 text-base outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 min-[960px]:text-sm"
 					value={offerKind}
 					onChange={(event) =>
 						setOfferKind(event.target.value as "indicative" | "binding")
@@ -887,7 +670,7 @@ function SupplierOfferForm({
 				</label>
 				<select
 					aria-label="НДС в предложении"
-					className="h-9 rounded-md border border-input bg-transparent px-3 text-sm"
+					className="h-9 w-full min-w-0 rounded-md border border-input bg-transparent px-3 text-base outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 min-[960px]:text-sm"
 					value={vatStatus}
 					onChange={(event) =>
 						setVatStatus(
@@ -2034,7 +1817,10 @@ export function EstimateEditorWidget({
 						{pageLoading ? (
 							<tr>
 								<td colSpan={7} className="px-4 py-8 text-center text-sm text-muted-foreground">
-									Загружаю позиции…
+									<span className="inline-flex items-center gap-2">
+										<LoaderCircleIcon aria-hidden="true" className="size-4 animate-spin" />
+										Загружаю позиции…
+									</span>
 								</td>
 							</tr>
 						) : rows.length === 0 && totalRows === 0 ? (
@@ -2362,7 +2148,7 @@ export function EstimateEditorWidget({
 									? "text-amber-700 dark:text-amber-300"
 									: "text-muted-foreground"
 						}`}
-						role={saveState === "error" || versionConflict ? "alert" : "status"}
+						role={saveState === "error" || versionConflict ? "alert" : undefined}
 					>
 						{saveState === "saving" ? (
 							<LoaderCircleIcon

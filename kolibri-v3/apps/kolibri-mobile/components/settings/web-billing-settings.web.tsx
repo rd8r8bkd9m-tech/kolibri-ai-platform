@@ -6,7 +6,14 @@ import {
 	View,
 } from "react-native";
 import { SettingsGroup } from "@/components/settings/settings-group";
-import { Radius } from "@/constants/theme";
+import {
+	FontSize,
+	FontWeight,
+	LetterSpacing,
+	LineHeight,
+	Radius,
+	Spacing,
+} from "@/constants/theme";
 import { useTheme } from "@/hooks/use-theme";
 import type { BillingPaymentIntent, BillingPlan } from "@/src/billing/client";
 import { useWebBillingAccount } from "@/src/billing/use-web-billing-account";
@@ -263,6 +270,39 @@ export function WebBillingSettings({
 							</View>
 						)}
 					</SettingsGroup>
+					<SettingsGroup title="История платежей">
+						{account.payments.length ? (
+							account.payments.map((payment) => (
+								<View
+									key={payment.id}
+									style={[styles.paymentRow, { borderTopColor: colors.border }]}
+								>
+									<View style={styles.flex}>
+										<Text style={[styles.itemTitle, { color: colors.foreground }]}>
+											{payment.planName}
+										</Text>
+										<Text style={[styles.bodyCopy, { color: colors.mutedForeground }]}>
+											{dates.format(new Date(payment.createdAt * 1_000))} · {payment.id.slice(-8)}
+										</Text>
+									</View>
+									<View style={styles.paymentAmount}>
+										<Text style={[styles.price, { color: colors.foreground }]}>
+											{rubles.format(payment.amountMinor / 100)}
+										</Text>
+										<Text style={[styles.bodyCopy, { color: colors.mutedForeground }]}>
+											{payment.status}
+										</Text>
+									</View>
+								</View>
+							))
+						) : (
+							<View style={styles.emptyBody}>
+								<Text style={[styles.bodyCopy, { color: colors.mutedForeground }]}>
+									Платежей пока нет.
+								</Text>
+							</View>
+						)}
+					</SettingsGroup>
 				</>
 			)}
 		</>
@@ -270,23 +310,90 @@ export function WebBillingSettings({
 }
 const styles = StyleSheet.create({
 	flex: { flex: 1 },
-	loading: { alignItems: "center", flexDirection: "row", gap: 10, minHeight: 72, paddingHorizontal: 16 },
-	messageBody: { gap: 5, paddingHorizontal: 16, paddingVertical: 15 },
-	emptyBody: { alignItems: "center", gap: 6, minHeight: 130, justifyContent: "center", padding: 20 },
-	statusBody: { flexDirection: "row", gap: 12, padding: 16 },
-	statusMark: { borderRadius: 5, height: 10, marginTop: 5, width: 10 },
-	itemTitle: { fontSize: 15, fontWeight: "600", lineHeight: 20 },
-	bodyCopy: { fontSize: 13, lineHeight: 19 },
-	reference: { fontFamily: "monospace", fontSize: 11, lineHeight: 17 },
-	inlineActions: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 10 },
-	action: { alignItems: "center", borderRadius: Radius.md, borderWidth: 1, justifyContent: "center", minHeight: 42, paddingHorizontal: 15 },
-	actionLabel: { fontSize: 14, fontWeight: "600", lineHeight: 18 },
+	loading: {
+		alignItems: "center",
+		flexDirection: "row",
+		gap: Spacing.md,
+		minHeight: 72,
+		paddingHorizontal: Spacing.lg,
+	},
+	messageBody: {
+		gap: Spacing.xs,
+		paddingHorizontal: Spacing.lg,
+		paddingVertical: Spacing.lg,
+	},
+	emptyBody: {
+		alignItems: "center",
+		gap: Spacing.sm,
+		minHeight: 130,
+		justifyContent: "center",
+		padding: Spacing.xl,
+	},
+	statusBody: { flexDirection: "row", gap: Spacing.md, padding: Spacing.lg },
+	statusMark: {
+		borderRadius: Radius.xs,
+		height: 10,
+		marginTop: Spacing.xs,
+		width: 10,
+	},
+	itemTitle: {
+		fontSize: FontSize.medium,
+		fontWeight: FontWeight.semibold,
+		lineHeight: LineHeight.normal,
+	},
+	bodyCopy: { fontSize: FontSize.footnote, lineHeight: LineHeight.small },
+	reference: {
+		fontFamily: "monospace",
+		fontSize: FontSize.caption2,
+		lineHeight: LineHeight.footnote,
+	},
+	inlineActions: {
+		flexDirection: "row",
+		flexWrap: "wrap",
+		gap: Spacing.sm,
+		marginTop: Spacing.md,
+	},
+	action: {
+		alignItems: "center",
+		borderRadius: Radius.md,
+		borderWidth: 1,
+		justifyContent: "center",
+		minHeight: 42,
+		paddingHorizontal: Spacing.lg,
+	},
+	actionLabel: {
+		fontSize: FontSize.small,
+		fontWeight: FontWeight.semibold,
+		lineHeight: LineHeight.compact,
+	},
 	pressed: { opacity: 0.68 },
 	disabled: { opacity: 0.45 },
-	compactAction: { alignSelf: "flex-start", marginTop: 8 },
-	plan: { borderBottomWidth: StyleSheet.hairlineWidth, gap: 14, padding: 16 },
-	planHeading: { alignItems: "flex-start", flexDirection: "row", gap: 12 },
-	price: { fontSize: 18, fontWeight: "700", letterSpacing: -0.3, lineHeight: 23 },
-	subscription: { gap: 4 },
-	footer: { fontSize: 11, lineHeight: 17 },
+	compactAction: { alignSelf: "flex-start", marginTop: Spacing.sm },
+	plan: {
+		borderBottomWidth: StyleSheet.hairlineWidth,
+		gap: Spacing.lg,
+		padding: Spacing.lg,
+	},
+	planHeading: {
+		alignItems: "flex-start",
+		flexDirection: "row",
+		gap: Spacing.md,
+	},
+	price: {
+		fontSize: FontSize.title,
+		fontWeight: FontWeight.bold,
+		letterSpacing: LetterSpacing.base,
+		lineHeight: LineHeight.relaxed,
+	},
+	subscription: { gap: Spacing.xs },
+	footer: { fontSize: FontSize.caption2, lineHeight: LineHeight.footnote },
+	paymentRow: {
+		alignItems: "center",
+		borderTopWidth: StyleSheet.hairlineWidth,
+		flexDirection: "row",
+		gap: Spacing.md,
+		paddingHorizontal: Spacing.lg,
+		paddingVertical: Spacing.md,
+	},
+	paymentAmount: { alignItems: "flex-end" },
 });

@@ -48,6 +48,7 @@ export function WorkspaceFileManager({
 	initialCategory = "all",
 	files = [],
 	onBack,
+	onCreateInChat,
 	onOpenFile,
 	onRetry,
 	projectLabel,
@@ -58,6 +59,7 @@ export function WorkspaceFileManager({
 	files?: readonly WorkspaceFile[];
 	initialCategory?: WorkspaceFileCategory;
 	onBack?: () => void;
+	onCreateInChat?: () => void;
 	onOpenFile: (file: WorkspaceFile) => void;
 	onRetry?: () => void;
 	projectLabel: string;
@@ -208,6 +210,7 @@ export function WorkspaceFileManager({
 							activeCategoryLabel={activeCategoryLabel}
 							files={visibleFiles}
 							hasQuery={query.trim().length > 0}
+							onCreateInChat={onCreateInChat}
 							onOpenFile={onOpenFile}
 							totalFileCount={files.length}
 						/>

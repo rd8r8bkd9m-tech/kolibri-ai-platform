@@ -89,6 +89,7 @@ export const MessageError: ComponentType = () => {
 	return (
 		<MessagePrimitive.Error>
 			<ErrorPrimitive.Root
+				role="alert"
 				className={uiClassTokens.threadMessageError}
 				aria-label={THREAD_UI_TEXT.MESSAGE_ERROR_LABEL}
 			>
@@ -161,6 +162,7 @@ export const EditComposer: ComponentType = () => {
 				<ComposerPrimitive.Input
 					className={uiClassTokens.threadEditComposerInput}
 					autoFocus
+					aria-label="Редактировать сообщение"
 				/>
 				<div className={uiClassTokens.threadEditComposerFooter}>
 					<ComposerPrimitive.Cancel asChild>

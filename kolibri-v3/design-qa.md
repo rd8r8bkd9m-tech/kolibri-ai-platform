@@ -1,6 +1,57 @@
 # Kolibri V3 design QA register
 
-final result: blocked
+final result: blocked (mobile post-fix comparison evidence still open; desktop redesign items below passed local gates)
+
+## Desktop redesign implementation QA — 2026-08-16
+
+Result: **local candidate passed** (typecheck, 207 node contract tests, quick verify pipeline).
+
+Implemented per `docs/design/desktop-mobile-redesign-spec.md`:
+
+- Spec §5 sizes: navigation 320/280–360, auxiliary 400/320–640, chat hard
+  minimum 640 (was 374/288–410 and 480/320–600).
+- Adaptive dock/overlay: new `use-adaptive-workspace-layout` hook. Below
+  920 px (or 1240 px with auxiliary docked) navigation renders as a modal
+  overlay with backdrop; below 960 px the auxiliary canvas is forced
+  fullscreen. The chat never shrinks below 640 px.
+- The static «Инструменты» launcher page is removed (`CanvasTabContent`
+  no longer has a `launcher` kind). The context toggle opens the last
+  useful right-canvas surface and falls back to Files.
+- Canvas header chrome is capped at three actions (fullscreen, minimize,
+  close); the project picker now lives only in the workspace header.
+- Escape chain: fullscreen → docked → closed, then overlay navigation
+  closes. Inputs and editable regions never trigger it.
+- 200% zoom redirect fixed: `MobileEnvironment` hands off only for real
+  mobile platforms (iOS/Android UA or iPadOS detection). Desktop browsers
+  with narrow viewports stay in the responsive Next workspace.
+- Empty Files state shows «Документов пока нет» with a «Создать в чате»
+  action (spec §7).
+- Workspace header: decorative folder icon and sidebar-notification dot
+  removed.
+- Pet: initial position clamps before first paint.
+
+Evidence: `output/design-qa/workspace/` — authenticated QA-tenant captures
+at 1440×900 (docked nav), 1280×720 (spec baseline), 900×700 (overlay nav,
+chat ≥640), and 1440×900 with the right canvas opening Files directly.
+Capture script: `scripts/design-qa-workspace-capture.mjs` (registers and
+archives a disposable QA tenant around each run).
+
+Contract tests updated to the new spec: `tests/desktop-context-sidebar.test.mjs`,
+`tests/design-contract.test.mjs`, `tests/workspace-real-data-boundary.test.mjs`
+(all 207 pass).
+
+Landing polish against the samreshuuu.ru analog: hero announce badge +
+lead paragraph, featured pricing card (glow border, gradient price, pinned
+CTAs), compact stats band with gradient numerals, accent case cards, FAQ
+hover/open accents. Mobile 390×844 landing verified without horizontal
+overflow. Evidence: `output/design-qa/landing-mobile-390.png` and
+`output/design-qa/kolibri-landing-full.png`.
+
+Open (mobile): post-fix authenticated comparison captures for settings,
+projects, library, model menu and estimate editor remain open. The Expo web
+dev bundle does not render in headless Chromium in this environment
+(blank page, no console errors; gateway and Expo dev server respond 200),
+so mobile evidence needs a manual Safari capture or a CI device run.
 
 ## Mobile ChatGPT-parity QA
 

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Kolibri Mobile QA"
+  short_description: "In-browser QA for mobile PWA: gateway, OCR, console"
+  default_prompt: "Check why the mobile composer crashes on web"

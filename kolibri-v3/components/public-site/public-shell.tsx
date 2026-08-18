@@ -52,6 +52,16 @@ export function PublicShell({
 					<div className="kp-footer-brand">
 						<PublicBrand />
 						<p>AI-рабочая среда для смет, проектов и связанных документов.</p>
+						<div className="kp-footer-social">
+							<a
+								href="https://t.me/kolibri_ai"
+								target="_blank"
+								rel="noopener noreferrer"
+								aria-label="КолИ в Telegram"
+							>
+								Telegram
+							</a>
+						</div>
 						<span className="kp-footer-note">
 							© {new Date().getFullYear()} КолИ
 						</span>

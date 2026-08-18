@@ -2,19 +2,28 @@ import type { ReactNode } from "react";
 import { StyleSheet, Text, View } from "react-native";
 
 import { CircleButton } from "@/components/shell/circle-button";
-import { Icon } from "@/components/ui/icon";
-import { Layout } from "@/constants/theme";
+import { Icon } from "@/src/components/icons/Icon";
+import {
+	FontSize,
+	FontWeight,
+	Layout,
+	LetterSpacing,
+	LineHeight,
+	Spacing,
+} from "@/constants/theme";
 import { useTheme } from "@/hooks/use-theme";
 import { haptics } from "@/lib/haptics";
 
 type NativeScreenHeaderProps = {
 	onBack: () => void;
+	subtitle?: string;
 	title: string;
 	trailing?: ReactNode;
 };
 
 export function NativeScreenHeader({
 	onBack,
+	subtitle,
 	title,
 	trailing,
 }: NativeScreenHeaderProps) {
@@ -35,13 +44,23 @@ export function NativeScreenHeader({
 					color={colors.foreground}
 				/>
 			</CircleButton>
-			<Text
-				accessibilityRole="header"
-				numberOfLines={1}
-				style={[styles.title, { color: colors.foreground }]}
-			>
-				{title}
-			</Text>
+			<View style={styles.titleWrap}>
+				<Text
+					accessibilityRole="header"
+					numberOfLines={1}
+					style={[styles.title, { color: colors.foreground }]}
+				>
+					{title}
+				</Text>
+				{subtitle ? (
+					<Text
+						numberOfLines={1}
+						style={[styles.subtitle, { color: colors.mutedForeground }]}
+					>
+						{subtitle}
+					</Text>
+				) : null}
+			</View>
 			<View style={styles.trailing}>{trailing}</View>
 		</View>
 	);
@@ -56,13 +75,25 @@ const styles = StyleSheet.create({
 		paddingHorizontal: Layout.edgeInset,
 	},
 	title: {
-		fontSize: 17,
-		fontWeight: "700",
+		fontSize: FontSize.text,
+		fontWeight: FontWeight.bold,
 		left: Layout.edgeInset + Layout.headerControl,
-		letterSpacing: -0.2,
-		lineHeight: 22,
+		letterSpacing: LetterSpacing.relaxed,
+		lineHeight: LineHeight.body,
 		position: "absolute",
 		right: Layout.edgeInset + Layout.headerControl,
+		textAlign: "center",
+	},
+	titleWrap: {
+		alignItems: "center",
+		left: Layout.edgeInset + Layout.headerControl,
+		position: "absolute",
+		right: Layout.edgeInset + Layout.headerControl,
+	},
+	subtitle: {
+		fontSize: FontSize.caption,
+		lineHeight: LineHeight.caption,
+		marginTop: Spacing.xs,
 		textAlign: "center",
 	},
 	trailing: {

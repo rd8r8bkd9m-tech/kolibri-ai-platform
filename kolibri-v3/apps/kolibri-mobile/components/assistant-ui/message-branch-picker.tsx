@@ -1,7 +1,8 @@
 import { BranchPickerPrimitive, useAuiState } from "@assistant-ui/react-native";
 import { StyleSheet, Text, View } from "react-native";
 
-import { Icon } from "@/components/ui/icon";
+import { Icon } from "@/src/components/icons/Icon";
+import { FontSize, Spacing } from "@/constants/theme";
 import { useTheme } from "@/hooks/use-theme";
 
 export function MessageBranchPicker({
@@ -38,7 +39,7 @@ export function MessageBranchPicker({
 }
 
 const styles = StyleSheet.create({
-	root: { alignItems: "center", flexDirection: "row", gap: 2 },
-	button: { padding: 4 },
-	label: { fontSize: 12, fontVariant: ["tabular-nums"] },
+	root: { alignItems: "center", flexDirection: "row", gap: Spacing.xs },
+	button: { padding: Spacing.xs },
+	label: { fontSize: FontSize.caption, fontVariant: ["tabular-nums"] },
 });

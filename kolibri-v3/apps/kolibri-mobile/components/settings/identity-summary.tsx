@@ -1,6 +1,14 @@
 import { StyleSheet, Text, View } from "react-native";
 
-import { Radius } from "@/constants/theme";
+import {
+	FontSize,
+	FontWeight,
+	LetterSpacing,
+	LineHeight,
+	Radius,
+	Spacing,
+	typography,
+} from "@/constants/theme";
 import { useTheme } from "@/hooks/use-theme";
 
 export function profileInitials(name: string) {
@@ -31,13 +39,24 @@ export function IdentitySummary({ email, isOwner, name }: IdentitySummaryProps) 
 				</Text>
 			</View>
 			<View style={styles.copy}>
-				<Text numberOfLines={1} style={[styles.name, { color: colors.foreground }]}>
+				<Text
+					numberOfLines={1}
+					style={[
+						typography.identityName,
+						styles.name,
+						{ color: colors.foreground },
+					]}
+				>
 					{name}
 				</Text>
 				<Text
 					numberOfLines={1}
 					selectable
-					style={[styles.email, { color: colors.mutedForeground }]}
+					style={[
+						typography.identityEmail,
+						styles.email,
+						{ color: colors.mutedForeground },
+					]}
 				>
 					{email}
 				</Text>
@@ -58,25 +77,33 @@ const styles = StyleSheet.create({
 		alignItems: "center",
 		flexDirection: "row",
 		minHeight: 92,
-		paddingHorizontal: 4,
+		paddingHorizontal: Spacing.xs,
 	},
 	avatar: {
 		alignItems: "center",
-		borderRadius: 32,
+		borderRadius: Radius.badge,
 		height: 64,
 		justifyContent: "center",
 		width: 64,
 	},
-	avatarText: { fontSize: 23, fontWeight: "700", letterSpacing: -0.3 },
-	copy: { flex: 1, marginLeft: 15, minWidth: 0 },
-	name: { fontSize: 20, fontWeight: "700", letterSpacing: -0.35, lineHeight: 25 },
-	email: { fontSize: 14, lineHeight: 19, marginTop: 1 },
+	avatarText: {
+		fontSize: FontSize.avatar,
+		fontWeight: FontWeight.bold,
+		letterSpacing: LetterSpacing.base,
+	},
+	copy: { flex: 1, marginLeft: Spacing.lg, minWidth: 0 },
+	name: { letterSpacing: LetterSpacing.medium, lineHeight: LineHeight.text },
+	email: { lineHeight: LineHeight.small, marginTop: Spacing.xs },
 	badge: {
 		alignSelf: "flex-start",
 		borderRadius: Radius.circle,
-		marginTop: 7,
-		paddingHorizontal: 9,
-		paddingVertical: 4,
+		marginTop: Spacing.sm,
+		paddingHorizontal: Spacing.md,
+		paddingVertical: Spacing.xs,
 	},
-	badgeText: { fontSize: 11, fontWeight: "700", lineHeight: 14 },
+	badgeText: {
+		fontSize: FontSize.caption2,
+		fontWeight: FontWeight.bold,
+		lineHeight: LineHeight.caption2,
+	},
 });

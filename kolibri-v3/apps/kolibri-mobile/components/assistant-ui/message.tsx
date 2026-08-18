@@ -1,25 +1,47 @@
 import {
+	AuiIf,
 	ErrorPrimitive,
 	MessagePrimitive,
 	ThreadPrimitive,
+	type ImageMessagePartComponent,
+	type ToolCallMessagePartComponent,
 	useAuiState,
 	type TextMessagePartComponent,
 } from "@assistant-ui/react-native";
 import { useEffect, useState } from "react";
 import {
 	Animated,
+	Image,
 	Platform,
 	Pressable,
 	StyleSheet,
 	Text,
 	View,
 } from "react-native";
+import { useReducedMotion } from "react-native-reanimated";
 
 import { MessageActionBar } from "@/components/assistant-ui/message-action-bar";
 import { MessageBranchPicker } from "@/components/assistant-ui/message-branch-picker";
-import { Radius } from "@/constants/theme";
+import { DataCardFallback } from "@/components/assistant-ui/cards/data-card-fallback";
+import { ImageGenerationCard } from "@/components/assistant-ui/cards/image-generation-card";
+import { WeatherCard } from "@/components/assistant-ui/cards/weather-card";
+import { EstimateWidgetCard } from "@/components/assistant-ui/estimate-widget-card";
+import { EstimateGenerationActivityCard } from "@/components/assistant-ui/estimate-generation-activity-card";
+import {
+	FontSize,
+	FontWeight,
+	LetterSpacing,
+	LineHeight,
+	Radius,
+	Spacing,
+} from "@/constants/theme";
 import { useTheme } from "@/hooks/use-theme";
 import { haptics } from "@/lib/haptics";
+import { DATA_PART_NAMES } from "@/src/product-chat/cards";
+import {
+	parseEstimateEditorWidget,
+	parseEstimateGenerationActivity,
+} from "@/src/product-chat/estimate-widget";
 
 const UserText: TextMessagePartComponent = ({ text }) => {
 	const { colors } = useTheme();
@@ -38,6 +60,30 @@ const AssistantText: TextMessagePartComponent = ({ text }) => {
 			{text}
 		</Text>
 	);
+};
+
+const AssistantImage: ImageMessagePartComponent = ({ image }) => {
+	const { colors } = useTheme();
+	return (
+		<Image
+			accessibilityLabel="Изображение из ответа"
+			resizeMode="cover"
+			source={{ uri: image }}
+			style={[styles.resultImage, { backgroundColor: colors.muted }]}
+		/>
+	);
+};
+
+const EstimateToolCall: ToolCallMessagePartComponent = ({ args }) => {
+	const widget = parseEstimateEditorWidget(args);
+	if (widget) {
+		return <EstimateWidgetCard widget={widget} />;
+	}
+	const activity = parseEstimateGenerationActivity(args);
+	if (activity) {
+		return <EstimateGenerationActivityCard widget={activity} />;
+	}
+	return null;
 };
 
 function ReasoningBlock({ text }: { text: string }) {
@@ -88,9 +134,14 @@ function ReasoningBlock({ text }: { text: string }) {
 
 function TypingDot({ delay }: { delay: number }) {
 	const { colors } = useTheme();
+	const reduceMotion = useReducedMotion();
 	const [opacity] = useState(() => new Animated.Value(0.28));
 
 	useEffect(() => {
+		if (reduceMotion) {
+			opacity.setValue(0.9);
+			return;
+		}
 		const animation = Animated.loop(
 			Animated.sequence([
 				Animated.timing(opacity, {
@@ -108,7 +159,7 @@ function TypingDot({ delay }: { delay: number }) {
 		);
 		animation.start();
 		return () => animation.stop();
-	}, [delay, opacity]);
+	}, [delay, opacity, reduceMotion]);
 
 	return (
 		<Animated.View
@@ -152,8 +203,23 @@ function AssistantMessage() {
 				<MessagePrimitive.Parts
 					components={{
 						Text: AssistantText,
+						Image: AssistantImage,
 						Reasoning: ReasoningBlock,
 						Empty: TypingIndicator,
+						tools: {
+							Override: EstimateToolCall,
+						},
+						data: {
+							by_name: {
+								[DATA_PART_NAMES.weather]: ({ data }) => (
+									<WeatherCard data={data} />
+								),
+								[DATA_PART_NAMES.imageGeneration]: ({ data }) => (
+									<ImageGenerationCard data={data} />
+								),
+							},
+							Fallback: ({ name }) => <DataCardFallback name={name} />,
+						},
 					}}
 				/>
 				<ErrorPrimitive.Root
@@ -170,7 +236,7 @@ function AssistantMessage() {
 					/>
 				</ErrorPrimitive.Root>
 			</View>
-			<MessagePrimitive.If running={false}>
+			<AuiIf condition={(state) => state.message.status?.type !== "running"}>
 				<View style={styles.actions}>
 					<MessageBranchPicker />
 					<MessageActionBar />
@@ -207,7 +273,7 @@ function AssistantMessage() {
 						))}
 					</View>
 				) : null}
-			</MessagePrimitive.If>
+			</AuiIf>
 		</MessagePrimitive.Root>
 	);
 }
@@ -222,70 +288,92 @@ const styles = StyleSheet.create({
 	userBubble: {
 		borderRadius: Radius.bubble,
 		maxWidth: "86%",
-		paddingHorizontal: 16,
-		paddingVertical: 10,
+		paddingHorizontal: Spacing.lg,
+		paddingVertical: Spacing.md,
 	},
 	assistantRoot: { alignItems: "flex-start" },
-	assistantContent: { paddingHorizontal: 2 },
+	assistantContent: { paddingHorizontal: Spacing.xs },
 	reasoning: {
 		borderRadius: Radius.md,
 		borderWidth: StyleSheet.hairlineWidth,
-		marginBottom: 10,
-		marginTop: 2,
+		marginBottom: Spacing.md,
+		marginTop: Spacing.xs,
 		overflow: "hidden",
 	},
 	reasoningHeader: {
 		alignItems: "center",
 		flexDirection: "row",
 		justifyContent: "space-between",
-		paddingHorizontal: 12,
-		paddingVertical: 9,
+		paddingHorizontal: Spacing.md,
+		paddingVertical: Spacing.md,
 	},
-	reasoningTitle: { fontSize: 13, fontWeight: "600", lineHeight: 17 },
-	reasoningChevron: { fontSize: 16, lineHeight: 17 },
+	reasoningTitle: {
+		fontSize: FontSize.footnote,
+		fontWeight: FontWeight.semibold,
+		lineHeight: LineHeight.footnote,
+	},
+	reasoningChevron: { fontSize: FontSize.body, lineHeight: LineHeight.footnote },
 	reasoningBody: {
 		borderTopWidth: StyleSheet.hairlineWidth,
-		paddingHorizontal: 12,
-		paddingVertical: 10,
+		paddingHorizontal: Spacing.md,
+		paddingVertical: Spacing.md,
 	},
-	reasoningText: { fontSize: 13, lineHeight: 19 },
-	userText: { fontSize: 16, letterSpacing: -0.2, lineHeight: 22 },
-	assistantText: { fontSize: 16, letterSpacing: -0.2, lineHeight: 25 },
+	reasoningText: { fontSize: FontSize.footnote, lineHeight: LineHeight.small },
+	userText: {
+		fontSize: FontSize.text,
+		letterSpacing: LetterSpacing.relaxed,
+		lineHeight: LineHeight.relaxed,
+	},
+	assistantText: {
+		fontSize: FontSize.text,
+		letterSpacing: LetterSpacing.relaxed,
+		lineHeight: LineHeight.text,
+	},
+	resultImage: {
+		borderRadius: Radius.card,
+		height: 220,
+		maxWidth: 300,
+		width: "100%",
+	},
 	typing: {
 		alignItems: "center",
 		flexDirection: "row",
-		gap: 5,
-		paddingVertical: 9,
+		gap: Spacing.xs,
+		paddingVertical: Spacing.md,
 	},
-	dot: { borderRadius: 3.5, height: 7, width: 7 },
+	dot: { borderRadius: Radius.dot, height: 7, width: 7 },
 	actions: {
 		alignItems: "center",
 		flexDirection: "row",
-		gap: 4,
-		marginLeft: -4,
-		marginTop: 6,
+		gap: Spacing.xs,
+		marginLeft: -Spacing.xs,
+		marginTop: Spacing.sm,
 	},
 	error: {
 		borderRadius: Radius.md,
 		borderWidth: StyleSheet.hairlineWidth,
-		marginTop: 8,
-		paddingHorizontal: 12,
-		paddingVertical: 10,
+		marginTop: Spacing.sm,
+		paddingHorizontal: Spacing.md,
+		paddingVertical: Spacing.md,
 	},
 	suggestions: {
 		flexDirection: "row",
 		flexWrap: "wrap",
-		gap: 8,
-		marginTop: 10,
+		gap: Spacing.sm,
+		marginTop: Spacing.md,
 	},
 	suggestion: {
-		borderRadius: 999,
+		borderRadius: Radius.circle,
 		borderWidth: StyleSheet.hairlineWidth,
 		maxWidth: "92%",
-		paddingHorizontal: 13,
-		paddingVertical: 8,
+		paddingHorizontal: Spacing.lg,
+		paddingVertical: Spacing.sm,
 	},
-	suggestionText: { fontSize: 13, fontWeight: "600", lineHeight: 17 },
+	suggestionText: {
+		fontSize: FontSize.footnote,
+		fontWeight: FontWeight.semibold,
+		lineHeight: LineHeight.footnote,
+	},
 	pressed: { opacity: 0.6 },
-	errorText: { fontSize: 14, lineHeight: 20 },
+	errorText: { fontSize: FontSize.small, lineHeight: LineHeight.normal },
 });

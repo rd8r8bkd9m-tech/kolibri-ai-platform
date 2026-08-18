@@ -1877,3 +1877,10 @@
     break-after: auto;
   }
 }
+
+@media (max-width: 959px) {
+	.aui-button-icon {
+		width: 2.75rem;
+		height: 2.75rem;
+	}
+}

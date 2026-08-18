@@ -1,11 +1,16 @@
 from __future__ import annotations
 
 import json
+import logging
+import os
 import sqlite3
+import smtplib
 import time
 import uuid
+from email.message import EmailMessage
 from datetime import datetime, timezone
 from typing import Annotated
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 
@@ -17,6 +22,8 @@ from .schemas import (
     LoginRequest,
     MobileLoginRequest,
     MobileLogoutRequest,
+    MobileMagicLinkRequest,
+    MobileMagicLinkVerifyRequest,
     MobileRefreshRequest,
     MobileRegisterRequest,
     MobileTokenView,
@@ -61,6 +68,7 @@ _DUMMY_PASSWORD_HASH = hash_password(uuid.uuid4().hex)
 _LOGIN_WINDOW_SECONDS = 15 * 60
 _LOGIN_BLOCK_SECONDS = 15 * 60
 _LOGIN_MAX_FAILURES = 5
+_LOGGER = logging.getLogger("kolibri.v3.magic_link")
 
 
 def _now() -> int:
@@ -795,6 +803,198 @@ def _raise_mobile_auth_failure(error: MobileAuthFailure) -> None:
         detail={"code": error.code, "message": error.message},
         headers={"WWW-Authenticate": "Bearer"},
     ) from error
+
+
+_MAGIC_LINK_TTL_SECONDS = 15 * 60
+
+
+def _create_magic_link_token(
+    database: sqlite3.Connection,
+    *,
+    email: str,
+    settings: Settings,
+) -> str:
+    normalized = _normalize_email(email)
+    user = database.execute(
+        "SELECT id, tenant_id FROM users WHERE email_normalized = ? LIMIT 1",
+        (normalized,),
+    ).fetchone()
+    if user is None:
+        # Never disclose whether the address exists.
+        return uuid.uuid4().hex
+    token = uuid.uuid4().hex
+    now = _now()
+    database.execute(
+        """
+        INSERT INTO mobile_magic_links (
+            id, email_normalized, token_hash, created_at, expires_at
+        )
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        (
+            uuid.uuid4().hex,
+            normalized,
+            hash_session_token(token),
+            now,
+            now + _MAGIC_LINK_TTL_SECONDS,
+        ),
+    )
+    return token
+
+
+def _consume_magic_link(
+    database: sqlite3.Connection,
+    *,
+    email: str,
+    token: str,
+) -> tuple[str, str]:
+    normalized = _normalize_email(email)
+    row = database.execute(
+        """
+        SELECT token_hash, expires_at, consumed_at
+        FROM mobile_magic_links
+        WHERE email_normalized = ?
+        ORDER BY created_at DESC, id DESC
+        LIMIT 1
+        """,
+        (normalized,),
+    ).fetchone()
+    if (
+        row is None
+        or row["consumed_at"] is not None
+        or int(row["expires_at"]) <= _now()
+        or row["token_hash"] != hash_session_token(token)
+    ):
+        raise _error(
+            status.HTTP_401_UNAUTHORIZED,
+            "magic_link_invalid",
+            "Ссылка для входа недействительна или устарела.",
+        )
+    user = database.execute(
+        "SELECT id, tenant_id FROM users WHERE email_normalized = ? LIMIT 1",
+        (normalized,),
+    ).fetchone()
+    if user is None:
+        raise _error(
+            status.HTTP_401_UNAUTHORIZED,
+            "magic_link_invalid",
+            "Ссылка для входа недействительна или устарела.",
+        )
+    database.execute(
+        "UPDATE mobile_magic_links SET consumed_at = ? WHERE token_hash = ?",
+        (_now(), row["token_hash"]),
+    )
+    return str(user["id"]), str(user["tenant_id"])
+
+
+def _send_magic_link_email(
+    email: str,
+    token: str,
+    settings: Settings,
+) -> None:
+    smtp_host = os.getenv("KOLIBRI_V3_SMTP_HOST")
+    if not smtp_host:
+        if settings.environment == "production":
+            raise _error(
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+                "magic_link_delivery_unavailable",
+                "Email delivery is not configured.",
+            )
+        _LOGGER.warning("magic-link SMTP is not configured; token kept in memory only")
+        return
+    sender = os.getenv("KOLIBRI_V3_SMTP_FROM", "no-reply@kolibriai.ru")
+    public_origin = os.getenv(
+        "KOLIBRI_V3_PUBLIC_ORIGIN",
+        "https://kolibriai.ru",
+    ).rstrip("/")
+    magic_link = (
+        f"{public_origin}/auth/magic-link?"
+        f"email={quote(email)}&token={quote(token)}"
+    )
+    message = EmailMessage()
+    message["Subject"] = "Вход в КолИ"
+    message["From"] = sender
+    message["To"] = email
+    message.set_content(
+        f"Откройте ссылку, чтобы войти в КолИ:\n\n{magic_link}\n\n"
+        "Если вы не запрашивали вход, проигнорируйте это письмо."
+    )
+    port = int(os.getenv("KOLIBRI_V3_SMTP_PORT", "587"))
+    username = os.getenv("KOLIBRI_V3_SMTP_USERNAME") or None
+    password = os.getenv("KOLIBRI_V3_SMTP_PASSWORD") or None
+    with smtplib.SMTP(smtp_host, port, timeout=10) as smtp:
+        smtp.starttls()
+        if username and password:
+            smtp.login(username, password)
+        smtp.send_message(message)
+
+
+@router.post(
+    "/mobile/auth/magic-link/request",
+    status_code=status.HTTP_200_OK,
+)
+def mobile_magic_link_request(
+    payload: MobileMagicLinkRequest,
+    request: Request,
+    database: DatabaseDependency,
+) -> dict[str, object]:
+    settings: Settings = request.app.state.settings
+    with transaction(database, immediate=True):
+        token = _create_magic_link_token(
+            database,
+            email=str(payload.email),
+            settings=settings,
+        )
+    _send_magic_link_email(
+        email=str(payload.email),
+        token=token,
+        settings=settings,
+    )
+    expires_at = _now() + _MAGIC_LINK_TTL_SECONDS
+    response: dict[str, object] = {
+        "status": "sent",
+        "expiresAt": datetime.fromtimestamp(
+            expires_at,
+            tz=timezone.utc,
+        ).isoformat(),
+    }
+    if settings.environment != "production":
+        response["magicLink"] = token
+    return response
+
+
+@router.post(
+    "/mobile/auth/magic-link/verify",
+    response_model=MobileTokenView,
+)
+def mobile_magic_link_verify(
+    payload: MobileMagicLinkVerifyRequest,
+    request: Request,
+    database: DatabaseDependency,
+) -> MobileTokenView:
+    settings: Settings = request.app.state.settings
+    with transaction(database, immediate=True):
+        user_id, tenant_id = _consume_magic_link(
+            database,
+            email=str(payload.email),
+            token=payload.token.get_secret_value(),
+        )
+        identity = _fresh_user(
+            database,
+            user_id=user_id,
+            tenant_id=tenant_id,
+        )
+        pair = issue_device_session(
+            database,
+            user_id=user_id,
+            tenant_id=tenant_id,
+            platform=payload.device.platform.value,
+            device_name=payload.device.device_name,
+            app_version=payload.device.app_version,
+            settings=settings,
+            event_type="device_login",
+        )
+    return _mobile_token_view(pair, identity)
 
 
 @router.post(

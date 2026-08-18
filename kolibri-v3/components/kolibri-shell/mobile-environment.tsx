@@ -48,14 +48,17 @@ export function MobileEnvironment() {
 		};
 
 		root.dataset.mobilePlatform = mobilePlatform;
-		// Keep the UI aligned with the active viewport: narrow windows in DevTools
-		// also switch to the dedicated mobile build.
-		if (mobileViewport.matches) {
+		// Keep the mobile handoff reserved for real mobile platforms. A desktop
+		// browser at 200% zoom or a narrow window stays in the responsive Next
+		// workspace (adaptive dock/overlay layout), so the cookie session and
+		// thread drafts are never lost to a client switch.
+		const isMobilePlatform = mobilePlatform === "ios" || mobilePlatform === "android";
+		if (mobileViewport.matches && isMobilePlatform) {
 			handoffToMobileWeb();
 		}
 
 		const onViewportChange = () => {
-			if (mobileViewport.matches) {
+			if (mobileViewport.matches && isMobilePlatform) {
 				handoffToMobileWeb();
 			}
 		};

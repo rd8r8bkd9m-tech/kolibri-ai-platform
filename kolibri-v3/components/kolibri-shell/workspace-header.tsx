@@ -3,7 +3,6 @@
 import { ThreadListPrimitive } from "@assistant-ui/react";
 import {
 	ArrowLeft,
-	Folder,
 	PanelLeft,
 	PanelRight,
 	Search,
@@ -75,32 +74,28 @@ export function WorkspaceHeader({
 			>
 				{!navigationOpen ? (
 					<>
-						<ChromeActionButton
-							label="Переключить боковую панель"
-							shortcut="⌘B"
-							iconOnly
-							size="icon-xs"
-							aria-controls="workspace-project-navigation"
-							aria-expanded={false}
-							onClick={onToggleNavigation}
-							onMouseEnter={onNavigationPreviewEnter}
-							onMouseLeave={onNavigationPreviewLeave}
-							className={cn(SHELL_HEADER_ICON_BUTTON_CLASS, "relative")}
-							iconWrapperClassName={cn(
-								SHELL_DESKTOP_HEADER_ICON_WRAPPER,
-								"items-center justify-center",
-							)}
-						>
-							<PanelLeft
-								className={SHELL_ICON_SIZE_CLASS}
-								aria-hidden="true"
-								strokeWidth={SHELL_ICON_STROKE_WIDTH}
-							/>
-							<span
-								aria-hidden="true"
-								className="absolute top-0.5 right-0.5 size-1.5 rounded-full bg-[#339cff]"
-							/>
-						</ChromeActionButton>
+							<ChromeActionButton
+								label="Переключить боковую панель"
+								shortcut="⌘B"
+								iconOnly
+								size="icon-xs"
+								aria-controls="workspace-project-navigation"
+								aria-expanded={false}
+								onClick={onToggleNavigation}
+								onMouseEnter={onNavigationPreviewEnter}
+								onMouseLeave={onNavigationPreviewLeave}
+								className={SHELL_HEADER_ICON_BUTTON_CLASS}
+								iconWrapperClassName={cn(
+									SHELL_DESKTOP_HEADER_ICON_WRAPPER,
+									"items-center justify-center",
+								)}
+							>
+								<PanelLeft
+									className={SHELL_ICON_SIZE_CLASS}
+									aria-hidden="true"
+									strokeWidth={SHELL_ICON_STROKE_WIDTH}
+								/>
+							</ChromeActionButton>
 						<HeaderNewThreadButton onOpenChat={onOpenChat} />
 						<span
 							aria-hidden="true"
@@ -127,12 +122,7 @@ export function WorkspaceHeader({
 					</ChromeActionButton>
 				) : null}
 
-				<Folder
-					className={`text-muted-foreground ml-0.5 ${SHELL_ICON_SIZE_CLASS} shrink-0`}
-					aria-hidden="true"
-					strokeWidth={SHELL_ICON_STROKE_WIDTH}
-				/>
-				<p className={uiClassTokens.workspaceHeaderThreadTitle}>
+				<p className={cn(uiClassTokens.workspaceHeaderThreadTitle, "ml-1")}>
 					{threadTitle}
 				</p>
 

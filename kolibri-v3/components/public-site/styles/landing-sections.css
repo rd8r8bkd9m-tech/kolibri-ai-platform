@@ -567,11 +567,16 @@
 	border: 1px solid var(--kp-line);
 	border-radius: 1rem;
 	background: var(--kp-surface);
-	transition: border-color 160ms ease;
+	transition: border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.kp-faq-item:hover {
+	border-color: var(--kp-line-strong);
 }
 
 .kp-faq-item[open] {
-	border-color: var(--kp-line-strong);
+	border-color: rgb(160 215 209 / 38%);
+	box-shadow: 0 18px 46px -22px rgb(0 0 0 / 55%);
 }
 
 .kp-faq-item summary {
@@ -659,7 +664,7 @@
 }
 
 .kp-button-light:hover {
-	background: #ffffff;
+	background: var(--kp-text-soft);
 }
 
 @media (max-width: 900px) {

@@ -16,8 +16,6 @@ import {
 	type WorkspaceFileCategory,
 	WorkspaceFileManager,
 } from "@/components/kolibri-workspace/workspace-file-manager";
-import { WorkspaceProjectPicker } from "@/components/kolibri-shell/workspace-project-picker";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type { WorkspaceCatalogLoadState } from "@/lib/workspace-documents";
 import type { WorkspaceProject } from "@/lib/workspace-types";
 import {
@@ -44,6 +42,7 @@ export interface CanvasWorkspaceProps {
 	projectName?: string;
 	mode?: CanvasMode;
 	onClose?: () => void;
+	onCreateInChat?: () => void;
 	onFilesBack?: () => void;
 	onMinimize?: () => void;
 	onOpenSettings?: () => void;
@@ -65,20 +64,8 @@ export interface CanvasWorkspaceProps {
 	workspaceCatalogState?: WorkspaceCatalogLoadState;
 }
 
-const WORKSPACE_TOOL_SHORTCUTS: Record<ContextPanelMode, string> = {
-	review: "⌃⇧G",
-	terminal: "⌃`",
-	browser: "⌘T",
-	files: "⌘P",
-};
-
-const WORKSPACE_TOOLS = CONTEXT_PANEL_TABS.map((tool) => ({
-	...tool,
-	shortcut: WORKSPACE_TOOL_SHORTCUTS[tool.id],
-}));
-
 const CANVAS_HEADER_TABS: readonly CanvasFrameHeaderTab[] =
-	WORKSPACE_TOOLS.map(({ icon, id, label }) => ({
+	CONTEXT_PANEL_TABS.map(({ icon, id, label }) => ({
 		icon,
 		id,
 		title: label,
@@ -86,49 +73,6 @@ const CANVAS_HEADER_TABS: readonly CanvasFrameHeaderTab[] =
 
 function isContextPanelMode(value: string): value is ContextPanelMode {
 	return CONTEXT_PANEL_TABS.some((tab) => tab.id === value);
-}
-
-function WorkspaceLauncher({
-	onSelect,
-}: {
-	onSelect: (mode: ContextPanelMode) => void;
-}) {
-	return (
-		<nav
-			aria-label="Инструменты рабочей области"
-			className="flex min-h-0 flex-1 items-center justify-center px-5 py-10"
-		>
-			<ul className="w-full max-w-[20rem] space-y-1">
-				{WORKSPACE_TOOLS.map(({ id, icon: Icon, label, shortcut }) => (
-					<li key={id}>
-						<Tooltip>
-							<TooltipTrigger asChild>
-								<button
-									type="button"
-									onClick={() => onSelect(id)}
-									className="hover:bg-muted/55 focus-visible:ring-ring flex h-12 w-full items-center gap-3 rounded-lg px-3 text-left text-[13px] font-medium transition-colors outline-none focus-visible:ring-2"
-								>
-									<Icon
-										className="text-muted-foreground size-4 shrink-0"
-										aria-hidden="true"
-									/>
-									<span>{label}</span>
-									{shortcut ? (
-										<kbd className="bg-muted text-muted-foreground ml-auto rounded-full px-1.5 py-0.5 text-[10px] leading-none font-medium">
-											{shortcut}
-										</kbd>
-									) : null}
-								</button>
-							</TooltipTrigger>
-							<TooltipContent side="left" sideOffset={10}>
-								Открыть: {label.toLocaleLowerCase("ru-RU")}
-							</TooltipContent>
-						</Tooltip>
-					</li>
-				))}
-			</ul>
-		</nav>
-	);
 }
 
 export function CanvasWorkspace({
@@ -140,6 +84,7 @@ export function CanvasWorkspace({
 	projectName,
 	mode,
 	onClose,
+	onCreateInChat,
 	onFilesBack,
 	onMinimize,
 	onOpenSettings,
@@ -199,21 +144,14 @@ export function CanvasWorkspace({
 			? `artifact-${openFile.kind}`
 			: activeTool
 				? `tool-${activeTool}`
-				: (resolvedMode ?? "launcher");
+				: (resolvedMode ?? "files");
 
 	return (
 		<CanvasFrame
 			activeTabId={activeSessionTabId}
-			activeHeaderTabId={surfaceContent ? undefined : activeTool ?? undefined}
+			activeHeaderTabId={surfaceContent ? undefined : activeTool ?? "files"}
 			compactChrome={compactChrome}
-			headerActions={
-				<WorkspaceProjectPicker
-					activeProjectId={activeProjectId}
-					onProjectSelect={onProjectSelect}
-					projectName={trimmedProjectName}
-					projects={projects}
-				/>
-			}
+			headerActions={null}
 			headerTabs={CANVAS_HEADER_TABS}
 			label="Рабочая область проекта"
 			maximized={maximized}
@@ -251,11 +189,8 @@ export function CanvasWorkspace({
 						files={workspaceFiles}
 						initialCategory={fileCategory}
 						projectLabel={projectLabel}
-						onBack={
-							compactChrome
-								? undefined
-								: (onFilesBack ?? (() => setActiveTool(null)))
-						}
+						onBack={compactChrome ? undefined : onFilesBack}
+						onCreateInChat={onCreateInChat}
 						onOpenFile={setOpenFile}
 						onRetry={onRetryWorkspaceCatalog}
 					/>
@@ -270,11 +205,14 @@ export function CanvasWorkspace({
 				) : CanvasView && definition ? (
 					<CanvasView projectLabel={projectLabel} />
 				) : (
-					<WorkspaceLauncher
-						onSelect={(nextTool) => {
-							setOpenFile(null);
-							setActiveTool(nextTool);
-						}}
+					<WorkspaceFileManager
+						catalogState={workspaceCatalogState}
+						files={workspaceFiles}
+						initialCategory={fileCategory}
+						projectLabel={projectLabel}
+						onCreateInChat={onCreateInChat}
+						onOpenFile={setOpenFile}
+						onRetry={onRetryWorkspaceCatalog}
 					/>
 				)}
 			</div>

@@ -1,7 +1,12 @@
 import type { PropsWithChildren, ReactNode } from "react";
 import { StyleSheet, Text, View } from "react-native";
 
-import { Radius } from "@/constants/theme";
+import {
+	LineHeight,
+	Radius,
+	Spacing,
+	typography,
+} from "@/constants/theme";
 import { useTheme } from "@/hooks/use-theme";
 
 type SettingsGroupProps = PropsWithChildren<{
@@ -14,7 +19,13 @@ export function SettingsGroup({ children, footer, title }: SettingsGroupProps) {
 	return (
 		<View style={styles.root}>
 			{title ? (
-				<Text style={[styles.title, { color: colors.mutedForeground }]}>
+				<Text
+					style={[
+						typography.settingsLabel,
+						styles.title,
+						{ color: colors.mutedForeground },
+					]}
+				>
 					{title}
 				</Text>
 			) : null}
@@ -32,17 +43,14 @@ export function SettingsGroup({ children, footer, title }: SettingsGroupProps) {
 }
 
 const styles = StyleSheet.create({
-	root: { gap: 7 },
+	root: { gap: Spacing.sm },
 	title: {
-		fontSize: 13,
-		fontWeight: "600",
-		letterSpacing: -0.05,
-		lineHeight: 18,
-		paddingHorizontal: 4,
+		lineHeight: LineHeight.compact,
+		paddingHorizontal: Spacing.xs,
 	},
 	surface: {
 		borderRadius: Radius.card,
 		overflow: "hidden",
 	},
-	footer: { paddingHorizontal: 4 },
+	footer: { paddingHorizontal: Spacing.xs },
 });

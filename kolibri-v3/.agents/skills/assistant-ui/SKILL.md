@@ -7,6 +7,11 @@ license: MIT
 # assistant-ui
 
 **Always consult [assistant-ui.com/llms.txt](https://www.assistant-ui.com/llms.txt) for the latest API.**
+For deep dives (custom primitives, migrations, full API surface) use the
+complete dump at [assistant-ui.com/llms-full.txt](https://www.assistant-ui.com/llms-full.txt);
+when the `assistant-ui-docs` MCP server is connected, prefer its
+`assistantUIDocs` and `assistantUIExamples` tools over loading the full dump
+into context.
 
 React library for building AI chat interfaces with composable primitives.
 

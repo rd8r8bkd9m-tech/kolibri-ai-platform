@@ -30,7 +30,7 @@ const isWebRuntime =
 // the product backend on the same origin. On web, using the page origin keeps
 // auth working from any host (localhost, LAN IP on a phone, production), where
 // a baked 127.0.0.1 base URL would point at the device itself.
-const servedThroughGateway =
+const servedThroughGateway = false &&
 	isWebRuntime &&
 	typeof globalThis.window !== "undefined" &&
 	/(?:^|;\s*)kolibri_ui_client=(?:mobile|desktop)(?:;|$)/.test(
@@ -183,6 +183,10 @@ type MobileSessionValue = {
 	error: string | null;
 	login: (input: AuthInput) => Promise<void>;
 	register: (input: RegisterInput) => Promise<void>;
+	requestMagicLink: (
+		email: string,
+	) => Promise<{ status: string; magicLink?: string }>;
+	verifyMagicLink: (email: string, token: string) => Promise<void>;
 	refreshProfile: () => Promise<MobileUser>;
 	updateProfile: (input: { name: string }) => Promise<MobileUser>;
 	logout: () => Promise<void>;
@@ -457,7 +461,10 @@ export function MobileSessionProvider({ children }: PropsWithChildren) {
 
 	const establish = useCallback(
 		async (
-			path: "/v1/mobile/auth/login" | "/v1/mobile/auth/register",
+			path:
+				| "/v1/mobile/auth/login"
+				| "/v1/mobile/auth/register"
+				| "/v1/mobile/auth/magic-link/verify",
 			body: unknown,
 		) => {
 			setError(null);
@@ -473,15 +480,51 @@ export function MobileSessionProvider({ children }: PropsWithChildren) {
 		[commitPair],
 	);
 
+	
 	const login = useCallback(
 		(input: AuthInput) =>
 			establish("/v1/mobile/auth/login", { ...input, device }),
 		[establish],
 	);
 
+	
 	const register = useCallback(
 		(input: RegisterInput) =>
 			establish("/v1/mobile/auth/register", { ...input, device }),
+		[establish],
+	);
+
+	const requestMagicLink = useCallback(async (email: string) => {
+		const response = await nativeFetch(
+			`${API_BASE_URL}/v1/mobile/auth/magic-link/request`,
+			{
+				method: "POST",
+				headers: {
+					Accept: "application/json",
+					"Content-Type": "application/json",
+				},
+				body: JSON.stringify({ email, device }),
+			},
+		);
+		if (!response.ok) throw await readError(response);
+		const value = (await response.json()) as {
+			status?: unknown;
+			magicLink?: unknown;
+		};
+		return {
+			status: typeof value.status === "string" ? value.status : "sent",
+			magicLink:
+				typeof value.magicLink === "string" ? value.magicLink : undefined,
+		};
+	}, []);
+
+	const verifyMagicLink = useCallback(
+		(email: string, token: string) =>
+			establish("/v1/mobile/auth/magic-link/verify", {
+				email,
+				token,
+				device,
+			}),
 		[establish],
 	);
 
@@ -592,6 +635,8 @@ export function MobileSessionProvider({ children }: PropsWithChildren) {
 			error,
 			login,
 			register,
+			requestMagicLink,
+			verifyMagicLink,
 			refreshProfile,
 			updateProfile,
 			logout,
@@ -604,9 +649,11 @@ export function MobileSessionProvider({ children }: PropsWithChildren) {
 			logout,
 			refreshProfile,
 			register,
+			requestMagicLink,
 			status,
 			updateProfile,
 			user,
+			verifyMagicLink,
 		],
 	);
 

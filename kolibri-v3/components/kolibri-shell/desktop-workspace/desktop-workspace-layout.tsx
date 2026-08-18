@@ -47,16 +47,16 @@ export function DesktopWorkspaceLayout({
 				orientation="horizontal"
 				className="min-h-0 min-w-0 flex-1"
 			>
-				{navigationOpen && !auxiliaryFullscreen ? (
-					<>
-						<ResizablePanel
-							id="project-navigation"
-							defaultSize={374}
-							minSize={288}
-							maxSize={410}
-							groupResizeBehavior="preserve-pixel-size"
-							className="min-h-0 min-w-0 overflow-hidden"
-						>
+		{navigationOpen && !auxiliaryFullscreen ? (
+						<>
+							<ResizablePanel
+								id="project-navigation"
+								defaultSize={320}
+								minSize={280}
+								maxSize={360}
+								groupResizeBehavior="preserve-pixel-size"
+								className="min-h-0 min-w-0 overflow-hidden"
+							>
 							<div id="workspace-project-navigation" className="h-full">
 								{navigation}
 							</div>
@@ -67,7 +67,11 @@ export function DesktopWorkspaceLayout({
 
 				<ResizablePanel
 					id="primary-workspace"
-					minSize={640}
+					// When navigation is docked the chat canvas keeps a 640 px floor
+					// so it never gets squeezed; once navigation switches to the
+					// overlay (narrow window) the canvas is the only panel and must
+					// be free to shrink down to the viewport width.
+					minSize={navigationOpen ? 640 : 0}
 					className="min-h-0 min-w-0 overflow-hidden"
 				>
 					<main className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden">
@@ -101,13 +105,13 @@ export function DesktopWorkspaceLayout({
 					<>
 						<ResizableHandle aria-label="Изменить ширину дополнительного канваса" />
 						<ResizablePanel
-							id="auxiliary-canvas"
-							defaultSize={480}
-							minSize={320}
-							maxSize={600}
-							groupResizeBehavior="preserve-pixel-size"
-							className="min-h-0 min-w-0 overflow-hidden"
-						>
+								id="auxiliary-canvas"
+								defaultSize={400}
+								minSize={320}
+								maxSize={640}
+								groupResizeBehavior="preserve-pixel-size"
+								className="min-h-0 min-w-0 overflow-hidden"
+							>
 							{auxiliary}
 						</ResizablePanel>
 					</>

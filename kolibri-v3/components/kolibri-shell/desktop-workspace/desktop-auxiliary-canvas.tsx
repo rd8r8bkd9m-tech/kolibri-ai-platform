@@ -114,6 +114,7 @@ export function DesktopAuxiliaryCanvas({
 						catalogState={catalogState}
 						files={files}
 						initialCategory={activeTab.content.category}
+						onCreateInChat={controller.dismiss}
 						onOpenFile={controller.selectFile}
 						onRetry={onRefresh}
 						projectLabel={projectLabel}
@@ -153,7 +154,7 @@ export function DesktopAuxiliaryCanvas({
 				workspaceCatalogState={catalogState}
 				workspaceFiles={files}
 				onClose={controller.close}
-				onFilesBack={() => controller.updateTool(null)}
+				onCreateInChat={controller.dismiss}
 				onMinimize={controller.minimize}
 				onOpenSettings={() => controller.openSettings("integrations")}
 				onProjectSelect={onSelectProject}

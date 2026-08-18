@@ -10,7 +10,7 @@ import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { LandingPet } from "./landing-pet";
 
-const chips = ["ФСНБ-2022", "ГЭСН", "ФГИС ЦС"];
+const chips = ["ФСНБ-2024", "ФГИС ЦС"];
 
 type Scene = {
 	id: string;
@@ -41,6 +41,11 @@ const scenes: Scene[] = [
 			<div className="klp-msg klp-msg-ai">
 				<LandingPet interactive width={30} className="klp-chat-pet" />
 				<div className="klp-ai-body">
+					<div className="klp-exec-chips" aria-label="Ход выполнения">
+						<span className="is-done"><i aria-hidden="true" /> План составлен</span>
+						<span className="is-done"><i aria-hidden="true" /> Цены проверены по ФГИС ЦС</span>
+						<span className="is-done"><i aria-hidden="true" /> Расчёт завершён</span>
+					</div>
 					<strong>
 						Смета готова — 2 840 000 ₽. Это версия 3, предыдущие расчёты сохранены.
 					</strong>
@@ -67,7 +72,7 @@ const scenes: Scene[] = [
 		user: (
 			<div className="klp-msg klp-msg-user">
 				<div className="klp-bubble">
-					Сделай КП, договор и акт по версии 3 сметы
+					Сделай КП, счёт и ведомость по версии 3 сметы
 				</div>
 			</div>
 		),
@@ -79,7 +84,7 @@ const scenes: Scene[] = [
 					{[
 						{ title: "Коммерческое предложение", type: "DOCX", state: "готово" },
 						{ title: "Договор подряда", type: "DOCX", state: "черновик" },
-						{ title: "Акт выполненных работ", type: "PDF", state: "в работе" },
+						{ title: "Счёт на оплату", type: "PDF", state: "в работе" },
 					].map((doc, index) => (
 						<div className="klp-file-card" key={doc.title} style={{ marginTop: index === 0 ? "0.8rem" : "0.5rem" }}>
 							<span className="klp-file-icon"><FileText aria-hidden="true" /></span>
@@ -111,7 +116,7 @@ const scenes: Scene[] = [
 					<ul className="klp-timeline" style={{ marginTop: "0.7rem" }}>
 						{[
 							["Проверил 48 позиций по официальным ценам", "4s"],
-							["Сопоставил позиции со справочником ГЭСН", "3s"],
+							["Сопоставил позиции с ценами ФГИС ЦС", "3s"],
 							["Обновил версию сметы и основания", "3s"],
 							["Сохранил изменения — правку можно откатить", "2s"],
 						].map(([text, time]) => (
@@ -197,10 +202,13 @@ export function HeroStage() {
 						{phase === "typing" ? (
 							<div className="klp-msg klp-msg-ai">
 								<LandingPet width={30} className="klp-chat-pet" />
-								<span className="klp-typing" aria-label="Агент печатает ответ">
+								<span className="klp-typing" aria-label="Агент выполняет задачу">
 									<i />
 									<i />
 									<i />
+								</span>
+								<span className="klp-exec-pill is-working">
+									<i aria-hidden="true" /> выполняю: анализирую, считаю, проверяю
 								</span>
 							</div>
 						) : null}
@@ -220,11 +228,11 @@ export function HeroStage() {
 			</div>
 			<div className="klp-float-pill klp-pill-b">
 				<span><FileText aria-hidden="true" /></span>
-				<p>КП готов<small>черновик договора</small></p>
+				<p>КП готов<small>счёт и ведомость</small></p>
 			</div>
 			<div className="klp-float-pill klp-pill-c">
 				<span><FileCheck2 aria-hidden="true" /></span>
-				<p>Акт выполненных работ<small>в работе</small></p>
+				<p>Счёт на оплату<small>в работе</small></p>
 			</div>
 		</div>
 	);

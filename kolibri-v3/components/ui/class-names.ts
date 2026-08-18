@@ -42,7 +42,7 @@ export const uiClassTokens = {
 	threadListNewButton:
 		"h-10 justify-start gap-2 rounded-xl bg-foreground px-3 text-sm font-medium text-background shadow-sm hover:bg-foreground/88 data-active:bg-foreground",
 	threadListMenuTrigger:
-		"absolute end-1 top-1/2 flex size-7 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground opacity-0 outline-none transition hover:bg-white/70 hover:text-foreground focus-visible:ring-2 focus-visible:ring-[color-mix(in_oklab,var(--brand)_50%,transparent)] group-hover:opacity-100 group-focus-within:opacity-100 group-data-active:opacity-100 data-[state=open]:bg-white/70 data-[state=open]:opacity-100 dark:hover:bg-white/10",
+		"absolute end-1 top-1/2 flex size-7 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground opacity-0 outline-none transition focus-visible:opacity-100 hover:bg-white/70 hover:text-foreground focus-visible:ring-2 focus-visible:ring-[color-mix(in_oklab,var(--brand)_50%,transparent)] group-hover:opacity-100 group-focus-within:opacity-100 group-data-active:opacity-100 data-[state=open]:bg-white/70 data-[state=open]:opacity-100 dark:hover:bg-white/10",
 	threadListMenuItem:
 		"flex cursor-default select-none items-center gap-2 rounded-lg px-2.5 py-2 outline-none data-[highlighted]:bg-[var(--brand-soft)] dark:data-[highlighted]:bg-[var(--brand-soft)]",
 	threadListMenuContent:
@@ -106,7 +106,7 @@ export const uiClassTokens = {
 	threadViewportFooter:
 		"aui-thread-viewport-footer sticky bottom-0 z-10 mt-auto flex min-w-0 shrink-0 flex-col gap-3 overflow-visible rounded-t-(--composer-radius) bg-background pt-2 pb-[calc(0.75rem+env(safe-area-inset-bottom))] md:pb-[calc(1rem+env(safe-area-inset-bottom))]",
 	threadScrollToBottom:
-		"aui-thread-scroll-to-bottom dark:border-border dark:bg-background dark:hover:bg-accent absolute -top-12 z-10 self-center rounded-full p-4 disabled:invisible",
+		"aui-thread-scroll-to-bottom dark:border-border dark:bg-background dark:hover:bg-accent absolute -top-12 z-10 self-center size-11 md:size-9 rounded-full disabled:invisible",
 	threadRunProgressPill:
 		"border-border/70 bg-background text-muted-foreground mx-auto flex h-9 max-w-full items-center gap-2 rounded-full border px-4 text-xs shadow-[0_6px_20px_-14px_rgba(0,0,0,0.35)]",
 	threadWelcomeRoot:
@@ -172,7 +172,7 @@ export const uiClassTokens = {
 	threadReasoningChevron:
 		"size-3.5 opacity-60 transition-transform group-open/reasoning:rotate-180",
 	threadReasoningBody:
-		"text-muted-foreground border-t border-border/60 px-3 py-2.5 text-[13px] leading-5 whitespace-pre-wrap",
+		"text-muted-foreground border-t border-border/60 px-3 py-2.5 text-[13px] leading-5 whitespace-pre-wrap wrap-break-word",
 	threadUserMessageRoot:
 		"group/user fade-in slide-in-from-bottom-1 animate-in flex min-w-0 max-w-full flex-col items-end gap-y-1.5 duration-150 [contain-intrinsic-size:auto_200px] [content-visibility:auto] [&_.aui-user-message-attachments-end]:max-w-[78%] [&_.aui-user-message-attachments-end]:flex-wrap",
 	threadUserMessageContentWrapper:
@@ -190,7 +190,7 @@ export const uiClassTokens = {
 	threadUserActionCopy:
 		"aui-user-action-copy size-6 rounded-md",
 	threadUserActionEdit:
-		"aui-user-action-edit size-6 rounded-md opacity-0 transition-opacity group-hover/user:opacity-100 focus-visible:opacity-100",
+		"aui-user-action-edit size-6 rounded-md",
 	threadEditComposerRoot:
 		"flex flex-col px-2 [contain-intrinsic-size:auto_200px] [content-visibility:auto]",
 	threadEditComposerPanel:

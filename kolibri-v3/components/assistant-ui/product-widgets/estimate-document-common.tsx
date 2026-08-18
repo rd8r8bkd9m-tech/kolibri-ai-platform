@@ -252,6 +252,7 @@ export function PartyEditor({
 	);
 	const [saving, setSaving] = useState(false);
 	const [statusText, setStatusText] = useState("");
+	const [saveError, setSaveError] = useState("");
 	const label = role === "client" ? "Клиент" : "Подрядчик";
 
 	useEffect(() => {
@@ -268,6 +269,7 @@ export function PartyEditor({
 				event.preventDefault();
 				setSaving(true);
 				setStatusText("");
+				setSaveError("");
 				void saveProjectParty(projectId, role, {
 					displayName: displayName.trim(),
 					entityType,
@@ -280,7 +282,7 @@ export function PartyEditor({
 					.then(onSaved)
 					.then(() => setStatusText("Назначение сохранено"))
 					.catch((reason: unknown) =>
-						setStatusText(
+						setSaveError(
 							reason instanceof Error
 								? reason.message
 								: "Не удалось сохранить участника.",
@@ -319,7 +321,7 @@ export function PartyEditor({
 				<label className="grid gap-1 text-xs text-muted-foreground">
 					Тип
 					<select
-						className="h-9 rounded-md border border-input bg-transparent px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
+						className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-base min-[960px]:text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
 						value={entityType}
 						onChange={(event) =>
 							setEntityType(
@@ -364,7 +366,11 @@ export function PartyEditor({
 					) : null}
 					{party ? "Обновить" : "Назначить"}
 				</Button>
-				{statusText ? (
+				{saveError ? (
+					<p className="text-xs text-destructive" role="alert">
+						{saveError}
+					</p>
+				) : statusText ? (
 					<p className="text-xs text-muted-foreground" role="status">
 						{statusText}
 					</p>
@@ -544,7 +550,7 @@ export function EstimateCopyPanel({
 				<label className="grid gap-1 text-xs text-muted-foreground">
 					Тип клиента
 					<select
-						className="h-9 rounded-md border border-input bg-transparent px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
+						className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-base min-[960px]:text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
 						value={clientType}
 						onChange={(event) =>
 							setClientType(

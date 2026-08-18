@@ -2,10 +2,11 @@
 
 import type { FormEvent, KeyboardEvent } from "react";
 import { useId, useRef, useState } from "react";
-import { LoaderCircle } from "lucide-react";
+import { AlertCircle, Eye, EyeOff, LoaderCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useIdentity } from "@/lib/identity/provider";
+import { PetAvatar } from "@/components/kolibri-shell/kolibri-pet";
 import { cn } from "@/lib/utils";
 
 export function AuthPanel({
@@ -19,6 +20,7 @@ export function AuthPanel({
 	const [email, setEmail] = useState("");
 	const [password, setPassword] = useState("");
 	const [submitting, setSubmitting] = useState(false);
+	const [showPassword, setShowPassword] = useState(false);
 	const [error, setError] = useState<string | null>(identity.error);
 	const authTabPrefix = useId().replace(/:/g, "");
 	const authTabRefs = useRef<Array<HTMLButtonElement | null>>([]);
@@ -89,6 +91,13 @@ export function AuthPanel({
 
 	return (
 		<div className="w-full">
+			<div className="mb-6 flex flex-col items-center text-center">
+				<PetAvatar className="size-12" id="kolibri" />
+				<h1 className="mt-3 text-xl font-semibold tracking-tight">КолИ</h1>
+				<p className="mt-1 text-sm text-foreground/70">
+					ИИ-сметчик, документы и нормативы строительного проекта
+				</p>
+			</div>
 			<div
 				role="tablist"
 				aria-label="Способ входа"
@@ -163,23 +172,39 @@ export function AuthPanel({
 					</label>
 					<label className="block text-[13px] font-medium">
 						Пароль
-						<Input
-							type="password"
-							value={password}
-							onChange={(event) => setPassword(event.target.value)}
-							autoComplete="current-password"
-							required
-							minLength={12}
-							maxLength={256}
-							className="mt-2 h-10 rounded-lg shadow-none"
-						/>
+						<div className="relative mt-2">
+							<Input
+								type={showPassword ? "text" : "password"}
+								value={password}
+								onChange={(event) => setPassword(event.target.value)}
+								autoComplete="current-password"
+								required
+								maxLength={256}
+								className="h-10 rounded-lg pr-11 shadow-none"
+							/>
+							<button
+								type="button"
+								aria-label={showPassword ? "Скрыть пароль" : "Показать пароль"}
+								aria-pressed={showPassword}
+								onClick={() => setShowPassword((value) => !value)}
+								className="absolute -inset-y-0.5 right-0 flex w-11 items-center justify-center rounded text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+							>
+								{showPassword ? (
+									<EyeOff className="size-4" aria-hidden="true" />
+								) : (
+									<Eye className="size-4" aria-hidden="true" />
+								)}
+							</button>
+						</div>
 					</label>
 					{error ? (
 						<p
-							className="rounded-xl border border-destructive/30 bg-destructive/5 px-3 py-2 text-[12px] leading-5 text-destructive"
+							className="flex items-start gap-2 rounded-xl border border-destructive/30 bg-destructive/5 px-3 py-2 text-[12px] leading-5 text-destructive"
 							role="alert"
+							aria-live="polite"
 						>
-							{error}
+							<AlertCircle className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+							<span>{error}</span>
 						</p>
 					) : null}
 					<Button
@@ -229,23 +254,44 @@ export function AuthPanel({
 					</label>
 					<label className="block text-[13px] font-medium">
 						Пароль
-						<Input
-							type="password"
-							value={password}
-							onChange={(event) => setPassword(event.target.value)}
-							autoComplete="new-password"
-							required
-							minLength={12}
-							maxLength={256}
-							className="mt-2 h-10 rounded-lg shadow-none"
-						/>
+						<div className="relative mt-2">
+							<Input
+								type={showPassword ? "text" : "password"}
+								value={password}
+								onChange={(event) => setPassword(event.target.value)}
+								autoComplete="new-password"
+								required
+								minLength={12}
+								maxLength={256}
+								aria-describedby="register-password-hint"
+								className="h-10 rounded-lg pr-11 shadow-none"
+							/>
+							<button
+								type="button"
+								aria-label={showPassword ? "Скрыть пароль" : "Показать пароль"}
+								aria-pressed={showPassword}
+								onClick={() => setShowPassword((value) => !value)}
+								className="absolute -inset-y-0.5 right-0 flex w-11 items-center justify-center rounded text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+							>
+								{showPassword ? (
+									<EyeOff className="size-4" aria-hidden="true" />
+								) : (
+									<Eye className="size-4" aria-hidden="true" />
+								)}
+							</button>
+						</div>
+						<p id="register-password-hint" className="mt-1.5 text-[12px] text-muted-foreground">
+							Минимум 12 символов
+						</p>
 					</label>
 					{error ? (
 						<p
-							className="rounded-xl border border-destructive/30 bg-destructive/5 px-3 py-2 text-[12px] leading-5 text-destructive"
+							className="flex items-start gap-2 rounded-xl border border-destructive/30 bg-destructive/5 px-3 py-2 text-[12px] leading-5 text-destructive"
 							role="alert"
+							aria-live="polite"
 						>
-							{error}
+							<AlertCircle className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+							<span>{error}</span>
 						</p>
 					) : null}
 					<Button
@@ -266,8 +312,16 @@ export function AuthPanel({
 
 export function DesktopAuthScreen() {
 	return (
-		<div className="bg-background flex h-dvh min-h-0 items-center justify-center px-4">
-			<div className="w-full max-w-sm">
+		<div className="relative flex h-dvh min-h-0 items-start justify-center overflow-y-auto overflow-x-hidden bg-background px-4 pt-[max(3rem,env(safe-area-inset-top))] pb-[max(2rem,env(safe-area-inset-bottom))] sm:items-center sm:overflow-hidden sm:pt-0 sm:pb-0">
+			<div
+				aria-hidden="true"
+				className="pointer-events-none absolute inset-0"
+				style={{
+					background:
+						"radial-gradient(60% 46% at 50% 0%, color-mix(in oklab, var(--brand) 11%, transparent), transparent 72%)",
+				}}
+			/>
+			<div className="relative w-full max-w-sm">
 				<AuthPanel />
 			</div>
 		</div>
