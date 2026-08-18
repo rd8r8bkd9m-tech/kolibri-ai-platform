@@ -176,6 +176,55 @@ describe('safe response stream', () => {
     })).toMatchObject({ response_id: 'resp_1', status: 'completed', done: true })
   })
 
+  it('normalizes the canonical nested reasoning excerpt without private fields', () => {
+    expect(normalizeStreamEvent({
+      event: 'response.work_summary.updated',
+      id: '17',
+      data: JSON.stringify({
+        type: 'response.work_summary.updated',
+        response_id: 'resp_1',
+        sequence: 17,
+        work_summary: {
+          kind: 'reasoning_excerpt',
+          summary_id: 'summary_1',
+          step_id: 'step_1',
+          stage: 'reasoning_summary',
+          status: 'active',
+          summary: 'Сверяю цены по региону объекта',
+          occurred_at: '2026-07-14T12:00:00Z',
+          reasoning_content: 'must not escape',
+          tool_arguments: { secret: true },
+        },
+      }),
+    })).toEqual({
+      type: 'response.work_summary.updated',
+      response_id: 'resp_1',
+      sequence: 17,
+      content: undefined,
+      done: false,
+      status: undefined,
+      error_code: undefined,
+      recoverable: false,
+      capability: undefined,
+      actions: undefined,
+      work_summary: {
+        kind: 'reasoning_excerpt',
+        summary_id: 'summary_1',
+        step_id: 'step_1',
+        stage: 'reasoning_summary',
+        status: 'active',
+        summary: 'Сверяю цены по региону объекта',
+        occurred_at: '2026-07-14T12:00:00Z',
+        response_id: 'resp_1',
+        sequence: 17,
+        provider: undefined,
+        model: undefined,
+        artifact_type: undefined,
+        artifact_id: undefined,
+      },
+    })
+  })
+
   it('keeps the typed image artifact action for byte verification after streaming', () => {
     const artifact = {
       id: '11111111-1111-4111-8111-111111111111',

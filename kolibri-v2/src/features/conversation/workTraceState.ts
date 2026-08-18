@@ -14,7 +14,19 @@ function normalized(value: string | undefined): string {
 function routeIdentity(event: ChatWorkSummary): string | null {
   if (!ROUTE_STAGES.has(event.stage)) return null
   if (event.stage === 'accepted') return 'accepted'
+  if (event.step_id) return `step:${event.step_id}`
   return [event.stage, normalized(event.provider), normalized(event.model)].join(':')
+}
+
+function durableEventIdentity(event: ChatWorkSummary): string | null {
+  if (event.response_id && Number.isSafeInteger(event.sequence)) {
+    return `${event.response_id}:${event.sequence}`
+  }
+  return null
+}
+
+function growingSummaryIdentity(event: ChatWorkSummary): string | null {
+  return event.summary_id ? `${event.response_id ?? ''}:${event.summary_id}` : null
 }
 
 function exactIdentity(event: ChatWorkSummary): string {
@@ -26,6 +38,10 @@ function exactIdentity(event: ChatWorkSummary): string {
     normalized(event.model),
     normalized(event.artifact_type),
     normalized(event.artifact_id),
+    event.summary_id ?? '',
+    event.step_id ?? '',
+    event.response_id ?? '',
+    event.sequence?.toString() ?? '',
   ].join(':')
 }
 
@@ -40,6 +56,25 @@ function sameEvent(left: ChatWorkSummary, right: ChatWorkSummary): boolean {
  */
 export function dedupeWorkSummaries(events: ChatWorkSummary[]): ChatWorkSummary[] {
   return events.reduce<ChatWorkSummary[]>((current, event) => {
+    const durableIdentity = durableEventIdentity(event)
+    if (durableIdentity && current.some(candidate => durableEventIdentity(candidate) === durableIdentity)) {
+      return current
+    }
+    const summaryIdentity = growingSummaryIdentity(event)
+    if (summaryIdentity) {
+      const previousIndex = current.findIndex(candidate => growingSummaryIdentity(candidate) === summaryIdentity)
+      if (previousIndex >= 0) {
+        const previous = current[previousIndex]
+        if (
+          Number.isSafeInteger(previous.sequence)
+          && Number.isSafeInteger(event.sequence)
+          && (previous.sequence as number) > (event.sequence as number)
+        ) return current
+        const next = [...current]
+        next[previousIndex] = event
+        return next
+      }
+    }
     const identity = routeIdentity(event)
     if (identity) {
       const previousIndex = current.findIndex(candidate => routeIdentity(candidate) === identity)
@@ -57,14 +92,11 @@ export function dedupeWorkSummaries(events: ChatWorkSummary[]): ChatWorkSummary[
 }
 
 export function workSummaryLabel(event: ChatWorkSummary): string {
-  const provenance = [event.provider, event.model]
-    .map(value => value?.trim())
-    .filter((value): value is string => Boolean(value))
-    .filter((value, index, values) => values.findIndex(candidate => normalized(candidate) === normalized(value)) === index)
-
-  return provenance.length > 0 ? `${event.summary} · ${provenance.join(' · ')}` : event.summary
+  return event.summary
 }
 
 export function shouldRenderWorkTrace(stage: string, expanded: boolean): boolean {
-  return stage !== 'completed' || expanded
+  void stage
+  void expanded
+  return true
 }

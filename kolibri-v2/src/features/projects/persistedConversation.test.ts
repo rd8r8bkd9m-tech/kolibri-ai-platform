@@ -55,6 +55,36 @@ const file: FileArtifact = {
 }
 
 describe('persisted conversation artifacts', () => {
+  it('persists the canonical reasoning excerpt for reload without private fields', () => {
+    const metadata = buildPersistedConversationMetadata({
+      responseId: 'resp_1',
+      workEvents: [{
+        kind: 'reasoning_excerpt',
+        summary_id: 'summary_1',
+        step_id: 'step_1',
+        stage: 'reasoning_summary',
+        status: 'completed',
+        summary: 'Сопоставляю работы с технологической картой',
+        occurred_at: '2026-07-14T12:00:00Z',
+        response_id: 'resp_1',
+        sequence: 17,
+      }],
+    })
+
+    expect(restoreConversationMetadata(metadata)).toMatchObject({
+      responseId: 'resp_1',
+      workEvents: [{
+        kind: 'reasoning_excerpt',
+        summary_id: 'summary_1',
+        stage: 'reasoning_summary',
+        status: 'completed',
+        response_id: 'resp_1',
+        sequence: 17,
+      }],
+    })
+    expect(JSON.stringify(metadata)).not.toContain('reasoning_content')
+  })
+
   it('persists and restores the exact verified image URL and hash', async () => {
     const artifact: ConversationArtifact = { type: 'image', value: image }
     const metadata = buildPersistedConversationMetadata({

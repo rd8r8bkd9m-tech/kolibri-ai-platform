@@ -20,6 +20,7 @@ import threading
 from collections import OrderedDict
 from datetime import datetime, timezone
 from typing import Any, Literal
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from fastapi.responses import Response, StreamingResponse
@@ -63,6 +64,71 @@ _PUBLIC_ACTION_TYPES = {
     "present_image",
     "present_artifact",
 }
+_PUBLIC_WORK_STAGES = {
+    "accepted",
+    "planning",
+    "provider_route",
+    "provider_attempt",
+    "response_received",
+    "tool_execution",
+    "source_retrieval",
+    "calculation",
+    "artifact_materialization",
+    "artifact_verification",
+    "background",
+    "resuming",
+    "verification",
+    "cancelled",
+    "reasoning_summary",
+    "factory_dispatch",
+    "factory_verified",
+    "codex_turn",
+    "plan_updated",
+}
+_PUBLIC_WORK_STAGE_ALIASES = {
+    "answer": "response_received",
+    "calculating": "tool_execution",
+    "sourcing": "source_retrieval",
+    "verifying": "verification",
+    "retrying": "resuming",
+}
+_PUBLIC_WORK_STATUS_ALIASES = {
+    "queued": "active",
+    "in_progress": "active",
+    "running": "active",
+    "success": "completed",
+    "ready": "completed",
+    "idle": "completed",
+    "error": "failed",
+    "unavailable": "failed",
+    "retrying": "recovering",
+}
+_PUBLIC_WORK_STATUSES = {
+    "active",
+    "completed",
+    "failed",
+    "waiting",
+    "recovering",
+    "cancelled",
+}
+_PUBLIC_WORK_ID = re.compile(r"^[A-Za-z0-9_-]{1,80}$")
+_PUBLIC_SUMMARY_SECRET = re.compile(
+    r"(?i)(?:bearer\s+\S+|(?:sk|koli)[_-][A-Za-z0-9._-]{12,}|"
+    r"(?:api[_ -]?key|token|password|secret)\s*[:=]\s*\S+|"
+    r"https?://\S+|/(?:Users|home|srv|etc)/\S+|"
+    r"\b(?:\d{1,3}\.){3}\d{1,3}\b|"
+    r"\b(?:mimo|deepseek|codex|kimi|openai|anthropic|claude|gemini|"
+    r"gpt-[A-Za-z0-9._-]+)\b)"
+)
+_FORBIDDEN_WORK_SUMMARY_KEYS = {
+    "reasoning",
+    "reasoning_content",
+    "reasoning_text",
+    "prompt",
+    "prompts",
+    "tool_arguments",
+    "credentials",
+}
 
 
 def _public_actions(value: Any) -> list[dict[str, Any]]:
@@ -104,6 +170,128 @@ def _public_actions(value: Any) -> list[dict[str, Any]]:
             continue
         actions.append({"type": action_type, "label": label, "data": public_data})
     return actions
+
+
+def _public_sources(value: Any) -> list[dict[str, Any]]:
+    """Return bounded source evidence without provider or request metadata."""
+
+    if not isinstance(value, list):
+        return []
+    sources: list[dict[str, Any]] = []
+    seen_urls: set[str] = set()
+    for candidate in value[:20]:
+        if not isinstance(candidate, dict):
+            continue
+        title = " ".join(str(candidate.get("title") or "").split())[:240]
+        url = str(candidate.get("url") or "").strip()[:2_000]
+        parsed = urlparse(url)
+        if (
+            not title
+            or parsed.scheme not in {"http", "https"}
+            or not parsed.netloc
+            or parsed.username is not None
+            or parsed.password is not None
+            or url in seen_urls
+        ):
+            continue
+        seen_urls.add(url)
+        source: dict[str, Any] = {
+            "citation": len(sources) + 1,
+            "title": title,
+            "url": url,
+        }
+        snippet = " ".join(str(candidate.get("snippet") or "").split())[:1_000]
+        if snippet:
+            source["snippet"] = snippet
+        retrieved_at = str(candidate.get("retrieved_at") or "")
+        if retrieved_at:
+            try:
+                parsed_at = datetime.fromisoformat(retrieved_at.replace("Z", "+00:00"))
+                if parsed_at.tzinfo is not None:
+                    source["retrieved_at"] = parsed_at.isoformat()
+            except ValueError:
+                pass
+        sources.append(source)
+    return sources
+
+
+def _public_work_identifier(value: Any, *, fallback: str) -> str:
+    candidate = str(value or "")
+    if _PUBLIC_WORK_ID.fullmatch(candidate):
+        return candidate
+    digest = hashlib.sha256(fallback.encode("utf-8")).hexdigest()[:24]
+    return f"step_{digest}"
+
+
+def _public_work_timestamp(value: Any) -> str:
+    candidate = str(value or "")
+    if candidate:
+        try:
+            parsed = datetime.fromisoformat(candidate.replace("Z", "+00:00"))
+            if parsed.tzinfo is not None:
+                return parsed.isoformat()
+        except ValueError:
+            pass
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _sanitize_public_work_summary(
+    response_id: str,
+    value: dict[str, Any],
+) -> dict[str, Any] | None:
+    """Build the only public/durable Work Trace payload.
+
+    Internal provenance and raw reasoning-shaped values are rejected before
+    persistence.  Unknown internal stages collapse to the bounded background
+    stage rather than expanding the public contract.
+    """
+
+    if _FORBIDDEN_WORK_SUMMARY_KEYS.intersection(value):
+        return None
+    raw_stage = str(value.get("stage") or "background").strip().lower()
+    if raw_stage in {"reasoning_content", "reasoning_text", "chain_of_thought"}:
+        return None
+    stage = _PUBLIC_WORK_STAGE_ALIASES.get(raw_stage, raw_stage)
+    if stage not in _PUBLIC_WORK_STAGES:
+        stage = "background"
+
+    raw_status = str(value.get("status") or "active").strip().lower()
+    status = _PUBLIC_WORK_STATUS_ALIASES.get(raw_status, raw_status)
+    if status not in _PUBLIC_WORK_STATUSES:
+        status = "active"
+
+    summary = " ".join(str(value.get("summary") or "").split())
+    summary = _PUBLIC_SUMMARY_SECRET.sub("[скрыто]", summary)[:600].strip()
+    if not summary:
+        return None
+
+    kind = "reasoning_excerpt" if stage == "reasoning_summary" else "stage"
+    step_id = _public_work_identifier(
+        value.get("step_id"),
+        fallback=f"{response_id}:{stage}",
+    )
+    summary_id: str | None = None
+    if kind == "reasoning_excerpt":
+        summary_id = _public_work_identifier(
+            value.get("summary_id"),
+            fallback=f"{response_id}:reasoning_summary",
+        ).replace("step_", "summary_", 1)
+    public = {
+        "kind": kind,
+        "step_id": step_id,
+        "summary_id": summary_id,
+        "stage": stage,
+        "status": status,
+        "summary": summary,
+        "occurred_at": _public_work_timestamp(value.get("occurred_at")),
+    }
+    artifact_type = str(value.get("artifact_type") or "")
+    artifact_id = str(value.get("artifact_id") or "")
+    if re.fullmatch(r"[a-z0-9._-]{1,40}", artifact_type):
+        public["artifact_type"] = artifact_type
+    if re.fullmatch(r"[A-Za-z0-9_-]{1,160}", artifact_id):
+        public["artifact_id"] = artifact_id
+    return public
 
 
 _PUBLIC_AUTH = [Depends(_authorize_public)]
@@ -494,6 +682,7 @@ def _public_response(record: dict[str, Any]) -> dict[str, Any]:
         "error": record.get("error"),
         "artifacts": [artifact] if isinstance(artifact, dict) else [],
         "actions": actions,
+        "sources": _public_sources(record.get("sources")),
     }
     if "structured_output" in record:
         payload["output_parsed"] = record["structured_output"]
@@ -570,6 +759,7 @@ def begin_public_response(
         "idempotency_key": idempotency_key,
         "request_hash": request_hash,
         "actions": [],
+        "sources": [],
         "events": [],
         "last_sequence": 0,
     }
@@ -578,32 +768,58 @@ def begin_public_response(
     return response_id
 
 
-def record_public_stream_chunk(response_id: str, chunk: dict[str, Any]) -> None:
+def record_public_stream_chunk(
+    response_id: str,
+    chunk: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Persist one provider chunk and return the exact appended public events."""
+
+    appended: list[dict[str, Any]] = []
     record = _records.get(response_id)
     if not record or record["status"] in _TERMINAL_RESPONSE_STATUSES:
-        return
+        return appended
     if chunk.get("content"):
         delta = str(chunk["content"])
         record["content"] = str(record.get("content") or "") + delta
-        _append_event(record, "response.output_text.delta", {"delta": delta})
+        appended.append(
+            _append_event(record, "response.output_text.delta", {"delta": delta})
+        )
     if isinstance(chunk.get("work_summary"), dict):
-        summary = chunk["work_summary"]
-        _append_event(record, "response.work_summary.updated", {
-            "work_summary": {
-                "stage": summary.get("stage"),
-                "summary": summary.get("summary"),
-                "status": summary.get("status"),
-            },
-        })
+        summary = _sanitize_public_work_summary(response_id, chunk["work_summary"])
+        if summary is not None:
+            appended.append(
+                _append_event(
+                    record,
+                    "response.work_summary.updated",
+                    {"work_summary": summary},
+                )
+            )
     if isinstance(chunk.get("tool_event"), dict):
         tool = chunk["tool_event"]
         event_type = "response.tool.completed" if tool.get("type") == "tool.completed" else "response.tool.started"
-        _append_event(record, event_type, {
-            "name": tool.get("tool"),
-            "status": tool.get("status"),
-        })
+        appended.append(
+            _append_event(record, event_type, {
+                "name": tool.get("tool"),
+                "status": tool.get("status"),
+            })
+        )
     if isinstance(chunk.get("actions"), list):
         record["actions"] = _public_actions(chunk["actions"])
+    if isinstance(chunk.get("sources"), list):
+        record["sources"] = _public_sources(chunk["sources"])
+        for source in record["sources"]:
+            appended.append(
+                _append_event(
+                    record,
+                    "response.source.added",
+                    {
+                        "citation": source["citation"],
+                        "title": source["title"],
+                        "url": source["url"],
+                        "source": source,
+                    },
+                )
+            )
     if chunk.get("done"):
         record["upstream_response_id"] = chunk.get("response_id")
         record["provider_route"] = chunk.get("provider")
@@ -616,11 +832,13 @@ def record_public_stream_chunk(response_id: str, chunk: dict[str, Any]) -> None:
                     and isinstance(action.get("data"), dict)
                 ):
                     record["artifact"] = action["data"]
-                    _append_event(record, "response.artifact.ready", {
-                        "artifact_type": "image",
-                        "artifact_id": action["data"].get("id"),
-                        "artifact": action["data"],
-                    })
+                    appended.append(
+                        _append_event(record, "response.artifact.ready", {
+                            "artifact_type": "image",
+                            "artifact_id": action["data"].get("id"),
+                            "artifact": action["data"],
+                        })
+                    )
                     break
         status = str(chunk.get("status") or "completed")
         record["status"] = "failed" if status in _FAILED_RESULT_STATUSES else "cancelled" if status == "cancelled" else "completed"
@@ -633,10 +851,14 @@ def record_public_stream_chunk(response_id: str, chunk: dict[str, Any]) -> None:
             if record["status"] == "failed" else None
         )
         event_type = f"response.{record['status']}"
-        _append_event(record, event_type, {
-            "response": _public_response(record),
-            "actions": _public_actions(record.get("actions")),
-        })
+        appended.append(
+            _append_event(record, event_type, {
+                "response": _public_response(record),
+                "actions": _public_actions(record.get("actions")),
+                "sources": _public_sources(record.get("sources")),
+            })
+        )
+    return appended
 
 
 def _request_hash(payload: dict[str, Any]) -> str:
@@ -1154,22 +1376,25 @@ async def _streaming_response(
                 delta = str(chunk["content"])
                 text_parts.append(delta)
                 if not structured:
-                    record_public_stream_chunk(response_id, chunk)
+                    persisted_events = record_public_stream_chunk(response_id, chunk)
                     yield _sse("response.output_text.delta", {
                         "type": "response.output_text.delta",
                         "response_id": response_id,
                         "delta": delta,
                     })
+                    for persisted_event in persisted_events:
+                        if persisted_event.get("type") == "response.work_summary.updated":
+                            yield _sse(
+                                "response.work_summary.updated",
+                                persisted_event,
+                            )
             elif isinstance(chunk.get("work_summary"), dict):
-                record_public_stream_chunk(response_id, chunk)
-                summary = chunk["work_summary"]
-                yield _sse("response.work_summary.updated", {
-                    "type": "response.work_summary.updated",
-                    "response_id": response_id,
-                    "stage": summary.get("stage"),
-                    "summary": summary.get("summary"),
-                    "status": summary.get("status"),
-                })
+                persisted_events = record_public_stream_chunk(response_id, chunk)
+                for persisted_event in persisted_events:
+                    if persisted_event.get("type") == "response.work_summary.updated":
+                        # Live delivery and durable replay share this exact
+                        # nested envelope, including response_id + sequence.
+                        yield _sse("response.work_summary.updated", persisted_event)
             elif isinstance(chunk.get("tool_event"), dict):
                 record_public_stream_chunk(response_id, chunk)
                 tool = chunk["tool_event"]

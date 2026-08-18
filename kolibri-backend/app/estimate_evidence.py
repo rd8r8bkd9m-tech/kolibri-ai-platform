@@ -51,6 +51,7 @@ class PriceEvidenceRecord(BaseModel):
     source_title: str = Field(min_length=1, max_length=500)
     source_type: SOURCE_TYPES
     region: str = Field(min_length=1, max_length=240)
+    project_region: str | None = Field(default=None, min_length=1, max_length=240)
     observed_at: str = Field(min_length=1, max_length=64)
     price_date: str = Field(min_length=10, max_length=10)
     unit: str = Field(min_length=1, max_length=40)
@@ -211,6 +212,9 @@ def evaluate_price_evidence(
         if record.currency != currency:
             issues.append(_issue("currency_mismatch", record.position_code))
             continue
+        if record.project_region and _canonical_region(record.project_region) != _canonical_region(region):
+            issues.append(_issue("project_region_mismatch", record.position_code))
+            continue
         if not _regions_compatible(region, record.region):
             issues.append(_issue("region_mismatch", record.position_code))
             continue
@@ -329,6 +333,10 @@ def _regions_compatible(estimate_region: str, evidence_region: str) -> bool:
     left = _region_tokens(estimate_region)
     right = _region_tokens(evidence_region)
     return bool(left and right and (left <= right or right <= left or bool(left & right)))
+
+
+def _canonical_region(value: str) -> str:
+    return " ".join(str(value).split()).strip().casefold()
 
 
 def _region_tokens(value: str) -> set[str]:

@@ -748,11 +748,13 @@ export interface ChatResponse {
 export type ChatWorkStage =
   | 'accepted'
   | 'planning'
+  | 'reasoning_summary'
   | 'provider_route'
   | 'provider_attempt'
   | 'response_received'
   | 'tool_execution'
   | 'source_retrieval'
+  | 'calculation'
   | 'artifact_materialization'
   | 'artifact_verification'
   | 'background'
@@ -761,9 +763,15 @@ export type ChatWorkStage =
   | 'cancelled'
 
 export interface ChatWorkSummary {
+  kind?: 'stage' | 'reasoning_excerpt'
+  step_id?: string
+  summary_id?: string
   stage: ChatWorkStage
   summary: string
   status: 'active' | 'completed' | 'failed'
+  occurred_at?: string
+  response_id?: string
+  sequence?: number
   provider?: string
   model?: string
   artifact_type?: string
@@ -904,11 +912,13 @@ function safeWorkStatus(value: unknown): ChatWorkSummary['status'] {
 const SAFE_WORK_STAGES = new Set<ChatWorkStage>([
   'accepted',
   'planning',
+  'reasoning_summary',
   'provider_route',
   'provider_attempt',
   'response_received',
   'tool_execution',
   'source_retrieval',
+  'calculation',
   'artifact_materialization',
   'artifact_verification',
   'background',
@@ -929,10 +939,19 @@ function normalizeWorkSummaryPayload(value: unknown): ChatWorkSummary | undefine
   const stage = safeString(payload.stage) as ChatWorkStage | undefined
   const summary = safeString(payload.summary)
   if (!stage || !SAFE_WORK_STAGES.has(stage) || !summary) return undefined
+  const kind = payload.kind === 'reasoning_excerpt' ? 'reasoning_excerpt' : 'stage'
   return {
+    kind,
+    step_id: safeString(payload.step_id, 160),
+    summary_id: safeString(payload.summary_id, 160),
     stage,
     summary,
     status: safeWorkStatus(payload.status),
+    occurred_at: safeString(payload.occurred_at, 48),
+    response_id: safeString(payload.response_id, 160),
+    sequence: typeof payload.sequence === 'number' && Number.isSafeInteger(payload.sequence) && payload.sequence >= 0
+      ? payload.sequence
+      : undefined,
     provider: safeString(payload.provider, 80),
     model: safeString(payload.model, 120),
     artifact_type: safeString(payload.artifact_type, 80),
@@ -955,7 +974,15 @@ function normalizeProviderFailurePayload(value: unknown): ProviderAttemptFailedE
 
 function workSummaryFromResponseEvent(type: SafeResponseEventType, payload: Record<string, unknown>): ChatWorkSummary | undefined {
   if (type === 'response.work_summary.updated' && payload.work_summary && typeof payload.work_summary === 'object') {
-    return normalizeWorkSummaryPayload(payload.work_summary)
+    const summary = normalizeWorkSummaryPayload(payload.work_summary)
+    if (!summary) return undefined
+    return {
+      ...summary,
+      response_id: safeString(payload.response_id, 160) ?? summary.response_id,
+      sequence: typeof payload.sequence === 'number' && Number.isSafeInteger(payload.sequence) && payload.sequence >= 0
+        ? payload.sequence
+        : summary.sequence,
+    }
   }
   const name = typeof payload.name === 'string' ? payload.name : undefined
   const title = typeof payload.title === 'string' ? payload.title : undefined

@@ -128,9 +128,10 @@ def test_stream_current_question_falls_back_to_tool_enabled_provider(monkeypatch
     content = "".join(str(payload.get("content") or "") for payload in payloads)
     assert "https://weather.example/current/moscow" in content
     assert any(
-        "Codex web search" in str((payload.get("work_summary") or {}).get("summary") or "")
+        "резервный поиск" in str((payload.get("work_summary") or {}).get("summary") or "")
         for payload in payloads
     )
+    assert "Codex" not in json.dumps(payloads, ensure_ascii=False)
 
 
 def test_stream_current_question_returns_structured_sources(monkeypatch):

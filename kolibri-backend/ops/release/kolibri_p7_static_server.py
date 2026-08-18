@@ -50,17 +50,47 @@ def _request_path(raw: str) -> PurePosixPath:
     return candidate
 
 
-def _is_internal_shell_route(raw: str) -> bool:
-    request_path = _request_path(raw)
+def _validated_base_path(raw: str, release_id: str) -> PurePosixPath:
+    """Return the only public path a handler is allowed to expose.
+
+    The root path remains supported for the existing production listener.  An
+    isolated candidate may only be mounted at its release-specific canary
+    path.  Accepting arbitrary prefixes here would make a typo capable of
+    shadowing a production route at the public proxy.
+    """
+
+    if raw == "/":
+        return PurePosixPath("/")
+    expected = f"/__canary/{release_id}/"
+    if raw != expected:
+        raise StaticServerError("base_path_invalid")
+    return PurePosixPath(raw)
+
+
+def _strip_base_path(request_path: PurePosixPath, base_path: PurePosixPath) -> PurePosixPath | None:
+    if base_path == PurePosixPath("/"):
+        return request_path
+    prefix = base_path.parts
+    if request_path.parts[: len(prefix)] != prefix:
+        return None
+    return PurePosixPath("/", *request_path.parts[len(prefix) :])
+
+
+def _is_internal_shell_route(raw: str, base_path: PurePosixPath = PurePosixPath("/")) -> bool:
+    request_path = _strip_base_path(_request_path(raw), base_path)
+    if request_path is None:
+        return False
     return len(request_path.parts) > 1 and request_path.parts[1] in INTERNAL_SHELL_ROUTES
 
 
-def build_handler(root: Path, release_id: str):
+def build_handler(root: Path, release_id: str, base_path: str = "/"):
     root = root.resolve(strict=True)
     if not root.is_dir() or not (root / "index.html").is_file():
         raise StaticServerError("frontend_dist_invalid")
     if not SAFE_RELEASE_ID.fullmatch(release_id):
         raise StaticServerError("release_id_invalid")
+    mounted_at = _validated_base_path(base_path, release_id)
+    is_canary = mounted_at != PurePosixPath("/")
 
     class Handler(SimpleHTTPRequestHandler):
         server_version = "KolibriP7Static/1"
@@ -78,7 +108,10 @@ def build_handler(root: Path, release_id: str):
             self.send_header("X-Content-Type-Options", "nosniff")
             self.send_header("Referrer-Policy", "strict-origin-when-cross-origin")
             try:
-                if _is_internal_shell_route(self.path):
+                # Canary HTML and assets must never be indexed.  The root
+                # production listener keeps the narrower application-route
+                # policy it had before isolated canaries were introduced.
+                if is_canary or _is_internal_shell_route(self.path, mounted_at):
                     self.send_header("X-Robots-Tag", "noindex, nofollow, noarchive")
             except StaticServerError:
                 # Invalid paths fail through the honest 404 target below. They
@@ -87,7 +120,10 @@ def build_handler(root: Path, release_id: str):
             super().end_headers()
 
         def _resolved_target(self) -> tuple[Path, bool]:
-            request_path = _request_path(self.path)
+            public_path = _request_path(self.path)
+            request_path = _strip_base_path(public_path, mounted_at)
+            if request_path is None:
+                raise StaticServerError("request_outside_base_path")
             relative = Path(*request_path.parts[1:])
             target = (root / relative).resolve(strict=False)
             try:
@@ -99,11 +135,12 @@ def build_handler(root: Path, release_id: str):
             # Extensionless paths are client-side application routes.  Missing
             # hashed assets, icons, source maps and API-looking paths remain
             # honest 404s rather than receiving HTML with the wrong MIME type.
+            first_segment = request_path.parts[1] if len(request_path.parts) > 1 else ""
             spa_route = (
                 request_path == PurePosixPath("/")
                 or (
                     not request_path.suffix
-                    and not str(request_path).startswith(("/api/", "/v1/", "/ws/", "/assets/"))
+                    and first_segment not in {"api", "v1", "ws", "assets"}
                 )
             )
             return (root / "index.html", True) if spa_route else (target, False)
@@ -126,6 +163,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", required=True)
     parser.add_argument("--release-id", required=True)
+    parser.add_argument(
+        "--base-path",
+        default="/",
+        help="serve at / or at the exact /__canary/<release-id>/ prefix",
+    )
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=15194)
     return parser
@@ -138,7 +180,7 @@ def main(argv: list[str] | None = None) -> int:
     if not 1 <= args.port <= 65535:
         raise SystemExit("frontend_port_invalid")
     root = Path(args.root)
-    handler = build_handler(root, args.release_id)
+    handler = build_handler(root, args.release_id, args.base_path)
     server = ThreadingHTTPServer((args.host, args.port), handler)
     server.daemon_threads = True
     try:

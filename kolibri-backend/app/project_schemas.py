@@ -21,13 +21,74 @@ class _StrictMetadataModel(BaseModel):
 
 
 class PersistedWorkEvent(_StrictMetadataModel):
-    stage: str = Field(min_length=1, max_length=80)
-    status: Literal["active", "completed", "failed"]
+    kind: Literal["stage", "reasoning_excerpt"] = "stage"
+    step_id: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=80,
+        pattern=r"^[A-Za-z0-9_-]+$",
+    )
+    summary_id: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=80,
+        pattern=r"^[A-Za-z0-9_-]+$",
+    )
+    stage: Literal[
+        "accepted",
+        "planning",
+        "provider_route",
+        "provider_attempt",
+        "response_received",
+        "tool_execution",
+        "source_retrieval",
+        "calculation",
+        "artifact_materialization",
+        "artifact_verification",
+        "background",
+        "resuming",
+        "verification",
+        "cancelled",
+        "reasoning_summary",
+        "factory_dispatch",
+        "factory_verified",
+        "codex_turn",
+        "plan_updated",
+    ]
+    status: Literal[
+        "active",
+        "completed",
+        "failed",
+        "waiting",
+        "recovering",
+        "cancelled",
+    ]
     summary: str = Field(min_length=1, max_length=600)
+    occurred_at: str | None = Field(default=None, min_length=1, max_length=64)
+    # Accepted only for compatibility with the previous client contract and
+    # erased before persistence. Public history never stores topology.
     provider: str | None = Field(default=None, max_length=80)
     model: str | None = Field(default=None, max_length=120)
     artifact_type: str | None = Field(default=None, max_length=40)
     artifact_id: str | None = Field(default=None, max_length=160)
+
+    @model_validator(mode="after")
+    def enforce_canonical_work_trace(self):
+        if self.stage == "reasoning_summary":
+            if self.kind != "reasoning_excerpt" or not self.summary_id:
+                raise ValueError("reasoning summary requires a stable summary_id")
+        elif self.kind == "reasoning_excerpt" or self.summary_id is not None:
+            raise ValueError("reasoning excerpt fields require reasoning_summary stage")
+        if self.occurred_at:
+            try:
+                parsed = datetime.fromisoformat(self.occurred_at.replace("Z", "+00:00"))
+            except ValueError as exc:
+                raise ValueError("work event timestamp is invalid") from exc
+            if parsed.tzinfo is None:
+                raise ValueError("work event timestamp must be timezone-aware")
+        self.provider = None
+        self.model = None
+        return self
 
 
 class PersistedEstimatePosition(_StrictMetadataModel):

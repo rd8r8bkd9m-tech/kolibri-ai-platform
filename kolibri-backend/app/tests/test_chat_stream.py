@@ -34,6 +34,14 @@ def _work_summaries(response) -> list[dict]:
     ]
 
 
+def _work_events(response) -> list[dict]:
+    return [
+        payload
+        for payload in _sse_payloads(response)
+        if payload.get("type") == "response.work_summary.updated"
+    ]
+
+
 def _provider(provider_id: str, model: str) -> dict:
     return {
         "id": provider_id,
@@ -61,14 +69,21 @@ def test_chat_stream_emits_token_deltas_and_structured_final_event(monkeypatch):
             json={"messages": [{"role": "user", "content": "Привет"}]},
             headers={"X-Forwarded-For": "stream-normal"},
         )
+        response_id = next(
+            payload["response"]["id"]
+            for payload in _sse_payloads(response)
+            if payload.get("type") == "response.created"
+        )
+        replay = client.get(
+            f"/api/v1/responses/{response_id}/events?starting_after=0"
+        )
 
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("text/event-stream")
     assert response.headers["cache-control"] == "no-cache"
     assert response.headers["x-accel-buffering"] == "no"
     payloads = _sse_payloads(response)
-    assert "".join(payload["content"] for payload in payloads[:-1]) == "Привет"
-    assert all(payload["done"] is False for payload in payloads[:-1])
+    assert "".join(payload["content"] for payload in _content_payloads(response)) == "Привет"
     assert payloads[-1] == {
         "content": "",
         "done": True,
@@ -84,12 +99,95 @@ def test_chat_stream_emits_token_deltas_and_structured_final_event(monkeypatch):
         ("provider_route", "active"),
         ("response_received", "completed"),
     ]
-    assert summaries[1]["provider"] == "primary"
-    assert summaries[1]["model"] == "primary-model"
+    assert all("provider" not in summary for summary in summaries)
+    assert all("model" not in summary for summary in summaries)
+    live_work_events = _work_events(response)
+    replay_work_events = _work_events(replay)
+    assert live_work_events == replay_work_events
+    assert [event["sequence"] for event in live_work_events] == sorted(
+        event["sequence"] for event in live_work_events
+    )
+    assert all(event["response_id"] == response_id for event in live_work_events)
+    assert all(event["work_summary"]["kind"] == "stage" for event in live_work_events)
+    assert all(event["work_summary"]["occurred_at"] for event in live_work_events)
     assert all("reasoning" not in payload for payload in payloads)
     serialized = json.dumps(payloads, ensure_ascii=False).casefold()
     assert "chain-of-thought" not in serialized
     assert "private reasoning" not in serialized
+
+
+def test_chat_stream_reasoning_excerpt_is_canonical_and_replayable(monkeypatch):
+    async def fake_chat_completion_stream(messages, **kwargs):
+        base = {
+            "kind": "reasoning_excerpt",
+            "step_id": "step_reasoning_live",
+            "summary_id": "summary_reasoning_live",
+            "stage": "reasoning_summary",
+            "summary": "Сверяю источники",
+            "occurred_at": "2026-07-14T12:00:00+00:00",
+        }
+        yield {
+            "content": "",
+            "done": False,
+            "work_summary": {**base, "status": "active"},
+        }
+        yield {
+            "content": "",
+            "done": False,
+            "work_summary": {**base, "status": "completed"},
+        }
+        yield {"content": "Ответ", "done": False}
+        yield {
+            "content": "",
+            "done": True,
+            "status": "idle",
+            "provider": "private-provider",
+            "model": "private-model",
+        }
+
+    monkeypatch.setattr(
+        ai_provider,
+        "chat_completion_stream",
+        fake_chat_completion_stream,
+    )
+    with TestClient(app) as client:
+        _bootstrap(client)
+        response = client.post(
+            "/api/v1/chat/stream",
+            json={"messages": [{"role": "user", "content": "Проверь"}]},
+            headers={"X-Forwarded-For": "stream-reasoning-summary"},
+        )
+        response_id = next(
+            payload["response"]["id"]
+            for payload in _sse_payloads(response)
+            if payload.get("type") == "response.created"
+        )
+        replay = client.get(
+            f"/api/v1/responses/{response_id}/events?starting_after=0"
+        )
+
+    reasoning = [
+        event
+        for event in _work_events(response)
+        if event["work_summary"]["stage"] == "reasoning_summary"
+    ]
+    replay_reasoning = [
+        event
+        for event in _work_events(replay)
+        if event["work_summary"]["stage"] == "reasoning_summary"
+    ]
+    assert reasoning == replay_reasoning
+    assert [event["work_summary"]["status"] for event in reasoning] == [
+        "active",
+        "completed",
+    ]
+    assert {event["work_summary"]["summary_id"] for event in reasoning} == {
+        "summary_reasoning_live"
+    }
+    assert all(
+        event["work_summary"]["kind"] == "reasoning_excerpt"
+        for event in reasoning
+    )
 
 
 def test_chat_stream_falls_back_before_first_token(monkeypatch):
@@ -132,8 +230,8 @@ def test_chat_stream_falls_back_before_first_token(monkeypatch):
         "response_received",
     ]
     assert summaries[1]["status"] == "active"
-    assert summaries[1]["provider"] == "failing"
-    assert summaries[2]["provider"] == "fallback"
+    assert all("provider" not in summary for summary in summaries)
+    assert all("model" not in summary for summary in summaries)
     assert summaries[-1]["status"] == "completed"
     assert all("reasoning" not in summary for summary in summaries)
     assert all("prompt" not in summary for summary in summaries)

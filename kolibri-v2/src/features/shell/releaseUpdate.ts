@@ -26,11 +26,12 @@ export async function frontendUpdateAvailable(
   origin: string = window.location.origin,
   timeoutMs: number = RELEASE_PROBE_TIMEOUT_MS,
   currentReleaseId: string | null = KOLIBRI_BUILD_RELEASE_ID,
+  frontendRoot: string = import.meta.env.BASE_URL || '/',
 ): Promise<boolean> {
   const controller = new AbortController()
   const timeout = globalThis.setTimeout(() => controller.abort(), Math.max(1, timeoutMs))
   try {
-    const response = await fetcher('/', {
+    const response = await fetcher(frontendRoot, {
       method: 'GET',
       cache: 'no-store',
       credentials: 'same-origin',
