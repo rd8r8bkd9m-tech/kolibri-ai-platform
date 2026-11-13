@@ -161,6 +161,9 @@ describe('POST /api/admin/blog/generate', () => {
 
     const response = await POST(request({ topic: 'Строительный проект' }));
 
-    expect(response.status).toBe(502);
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.fallback).toBe(true);
+    expect(body.draft.content).toContain('исходные данные');
   });
 });

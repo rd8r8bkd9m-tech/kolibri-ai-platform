@@ -41,6 +41,38 @@ function parseArticleResponse(content: string) {
   }
 }
 
+function fallbackArticle(topic: string, audience: string, instructions: string) {
+  const cleanTopic = topic.trim();
+  const cleanAudience = audience.trim() || 'строительные компании и подрядчики';
+  const content = `# ${cleanTopic}
+
+Материал подготовлен как рабочий черновик для ${cleanAudience}. Перед публикацией проверьте исходные данные, актуальные нормативы и условия конкретного проекта.
+
+## Что проверить сначала
+
+- Зафиксируйте объект, регион, дату и редакцию исходных документов.
+- Разделите подтверждённые данные и значения, которые требуют уточнения.
+- Для каждой позиции сохраните источник количества и цены.
+
+## Практический порядок
+
+Соберите исходные файлы в одном проекте, проверьте единицы измерения и отдельно отметьте пропуски. Если в данных нет количества, цены или нормативного основания, не подставляйте значение по умолчанию — запросите уточнение.
+
+## Важно
+
+Этот текст является черновиком и не заменяет проверку специалистом. Конкретные цены, нормативные коды, сроки и юридические условия нужно сверить с первоисточниками проекта.
+
+${instructions.trim() ? `Редакционное пожелание: ${instructions.trim()}` : ''}`.trim();
+  return {
+    title: cleanTopic,
+    excerpt: `Практический черновик по теме «${cleanTopic}» с проверяемыми шагами и ограничениями.`,
+    content,
+    tags: ['сметы', 'документы', 'проверка'],
+    seoTitle: cleanTopic.slice(0, 70),
+    seoDescription: `Практические рекомендации КолИ по теме: ${cleanTopic}`.slice(0, 160),
+  };
+}
+
 export async function POST(req: NextRequest) {
   const { context, response } = await requireAuthOrRespond(req, {
     requireAuth: true,
@@ -108,10 +140,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ draft: article.data });
   } catch (error) {
-    aiLogger.error('Blog AI generation failed', { userId: context.userId }, error instanceof Error ? error : undefined);
-    return NextResponse.json(
-      { error: 'Не удалось сгенерировать статью. Проверьте подключение ИИ и попробуйте позже.' },
-      { status: 502 }
-    );
+    aiLogger.warn('Blog AI generation failed; returning safe deterministic draft', { userId: context.userId, error: error instanceof Error ? error.message : String(error) });
+    return NextResponse.json({ draft: fallbackArticle(topic, audience, instructions), fallback: true });
   }
 }
