@@ -133,7 +133,7 @@ describe('POST /api/admin/blog/generate', () => {
           }),
         }),
       ]),
-      { model: undefined, temperature: 0.65, maxTokens: 3000 }
+      { model: undefined, temperature: 0.65, maxTokens: 1200, signal: expect.any(AbortSignal), fallback: false }
     );
   });
 

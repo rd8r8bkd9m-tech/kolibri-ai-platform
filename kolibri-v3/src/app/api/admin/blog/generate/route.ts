@@ -90,7 +90,7 @@ export async function POST(req: NextRequest) {
           content: JSON.stringify({ topic, audience, instructions }),
         },
       ],
-      { model: process.env.AI_BLOG_MODEL || process.env.AI_DEFAULT_MODEL, temperature: 0.65, maxTokens: 3000 }
+      { model: process.env.AI_BLOG_MODEL || process.env.AI_DEFAULT_MODEL, temperature: 0.65, maxTokens: 1200, signal: AbortSignal.timeout(90_000), fallback: false }
     );
     const raw = response.content;
 

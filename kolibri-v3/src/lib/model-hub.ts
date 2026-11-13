@@ -39,6 +39,8 @@ export interface ModelOptions {
   frequencyPenalty?: number;
   presencePenalty?: number;
   signal?: AbortSignal;
+  /** Disable cross-provider fallback for bounded internal jobs. */
+  fallback?: boolean;
 }
 
 export interface ChatResponse {
@@ -187,6 +189,7 @@ export async function chat(
     aiLogger.error(`Chat failed with ${provider}:${modelName}:`, error);
     
     // Fallback на другую модель
+    if (signal?.aborted || options.fallback === false) throw error;
     const fallbackModel = getFallbackModel(provider);
     if (fallbackModel && fallbackModel !== model) {
       aiLogger.info(`Falling back to ${fallbackModel}`);
