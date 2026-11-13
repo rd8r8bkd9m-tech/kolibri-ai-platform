@@ -42,8 +42,8 @@ function parseArticleResponse(content: string) {
 }
 
 function fallbackArticle(topic: string, audience: string, instructions: string) {
-  const cleanTopic = topic.trim();
-  const cleanAudience = audience.trim() || 'строительные компании и подрядчики';
+  const cleanTopic = String(topic ?? '').trim();
+  const cleanAudience = String(audience ?? '').trim() || 'строительные компании и подрядчики';
   const content = `# ${cleanTopic}
 
 Материал подготовлен как рабочий черновик для ${cleanAudience}. Перед публикацией проверьте исходные данные, актуальные нормативы и условия конкретного проекта.
@@ -62,7 +62,7 @@ function fallbackArticle(topic: string, audience: string, instructions: string) 
 
 Этот текст является черновиком и не заменяет проверку специалистом. Конкретные цены, нормативные коды, сроки и юридические условия нужно сверить с первоисточниками проекта.
 
-${instructions.trim() ? `Редакционное пожелание: ${instructions.trim()}` : ''}`.trim();
+${String(instructions ?? '').trim() ? `Редакционное пожелание: ${String(instructions ?? '').trim()}` : ''}`.trim();
   return {
     title: cleanTopic,
     excerpt: `Практический черновик по теме «${cleanTopic}» с проверяемыми шагами и ограничениями.`,
